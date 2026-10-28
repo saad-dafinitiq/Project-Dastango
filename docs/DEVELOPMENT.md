@@ -60,6 +60,7 @@ Every operation the UI has is scriptable.
 | `python main.py providers [--check]` | Which model serves each role; `--check` makes one real call per role |
 | `python main.py users [create <email> --admin \| passwd <email> \| role <email> admin]` | Accounts |
 | `python scripts/benchmark.py --offline` | Fixed prompts, measured |
+| `python scripts/benchmark.py --testset eval/testset.jsonl --render-subset` | The labelled test set: plan each prompt, fully render the 8 marked ones (see `eval/README.md`) |
 
 Outputs go to `data/outputs/<project_id>/`, version snapshots to
 `data/state_versions/`, and the SQLite database to `data/state.db`.

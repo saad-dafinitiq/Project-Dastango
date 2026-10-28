@@ -88,7 +88,11 @@ kept:
 - `scripts/benchmark.py` runs fixed prompts and reports time per phase, length
   against target, frame-exact sync, lines on cuts, and which provider served
   each image, so a silent downgrade shows up as a number. Results:
-  [BENCHMARK.md](BENCHMARK.md).
+  [BENCHMARK.md](BENCHMARK.md). With `--testset eval/testset.jsonl` it runs
+  25 labelled prompts instead, the way the creator interface does (plan, then
+  render), and also records which model wrote each script and which engine
+  voiced each line. The fields are explained in
+  [eval/README.md](../eval/README.md).
 - Camera smoothness by phase correlation on real shot clips (worst
   frame-to-frame jump 0.19 px).
 - Audio ducking measured per frequency band (~6 dB under speech).

@@ -54,6 +54,7 @@ python main.py "prompt" --duration 30 --scenes 4   # CLI end-to-end run
 python main.py plan "prompt" --scenes 4            # storyboard only (cheap)
 python main.py storyboard|restyle|render <pid>     # review, edit, then render
 python scripts/benchmark.py --offline              # fixed prompts, measured
+python scripts/benchmark.py --testset eval/testset.jsonl --render-subset   # labelled test set (eval/README.md)
 python main.py providers                   # which providers are detected
 python main.py serve --reload              # web UI on http://localhost:8000 (runs a worker too)
 cd web && npm ci && npm run build          # build the creator UI; serve then uses it at /
