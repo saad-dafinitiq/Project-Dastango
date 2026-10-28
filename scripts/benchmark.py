@@ -7,6 +7,7 @@ in sync, which provider actually served each image, and what fell back.
     python scripts/benchmark.py --offline            # fast, no network
     python scripts/benchmark.py --duration 30        # with the real providers
     python scripts/benchmark.py --out docs/BENCHMARK.md
+    python scripts/benchmark.py --testset eval/testset.jsonl --render-subset
 
 Results are also written to data/benchmarks/<timestamp>.json.
 """
@@ -18,9 +19,10 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -38,6 +40,10 @@ PROMPTS = [
     "A lighthouse keeper befriends a stranded whale",
     "A night librarian finds the books rearranging into a map",
 ]
+
+# Every line of a test set (eval/testset.jsonl) has these; eval/README.md explains each.
+TESTSET_FIELDS = ("id", "prompt", "target_duration_s", "expected_scenes",
+                  "expected_characters", "subtitle_language", "tags", "render_subset")
 
 
 def _offline() -> None:
@@ -101,21 +107,72 @@ def measure(state, target_s: int, elapsed: float, providers_used: Counter,
     }
 
 
-def run_one(prompt: str, args) -> Dict[str, Any]:
-    from agents.orchestrator import PipelineOrchestrator
+@contextmanager
+def _watch_calls():
+    """Record which provider served every image, voice line and LLM call in the block.
+
+    Only provider, model and outcome are kept, never prompts, keys or error
+    text, so a report is safe to share. Worker threads append at the same
+    time, which is safe because list.append is atomic in CPython.
+    """
+    import agents.story_agent.agent as story_module
     from mcp.tool_executor import ToolExecutor
+    from mcp.tools.llm_tools.llm_client import LLMClient
 
-    providers_used: Counter = Counter()
-    real = ToolExecutor.execute
+    calls: Dict[str, List[Any]] = {"images": [], "voices": [], "llm": [], "template_scripts": []}
+    real_execute, real_call = ToolExecutor.execute, LLMClient._call
+    real_template = story_module.template_script
 
-    def spy(self, tool, **kwargs):
-        result = real(self, tool, **kwargs)
+    def execute(self, tool, **kwargs):
+        result = real_execute(self, tool, **kwargs)
+        meta = result.metadata or {}
         if tool == "vision.generate_image":
-            providers_used[result.metadata.get("provider", "failed")] += 1
+            calls["images"].append({"provider": meta.get("provider", "failed"),
+                                    "model": meta.get("model"), "attempt": meta.get("attempt")})
+        elif tool == "audio.tts":
+            calls["voices"].append({"engine": meta.get("engine", "failed")})
         return result
 
-    ToolExecutor.execute = spy
+    def call(self, spec, *args, **kwargs):
+        # "ok" means the provider answered. The caller can still reject the
+        # answer (bad JSON, empty text) and ask again or move down the chain.
+        record = {"role": self.role, "provider": spec.provider, "model": spec.model, "ok": False}
+        calls["llm"].append(record)
+        try:
+            text = real_call(self, spec, *args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            record["error"] = type(e).__name__
+            raise
+        record["ok"] = True
+        return text
+
+    def template(*args, **kwargs):
+        # The story agent quietly writes its fixed template when no model could.
+        # Such a run says nothing about script quality, so it has to show.
+        calls["template_scripts"].append(True)
+        return real_template(*args, **kwargs)
+
+    ToolExecutor.execute, LLMClient._call = execute, call
+    story_module.template_script = template
     try:
+        yield calls
+    finally:
+        ToolExecutor.execute, LLMClient._call = real_execute, real_call
+        story_module.template_script = real_template
+
+
+def _script_source(calls: Dict[str, List[Any]]) -> str:
+    """The provider whose script was used, or "template" if no model wrote one."""
+    if calls["template_scripts"]:
+        return "template"
+    served = [c for c in calls["llm"] if c["role"] == "story" and c["ok"]]
+    return served[-1]["provider"] if served else "unknown"
+
+
+def run_one(prompt: str, args) -> Dict[str, Any]:
+    from agents.orchestrator import PipelineOrchestrator
+
+    with _watch_calls() as calls:
         started = time.monotonic()
         state = PipelineOrchestrator().run_full(
             prompt=prompt,
@@ -127,14 +184,188 @@ def run_one(prompt: str, args) -> Dict[str, Any]:
             width=args.width, height=args.height, fps=args.fps,
         )
         elapsed = time.monotonic() - started
-    finally:
-        ToolExecutor.execute = real
+    providers_used = Counter(image["provider"] for image in calls["images"])
     from shared import providers
     preferred = providers.active("image")
     row = measure(state, args.duration, elapsed, providers_used,
                   preferred_image=preferred.provider if preferred else "")
     row["prompt"] = prompt
     return row
+
+
+# ---- the labelled test set (eval/testset.jsonl) ----------------------------
+
+def load_testset(path, ids: Optional[List[str]] = None,
+                 render_subset: bool = False) -> List[Dict[str, Any]]:
+    """Read a labelled test set, one prompt per line, optionally narrowed down.
+
+    Every line is checked before anything runs, so a typo fails at once rather
+    than after the first render has spent its images.
+    """
+    from shared.languages import canonical
+
+    cases: List[Dict[str, Any]] = []
+    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        where = f"{path} line {number}"
+        try:
+            case = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{where}: not valid JSON ({e.msg})") from None
+        missing = [field for field in TESTSET_FIELDS if field not in case]
+        if missing:
+            raise ValueError(f"{where}: missing {', '.join(missing)}")
+        if not isinstance(case["prompt"], str) or not case["prompt"].strip():
+            raise ValueError(f"{where}: the prompt is empty")
+        for field in ("target_duration_s", "expected_scenes"):
+            value = case[field]
+            # bool is a subclass of int, so `true` would otherwise pass as 1.
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{where}: {field} must be a whole number above 0")
+        language = case["subtitle_language"]
+        if not isinstance(language, str) or canonical(language) != language:
+            raise ValueError(f"{where}: subtitle_language {language!r} is not a name "
+                             "from shared/languages.py")
+        cases.append(case)
+
+    seen = [case["id"] for case in cases]
+    duplicates = sorted({i for i in seen if seen.count(i) > 1})
+    if duplicates:
+        raise ValueError(f"{path}: duplicate id(s) {', '.join(duplicates)}")
+    if ids:
+        unknown = sorted(set(ids) - set(seen))
+        if unknown:
+            raise ValueError(f"{path}: no prompt with id(s) {', '.join(unknown)}")
+        cases = [case for case in cases if case["id"] in ids]
+    if render_subset:
+        cases = [case for case in cases if case["render_subset"] is True]
+    return cases
+
+
+def run_case(case: Dict[str, Any], args) -> Dict[str, Any]:
+    """Plan one test-set prompt, then render it if it is in the render subset.
+
+    Plan-then-render is the creator interface's own path (run_full is only the
+    CLI's), and the render reuses each storyboard preview as that scene's wide
+    shot instead of drawing it again.
+    """
+    from agents.orchestrator import PipelineOrchestrator
+    from shared import providers
+
+    row: Dict[str, Any] = {field: case[field] for field in TESTSET_FIELDS}
+    orchestrator = PipelineOrchestrator()
+
+    with _watch_calls() as planned:
+        started = time.monotonic()
+        state = orchestrator.plan(case["prompt"], target_duration_s=case["target_duration_s"],
+                                  scene_count=case["expected_scenes"])
+        plan_s = time.monotonic() - started
+    cast = [c for c in state.script.characters.characters if c.role != "narrator"]
+    row.update({
+        "project_id": state.project_id,
+        "plan_s": round(plan_s, 1),
+        "script_source": _script_source(planned),
+        "scenes": len(state.script.scenes),
+        "characters": len(cast),     # the narrator is not counted, as in the labels
+        "character_names": [c.name for c in cast],
+        "storyboard_images": planned["images"],
+        "llm_calls": planned["llm"],
+        "render": None,
+    })
+    if not case["render_subset"]:
+        return row
+
+    with _watch_calls() as rendered:
+        started = time.monotonic()
+        state = orchestrator.render(state.project_id, with_bgm=not args.no_bgm,
+                                    with_subtitles=not args.no_subs,
+                                    subtitle_language=case["subtitle_language"])
+        render_s = time.monotonic() - started
+    # The film is made of the previews (its wide shots) and the render's own images.
+    film_images = Counter(i["provider"] for i in planned["images"] + rendered["images"])
+    preferred = providers.active("image")
+    render = measure(state, case["target_duration_s"], plan_s + render_s, film_images,
+                     preferred_image=preferred.provider if preferred else "")
+    render.update({"render_s": round(render_s, 1), "images": rendered["images"],
+                   "voices": rendered["voices"], "llm_calls": rendered["llm"]})
+    row["render"] = render
+    return row
+
+
+def _redact(text: str) -> str:
+    """Blank out any credential from the environment that an error message quotes."""
+    for name, value in os.environ.items():
+        if len(value) >= 8 and any(word in name for word in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+            text = text.replace(value, "***")
+    return text
+
+
+def _git_commit() -> str:
+    """The commit measured, with "-dirty" if the working tree had changes."""
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return commit + ("-dirty" if dirty else "")
+
+
+def _case_summary(row: Dict[str, Any]) -> str:
+    if row.get("error"):
+        return f"    FAILED: {row['error']}"
+    line = (f"    plan {row['plan_s']}s · {row['scenes']}/{row['expected_scenes']} scenes · "
+            f"script by {row['script_source']}")
+    render = row["render"]
+    if render:
+        line += (f" · render {render['render_s']}s · film {render['film_s']}s "
+                 f"(target {render['target_s']}s) · in sync: {render['in_sync']} · "
+                 f"images {render['image_providers']}")
+    return line
+
+
+def run_testset(args) -> int:
+    from shared import providers
+
+    # An Urdu or emoji prompt must not crash a run whose output goes to a file,
+    # where Windows encodes stdout as cp1252 and cannot write those characters.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+    ids =[i.strip() for i in args.ids.split(",") if i.strip()] if args.ids else None
+    cases = load_testset(args.testset, ids=ids, render_subset=args.render_subset)
+    report: Dict[str, Any] = {
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "command": "python " + " ".join(sys.argv),
+        "commit": _git_commit(),
+        "testset": str(args.testset),
+        "image_provider": str(providers.active("image")),
+        "llm_provider": str(providers.active("story")),
+        "tts_provider": str(providers.active("tts")),
+        "runs": [],
+    }
+    out_dir = ROOT / "data" / "benchmarks"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_testset.json"
+
+    for case in cases:
+        print(f"\n=== {case['id']}: {case['prompt'][:70]}", flush=True)
+        try:
+            row = run_case(case, args)
+        except Exception as e:  # noqa: BLE001  (one broken film must not stop the batch)
+            row = {field: case[field] for field in TESTSET_FIELDS}
+            row["error"] = _redact(f"{type(e).__name__}: {e}")[:300]
+        report["runs"].append(row)
+        # Saved after every prompt, so a long run that is stopped keeps what it finished.
+        out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(_case_summary(row), flush=True)
+
+    print(f"\nsaved: {out}")
+    broken = [r for r in report["runs"]
+              if r.get("error") or (r.get("render") and not r["render"]["in_sync"])]
+    return 1 if broken else 0
 
 
 def to_markdown(report: Dict[str, Any]) -> str:
@@ -185,13 +416,28 @@ def main() -> int:
     parser.add_argument("--no-bgm", action="store_true")
     parser.add_argument("--no-subs", action="store_true")
     parser.add_argument("--out", help="also write a markdown report here")
+    parser.add_argument("--testset", help="read the prompts from a labelled test set such as "
+                        "eval/testset.jsonl; each brings its own length, scene count and "
+                        "subtitle language, so --duration, --scenes, --subtitle-lang, "
+                        "--prompts, --width, --height and --fps are ignored")
+    parser.add_argument("--ids", help="with --testset: only these ids, comma-separated")
+    parser.add_argument("--render-subset", action="store_true",
+                        help="with --testset: only the prompts marked render_subset")
     args = parser.parse_args()
+    if (args.ids or args.render_subset) and not args.testset:
+        parser.error("--ids and --render-subset need --testset")
+    if args.testset and args.out:
+        parser.error("--out is not used with --testset; the report is the JSON "
+                     "written to data/benchmarks/")
 
     if args.offline:
         _offline()
 
     import mcp.tools  # noqa: F401  (registers the tools)
     from shared import providers
+
+    if args.testset:
+        return run_testset(args)
 
     report: Dict[str, Any] = {
         "started_at": datetime.now().isoformat(timespec="seconds"),
