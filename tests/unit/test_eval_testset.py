@@ -127,6 +127,14 @@ def test_a_failed_llm_call_records_its_provider_but_not_its_message(bench, monke
     assert LLMClient._call is refuse                 # the real method is put back afterwards
 
 
+def test_a_provider_forced_for_a_role_is_named_in_the_report(bench, monkeypatch):
+    monkeypatch.setenv("PROVIDER_STORY", "groq")
+    monkeypatch.delenv("PROVIDER_TTS", raising=False)
+    forced = bench._forced_providers()
+    assert forced["story"] == "groq"
+    assert "tts" not in forced                       # a role left alone is not listed
+
+
 def test_errors_never_quote_a_credential(bench, monkeypatch):
     monkeypatch.setenv("SOME_API_KEY", "sk-test-1234567890")
     monkeypatch.setenv("SHORT_TOKEN", "abc")         # too short to replace safely
@@ -149,6 +157,7 @@ def test_a_testset_run_plans_every_prompt_and_renders_the_subset(
     report = json.loads(next((tmp_path / "data" / "benchmarks").glob("*_testset.json"))
                         .read_text(encoding="utf-8"))
     assert report["commit"]
+    assert report["forced_providers"]["image"] == "placeholder"   # conftest pins it
     planned, rendered = report["runs"]
 
     assert planned["id"] == "plan-only" and planned["render"] is None

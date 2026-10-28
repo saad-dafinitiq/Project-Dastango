@@ -314,6 +314,16 @@ def _git_commit() -> str:
     return commit + ("-dirty" if dirty else "")
 
 
+def _forced_providers() -> Dict[str, str]:
+    """Roles pinned to one provider (PROVIDER_STORY=groq, PROVIDER_IMAGE=placeholder),
+    so a report measured on anything but the normal chain says so."""
+    from shared import providers
+    config = providers.load()
+    # The very rule chain() applies, so the report cannot disagree with the run.
+    return {role: forced for role in config.roles()
+            if (forced := config._forced_provider(role))}
+
+
 def _case_summary(row: Dict[str, Any]) -> str:
     if row.get("error"):
         return f"    FAILED: {row['error']}"
@@ -344,8 +354,11 @@ def run_testset(args) -> int:
         "image_provider": str(providers.active("image")),
         "llm_provider": str(providers.active("story")),
         "tts_provider": str(providers.active("tts")),
+        "forced_providers": _forced_providers(),
         "runs": [],
     }
+    if report["forced_providers"]:
+        print(f"forced providers: {report['forced_providers']}")
     out_dir = ROOT / "data" / "benchmarks"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_testset.json"
