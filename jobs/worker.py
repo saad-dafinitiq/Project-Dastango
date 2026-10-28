@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from agents.orchestrator import ProgressEvent
+from shared import tracing
 from shared.utils.logging import get_logger
 
 from . import queue
@@ -103,6 +104,17 @@ def _event_sink(job: queue.Job, beat: _Heartbeat) -> Callable[[ProgressEvent], N
     return push
 
 
+def _owner(project_id: str) -> Optional[str]:
+    """The film owner's internal account id for the trace, never their email.
+    A lookup that fails just leaves the trace without a user."""
+    try:
+        from auth.accounts import owner_of
+        return owner_of(project_id)
+    except Exception:  # noqa: BLE001 — tracing detail, must not fail the job
+        log.debug("no owner for %s", project_id, exc_info=True)
+        return None
+
+
 def run_job(job: queue.Job, orchestrator=None) -> str:
     """Run one claimed job to completion. Returns its final status."""
     from backend.services.pipeline_service import orchestrator as shared_orchestrator
@@ -113,7 +125,13 @@ def run_job(job: queue.Job, orchestrator=None) -> str:
     with _Heartbeat(job.id) as beat:
         push = _event_sink(job, beat)
         try:
-            method(project_id=job.project_id, on_event=push, **(job.payload or {}))
+            # Every model call made while the job runs is traced under it.
+            with tracing.job_trace(job.id, job.project_id, job.kind,
+                                   user_id=_owner(job.project_id),
+                                   settings=job.payload) as trace:
+                result = method(project_id=job.project_id, on_event=push,
+                                **(job.payload or {}))
+                trace.finish(tracing.summarize(result))
         except JobCancelled:
             queue.mark_cancelled(job.id)
             queue.append_event(job.id, job.project_id, phase="cancelled",

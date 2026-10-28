@@ -21,7 +21,10 @@ for _credential in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPE
                     "ANTHROPIC_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN",
                     "POLLINATIONS_API_KEY", "ELEVENLABS_API_KEY", "FAL_KEY", "FAL_API_KEY",
                     "REPLICATE_API_TOKEN", "HF_TOKEN", "HUGGINGFACE_API_KEY",
-                    "OLLAMA_HOST", "SD_API_URL", "LOCAL_SD", "MYMEMORY_EMAIL"):
+                    "OLLAMA_HOST", "SD_API_URL", "LOCAL_SD", "MYMEMORY_EMAIL",
+                    # Tracing: a test run must not send traces anywhere.
+                    "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL",
+                    "LANGFUSE_HOST"):
     os.environ.pop(_credential, None)
 os.environ.pop("DATABASE_URL", None)
 

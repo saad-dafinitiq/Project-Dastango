@@ -156,6 +156,7 @@ voices, subtitles and accounts.
 | [Models and providers](docs/PROVIDERS.md) | Configuring which model does what, free keys, voices, paid options |
 | [Development](docs/DEVELOPMENT.md) | Setup, the CLI, repository layout, conventions, extending it |
 | [Testing](docs/TESTING.md) | How 388 offline tests are built, what they cover, CI |
+| [Tracing](docs/TRACING.md) | Every model call traced in Langfuse (Cloud or self-hosted), nested per job |
 | [Security](SECURITY.md) | Threat model, authentication, authorisation, known gaps |
 | [Deployment runbook](deploy/README.md) | Oracle Cloud VM, HTTPS, backups and restore |
 | [Roadmap](docs/ROADMAP.md) | Known limitations and what comes next |
