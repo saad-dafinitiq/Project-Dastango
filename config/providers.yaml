@@ -9,6 +9,10 @@
 # "A|B" means either will do. A provider with no `requires` always works offline.
 # `concurrency` is how many calls that provider tolerates in parallel, and
 # `retries` how many attempts it gets before the next provider takes over.
+# `timeout_s` is the longest one call may wait for the provider; then it counts
+# as failed and the next provider takes over at once (a timeout is not retried).
+# Without it: story 180 s, edit_intent and translate 60 s, image 120 s, tts 60 s,
+# anything else 120 s (DEFAULT_TIMEOUT_S in shared/providers.py).
 #
 # Override the whole file with PROVIDERS_FILE=/path/to/providers.yaml, or force a
 # single provider for a role with PROVIDER_STORY / PROVIDER_IMAGE / ... =name.
@@ -78,6 +82,7 @@ roles:
       requires: [CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN]
       concurrency: 4
       retries: 3                  # free endpoints hiccup; retry before falling through
+      timeout_s: 180              # the limit this call already had before timeouts were configurable
     - provider: local_sd          # in-process diffusers; needs CUDA torch (requirements-local-sd.txt)
       model: stabilityai/sdxl-turbo
       params: {steps: 4}
@@ -86,6 +91,7 @@ roles:
     - provider: sd_webui          # Automatic1111 / ComfyUI HTTP API
       requires: [SD_API_URL]
       concurrency: 1
+      timeout_s: 300              # a local GPU at 20 steps is slow; the limit it already had
     - provider: pollinations      # free; without a key: weaker model, reduced size, 1 at a time
       model: tongyi-mai/z-image-turbo
       concurrency: 1
