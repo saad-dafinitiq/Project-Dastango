@@ -14,6 +14,7 @@ Environment overrides:
     LLM_PROVIDER=gemini|groq|...|mock        legacy: forces all LLM roles
 """
 from __future__ import annotations
+import math
 import os
 import threading
 from dataclasses import dataclass, field
@@ -30,6 +31,36 @@ log = get_logger("providers")
 DEFAULT_CONFIG_PATH = ROOT_DIR / "config" / "providers.yaml"
 LLM_ROLES = ("story", "edit_intent", "translate")
 
+# How long one call may wait on a provider before it counts as failed and the
+# chain moves on. Without a limit a hung provider holds the job forever while
+# the worker's heartbeat keeps it looking alive (F1 in docs/REQUEST_TRACE.md).
+# A provider's `timeout_s` in providers.yaml overrides these.
+DEFAULT_TIMEOUT_S: Dict[str, float] = {
+    # Gemini scripts that succeeded took 31.5-114.5 s on 2026-10-28, so a
+    # minute would have sent most of them to the next provider.
+    "story": 180.0,
+    "edit_intent": 60.0,
+    "translate": 60.0,
+    "image": 120.0,
+    "tts": 60.0,
+}
+FALLBACK_TIMEOUT_S = 120.0   # roles not listed above (video, lipsync, music)
+
+
+def default_timeout_s(role: str) -> float:
+    return DEFAULT_TIMEOUT_S.get(role, FALLBACK_TIMEOUT_S)
+
+
+def _timeout_from(role: str, entry: Dict[str, Any]) -> float:
+    """A provider's timeout_s, checked when the config loads rather than at the first call."""
+    value = entry.get("timeout_s", default_timeout_s(role))
+    # bool is an int in Python, and NaN fails every comparison, so both need saying.
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value <= 0):
+        raise ValueError(f"providers config: {role} / {entry.get('provider')}: timeout_s "
+                         f"must be a number of seconds above 0, not {value!r}")
+    return float(value)
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -41,6 +72,7 @@ class ProviderSpec:
     requires: tuple = ()
     concurrency: int = 1
     retries: int = 1          # attempts before moving to the next provider
+    timeout_s: float = 60.0   # longest one call may wait; see DEFAULT_TIMEOUT_S
 
     @property
     def missing_env(self) -> List[str]:
@@ -75,11 +107,18 @@ class ProviderConfig:
                     requires=tuple(requires if isinstance(requires, list) else [requires]),
                     concurrency=int(entry.get("concurrency", 1)),
                     retries=max(1, int(entry.get("retries", 1))),
+                    timeout_s=_timeout_from(role, entry),
                 ))
             self._roles[role] = specs
 
     def roles(self) -> List[str]:
         return list(self._roles)
+
+    def timeout_s(self, role: str, provider: str) -> float:
+        """The limit for one provider, for callers that pick providers themselves
+        (the TTS tool walks its own engine ladder rather than the chain)."""
+        spec = next((s for s in self._roles.get(role, []) if s.provider == provider), None)
+        return spec.timeout_s if spec else default_timeout_s(role)
 
     def specs(self, role: str) -> List[ProviderSpec]:
         """Everything configured for a role, regardless of credentials or overrides."""
@@ -91,7 +130,7 @@ class ProviderConfig:
         forced = self._forced_provider(role)
         if forced:
             specs = [s for s in specs if s.provider == forced] or \
-                [ProviderSpec(role=role, provider=forced)]
+                [ProviderSpec(role=role, provider=forced, timeout_s=default_timeout_s(role))]
         return specs if include_unavailable else [s for s in specs if s.available]
 
     def active(self, role: str) -> Optional[ProviderSpec]:
@@ -143,6 +182,27 @@ def active(role: str) -> Optional[ProviderSpec]:
 
 def concurrency(role: str) -> int:
     return load().concurrency(role)
+
+
+def timeout_s(role: str, provider: str) -> float:
+    return load().timeout_s(role, provider)
+
+
+def is_timeout(error: Optional[BaseException]) -> bool:
+    """True when a call gave up waiting on its provider, whichever library raised it.
+
+    requests, httpx, the httpx copy inside the OpenAI SDK, and subprocess each
+    have their own timeout class, often wrapped in another error, so this walks
+    the chain of causes and matches TimeoutError or a class named *Timeout*.
+    An HTTP 504 answer is not one: the provider did reply.
+    """
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__:
+            return True
+        error = error.__cause__ or error.__context__
+    return False
 
 
 def describe() -> Dict[str, List[Dict[str, Any]]]:

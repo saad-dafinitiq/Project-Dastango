@@ -281,8 +281,9 @@ def test_gemini_uses_native_structured_output(monkeypatch):
             return type("R", (), {"text": '{"ok": true}'})()
 
     class FakeClient:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, http_options=None):
             captured["api_key"] = api_key
+            captured["http_options"] = http_options
             self.models = FakeModels()
 
     import google.genai as genai
@@ -295,6 +296,8 @@ def test_gemini_uses_native_structured_output(monkeypatch):
     assert captured["model"] == "gemini-flash-latest" and captured["api_key"] == "gk"
     assert captured["config"].response_schema is Schema
     assert captured["config"].response_mime_type == "application/json"
+    # google-genai takes milliseconds; the spec's default limit is 60 s.
+    assert captured["http_options"].timeout == 60_000
 
 
 # ---- the providers CLI -----------------------------------------------------

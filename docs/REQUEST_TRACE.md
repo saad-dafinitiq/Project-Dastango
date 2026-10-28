@@ -1,0 +1,243 @@
+# One film, end to end: request trace and failure points
+
+> **DST-5.** Traced through the code on `main`. Every step names the file and function that handles it. Failure points marked *(verify)* still need to be reproduced before they're treated as confirmed.
+
+**Example request:** a signed-in creator types *"A clockmaker in a flooded city repairs the hours people lose"*, reviews the storyboard, approves it, and watches the film.
+
+---
+
+## Diagram
+
+Steps 1–13 match the trace table below. Failure points sit where they happen (red = high severity, amber = medium or low, green = fixed).
+
+```mermaid
+---
+title: One film end to end · trace steps 1–13 · failure points F1–F13 (red = high, amber = medium/low, green = fixed)
+---
+sequenceDiagram
+    actor C as Creator (browser)
+    participant CD as Caddy
+    participant API as API (FastAPI)
+    participant DB as PostgreSQL
+    participant W as Worker
+    participant P as Model providers
+    participant S as Film storage
+
+    rect rgb(239, 246, 255)
+    Note over C,S: Part A · storyboard (job "plan")
+    C->>CD: 1 · POST /api/pipeline/plan {prompt}
+    CD->>API: 2 · forward (TLS ends here)
+    API->>API: 3 · require_user checks session cookie
+    rect rgb(254, 243, 199)
+    Note over API: F12 · no password reset, 2FA or session revocation
+    end
+    API->>DB: 4 · start_plan → enqueue "plan" job row
+    rect rgb(254, 226, 226)
+    Note over API,DB: F2 · no per-account quota or rate limit on job endpoints
+    end
+    API-->>C: job_id + WebSocket URL (returns immediately)
+    C->>API: 5 · open /ws/progress/{project}
+    API->>DB: poll job events every 0.4 s
+    rect rgb(254, 243, 199)
+    Note over API,DB: F13 · polling load grows with users (low)
+    end
+    W->>DB: 6 · claim job atomically (UPDATE … SKIP LOCKED)
+    Note over W: heartbeat every 15 s · requeue after 120 s · max 2 attempts
+    rect rgb(254, 243, 199)
+    Note over W,DB: F6 · a retry reruns the whole job (quota spent twice)
+    end
+    W->>P: 7 · story agent · LLM call via story chain
+    rect rgb(220, 252, 231)
+    Note over W,P: F1 · fixed (DST-12) · every model call has a time limit, then the next provider
+    end
+    P-->>W: structured script + character locks
+    W->>P: 8 · storyboard previews via image chain
+    rect rgb(254, 226, 226)
+    Note over W,P: F4 · shared free image quota runs out · F7 · whole chain exhausted → placeholders
+    end
+    P-->>W: one preview image per scene
+    W->>S: 9 · snapshot version (copies every referenced file)
+    rect rgb(254, 226, 226)
+    Note over W,S: F3 · every version copies every file → disk fills
+    end
+    W->>DB: progress events + job complete
+    DB-->>API: events replayed
+    API-->>C: storyboard ready
+    end
+
+    rect rgb(240, 253, 244)
+    Note over C,S: Part B · review, render, playback (job "render")
+    C->>API: 10 · GET storyboard · PATCH a scene (optional)
+    C->>API: 11 · POST /api/pipeline/render/{project}
+    API->>DB: start_render → enqueue "render" job row
+    W->>DB: claim job atomically
+    W->>P: 12 · audio agent · TTS per line (Kokoro → Edge TTS → gTTS)
+    rect rgb(254, 243, 199)
+    Note over W,P: F9 · Edge TTS is an online service · Kokoro ~30 s cold start
+    end
+    W->>W: place lines on the shared timeline · mix music (−16 LUFS)
+    W->>P: video agent · portraits + shot images via image chain
+    rect rgb(254, 243, 199)
+    Note over W,P: F5 · fallback to another model can change a character's face (verify)
+    end
+    W->>W: ffmpeg clips · crossfades · mux · subtitles
+    rect rgb(254, 243, 199)
+    Note over W: F8 · CPU-bound render (~4–5 min) · single worker
+    end
+    W->>S: write film + snapshot version
+    W->>DB: progress events + job complete
+    C->>API: 13 · GET /film/{project} → URLs
+    C->>API: GET /assets/{project}/… (owner check, Range)
+    API->>S: read file
+    S-->>C: film streams to the player
+    end
+
+    rect rgb(254, 243, 199)
+    Note over C,S: Across everything · F10 · one VM is a single point of failure · F11 · unpinned dependencies
+    end
+```
+
+---
+
+## 1. The trace
+
+### Part A: storyboard (job `plan`)
+
+| # | Step | Where in the code |
+|---|---|---|
+| 1 | The browser sends `POST /api/pipeline/plan` with the prompt | `web/lib/api.ts` → `plan()` |
+| 2 | Caddy terminates TLS and forwards the request to the API container | `deploy/Caddyfile` → `reverse_proxy api:8000` |
+| 3 | The router-level dependency checks the session cookie before any route runs | `backend/app.py` (`_signed_in`) → `auth/deps.py` `require_user` |
+| 4 | `start_plan` records the project's owner, **writes a `plan` job row**, and returns `job_id` and the WebSocket URL immediately | `backend/routes/pipeline.py` `start_plan` → `_accepted()` → `jobs/queue.py` `enqueue()` |
+| 5 | The browser opens `/ws/progress/{project_id}`, which authenticates by cookie, checks ownership (`may_access`), sends a snapshot, then polls job events | `backend/websocket/progress.py` → `backend/services/progress.py` `stream()` |
+| 6 | A worker **claims the job atomically** (`UPDATE … SKIP LOCKED`) and starts a heartbeat thread (every 15 s) | `jobs/worker.py` `run_forever()` → `queue.claim()` → `run_job()` / `_Heartbeat` |
+| 7 | The orchestrator runs the story agent, which makes one LLM call through the `story` provider chain (Gemini → Groq → OpenRouter → … → mock template) and gets back a structured script. Each character gets an appearance lock and a seed | `agents/orchestrator/workflow.py` `plan()` → `agents/story_agent/` → `mcp/tools/llm_tools/llm_client.py` |
+| 8 | One storyboard preview per scene is drawn through the `image` chain (Cloudflare FLUX → Pollinations.ai → placeholder) | `mcp/tools/vision_tools/image_gen_tool.py` |
+| 9 | The state is **snapshotted** (every referenced file is copied into a new version), a progress event is written, and the job is marked complete | `state_manager/` `snapshot()` → `jobs/queue.py` `complete()` |
+
+### Part B: review, render, playback (job `render`)
+
+| # | Step | Where in the code |
+|---|---|---|
+| 10 | The creator reads the storyboard (`GET /storyboard/{pid}`) and may edit a scene (`PATCH /storyboard/{pid}/{scene}`) | `backend/routes/pipeline.py` `get_storyboard` / `edit_storyboard` |
+| 11 | `POST /render/{pid}` checks that a script exists, then **writes a `render` job row** | `backend/routes/pipeline.py` `start_render` → `_accepted()` |
+| 12 | A worker claims the job and runs `render()`: the **audio agent** voices each line (TTS chain: Kokoro → Edge TTS → gTTS → silent, in parallel), places the lines on the **shared timeline**, and mixes music (ducked under speech, −16 LUFS); the **video agent** draws portraits and shots (image chain), renders the clips with ffmpeg, crossfades, muxes and adds subtitles; then **snapshot** | `agents/orchestrator/workflow.py` `render()` → `agents/audio_agent/` → `shared/timeline.py` → `agents/video_agent/` → `mcp/tools/video_tools/ffmpeg_tool.py` → `state_manager/` |
+| 13 | The browser calls `GET /film/{pid}` to get the URLs, then `GET /assets/{pid}/…`, which checks ownership, blocks path traversal and supports Range requests so the player can seek | `backend/routes/pipeline.py` `film()` → `backend/app.py` `serve_asset()` |
+
+---
+
+## 2. Already handled
+
+| Risk | How the code handles it |
+|---|---|
+| Two workers take the same job | The claim is a single atomic `UPDATE`; Postgres skips locked rows (`jobs/queue.py` `claim_statement`) |
+| The worker crashes partway through a film | Heartbeats stop; `requeue_stale()` puts the job back after 120 s, at most 2 attempts |
+| A job raises an error | `run_job` catches it, `queue.fail()` retries if attempts remain, and the error is shown to the user as an event; the worker keeps running |
+| A cancel leaves broken files | Cancel is checked between steps, so no ffmpeg process is killed halfway |
+| Someone watches or downloads another user's film | The WebSocket and `/assets` both check ownership and return 404 (not 403); path traversal is blocked |
+| Brute-force login | Per-account lockout after repeated failures (`auth/accounts.py`) |
+| Cross-site requests | CORS is closed unless origins are named (`backend/app.py`) |
+| A stuck ffmpeg clip | Each clip has a timeout (`CLIP_TIMEOUT_S = 900` s) |
+| A model provider that never answers (F1, fixed in DST-12) | Every LLM, image and online voice call has a `timeout_s`; when it runs out the call counts as failed and the next provider in the chain takes over at once (details under F1 below) |
+
+---
+
+## 3. Open failure points
+
+| # | Step | What fails | Impact | Handled today | Severity |
+|---|---|---|---|---|---|
+| **F1** | 7, 12 | **Model calls had no explicit timeout.** The LLM clients (`genai.Client`, `OpenAI`, `Anthropic` in `llm_client.py`) were created with library defaults: OpenAI/Groq waited up to 600 s per attempt and retried twice; Gemini set none, which was verified to mean forever. The heartbeat thread keeps beating meanwhile, so `requeue_stale()` never fires. **Reproduced in the baseline run** (36 min hang, below) | A hung provider left the film "running" for many minutes, or indefinitely, instead of falling through to the next provider | **Yes, DST-12** (see below) | ~~High~~ **Fixed** |
+| **F2** | 4, 11 | **No per-account render quota and no rate limit on job endpoints** | One account can flood the queue and use up everyone's free image quota | Login lockout only | **High** |
+| **F3** | 9, 12 | **Every version copies every file** | Disk fills up: renders fail and Postgres is at risk on the same VM | Backups hard-link; the live store does not | **High** |
+| **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Every user gets weaker Pollinations images or placeholders until the daily reset | Falls through the chain, logged | **High** |
+| **F5** | 8, 12 | **Fallback breaks character consistency.** The seed reproduces a face only on the same model; if the chain moves from Cloudflare to Pollinations partway through a film, the same character can come out different *(verify)* | The film's characters change face, the core quality promise | No | Medium |
+| **F6** | 6 | **A retry reruns the whole job from the start** | The quota is spent twice for one film; a 5-minute render becomes 10 | By design | Medium |
+| **F7** | 7–8, 12 | **The whole chain is exhausted**, so the system falls back to the mock template or placeholder images | The film "succeeds" but looks broken, and the user may not know why | Logged, placeholder drawn | Medium |
+| **F8** | 12 | **CPU-bound rendering with a single worker** on the free ARM VM | About 4–5 min per film; the queue wait grows with every user | Per-clip timeout | Medium |
+| **F9** | 12 | **Voices:** Edge TTS is an online Microsoft service; Kokoro takes ~30 s to load its model on first use | Voices fail during an outage; the first render after a restart is slow | Falls back to gTTS, then silence | Medium |
+| **F10** | all | **Everything runs on one VM** (Postgres, API, worker, Caddy); Oracle may stop an idle free VM | Total outage | Nightly backups, tested restore | Medium |
+| **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | CI tests the image | Medium |
+| **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation | Account security is incomplete | Sign-ups closed by default | Medium |
+| **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
+
+### F1 in detail (fixed in DST-12)
+
+**Reproduced in the baseline run.** On 2026-10-28, during the DST-10 baseline
+renders (`python scripts/benchmark.py --testset eval/testset.jsonl
+--render-subset`, commit `9cedcf7` plus the benchmark harness only), test-set
+prompt `dst-07` ("Rain") hung in the `story` call to Gemini
+(`gemini-flash-latest`):
+
+| | |
+|---|---|
+| Call started | 11:29:42.942 PKT (the story agent logged `phase 1 start (provider=gemini)`) |
+| Stopped by hand | 12:05:47.232 PKT |
+| Stuck for | **2,164 s (36 min 4 s)**, and still waiting |
+| Evidence | No log line of any kind after the call; the interpreter used no CPU; an HTTPS connection to a Google-range address (`172.217.114.4:443`) was still open |
+
+Expected: after a bounded wait the call fails and Groq writes the script.
+Actual: the run waited until stopped. Inside a worker the heartbeat would have
+kept the job looking alive the whole time. Raw record:
+`data/benchmarks/20261028_dst07_gemini_hang.json` (not committed; `data/` is
+ignored).
+
+**The cause, checked in the installed SDKs** (google-genai 2.33.0, openai
+3.40.0, anthropic 2.3.0): google-genai passes `timeout=None` to httpx when no
+`HttpOptions.timeout` is set, and httpx then waits forever. The OpenAI and
+Anthropic SDKs default to 600 s per attempt plus two retries of their own.
+
+**The fix.** Every provider in `config/providers.yaml` can set `timeout_s`;
+without it the role's default from `shared/providers.py` applies:
+
+| Role | Default | Why |
+|---|---|---|
+| story | 180 s | Gemini scripts that succeeded took 31.5, 83.9, 112.2 and 114.5 s in the baseline run, so 60 s would have cut off three of four |
+| edit_intent, translate | 60 s | Short prompts and answers |
+| image | 120 s | Cloudflare keeps the 180 s and sd_webui the 300 s they already had, now as `timeout_s` |
+| tts | 60 s | ElevenLabs already had 60 s |
+
+- **LLMs:** Gemini gets `HttpOptions(timeout=...)` (in milliseconds). The
+  OpenAI-compatible clients (Groq, OpenRouter, Ollama, OpenAI) and Anthropic get
+  `timeout=` and `max_retries=0`: the provider chain is the retry, so a failure
+  goes straight to the next provider instead of being repeated three times.
+- **Images:** every HTTP call uses the provider's `timeout_s`. A timeout ends
+  that provider's attempts at once; `retries` still covers quick 429 and 500
+  answers.
+- **Voices:** edge-tts runs as a subprocess, which is killed after `timeout_s`;
+  gTTS (which otherwise waits forever) and ElevenLabs get it as their request
+  timeout. Then the next engine speaks.
+- A timeout is logged as "no answer within N s", so it reads differently from
+  a refusal.
+
+**Worst case now**, if every provider in a chain hangs: a script waits at most
+3 × 180 s (Gemini, Groq, OpenRouter) and then uses the template; an image waits
+180 s (Cloudflare) plus 120 s (Pollinations) and then gets a placeholder.
+
+**Tests** (`tests/unit/test_model_call_timeouts.py`) use a real local server
+that accepts the connection and never answers. The real Gemini adapter, aimed at
+it through `GOOGLE_GEMINI_BASE_URL`, falls through to an answering provider in
+1 s plus slack, and is asked exactly once; the same holds for the
+OpenAI-compatible client, for an image provider (one attempt, not three), and
+for a hung edge-tts process. Run against `main`, 25 of the 26 tests fail, the
+hung-provider ones with "still waiting after 20 s" (30 s for the image test).
+The one that passes on both checks that a slow answer inside the limit is kept.
+
+**Not covered, on purpose or by limitation:**
+- Kokoro, pyttsx3 and local Stable Diffusion run inside the process with no
+  network, so there is nothing to wait on and no safe way to interrupt them.
+- MyMemory, the last step of the translate chain, is called through
+  `deep_translator`, which offers no timeout. It still has none.
+- The paid video and lip-sync roles (Veo and others) have never been called and
+  were left alone.
+- `requests` and httpx limit each wait for data, not the whole call: a server
+  that sent one byte every 59 s would not be cut off by a 60 s limit.
+
+---
+
+## 4. Fix first
+
+1. ~~**F1: add a timeout to every model call**, and let a timeout fall through to the next provider.~~ **Done in DST-12** (above).
+2. **F2: per-account render quotas and rate limiting.** Already on the Week 1 track.
+3. **F3: content-addressed storage for versions.** Store each file once, by hash. Already on the Week 1 track; measure storage growth before and after.
+
+*F4 and F5 move into the Week 2 work on self-hosted images and the consistency check.*

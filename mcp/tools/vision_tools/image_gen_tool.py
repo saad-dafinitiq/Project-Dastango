@@ -19,7 +19,7 @@ from typing import Dict, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
 from shared import providers
-from shared.providers import ProviderSpec
+from shared.providers import ProviderSpec, is_timeout
 from shared.utils.logging import get_logger
 
 log = get_logger("image_gen")
@@ -83,9 +83,15 @@ class ImageGenTool(BaseTool):
                                                 "seed": seed, "attempt": attempt + 1, **meta})
                 except Exception as e:  # noqa: BLE001
                     errors.append(f"{spec.provider}: {e}")
-                    last = attempt == spec.retries - 1 or _is_permanent(e)
+                    # Retries are for quick hiccups (429, 500). A provider that
+                    # just hung for timeout_s will likely hang again, and three
+                    # tries would hold the image for three times as long.
+                    timed_out = is_timeout(e)
+                    last = attempt == spec.retries - 1 or _is_permanent(e) or timed_out
                     log.warning("image provider %s failed (attempt %d/%d: %s)%s",
-                                spec.provider, attempt + 1, spec.retries, str(e)[:200],
+                                spec.provider, attempt + 1, spec.retries,
+                                f"no answer within {spec.timeout_s:g} s" if timed_out
+                                else str(e)[:200],
                                 "" if last else " — retrying")
                     if last:
                         break
@@ -206,7 +212,8 @@ class ImageGenTool(BaseTool):
             model = os.getenv("POLLINATIONS_MODEL", spec.model or "tongyi-mai/z-image-turbo")
             url = (f"https://gen.pollinations.ai/image/{encoded}"
                    f"?model={urllib.parse.quote(model, safe='')}&width={w}&height={h}&seed={seed}")
-            r = requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=120)
+            r = requests.get(url, headers={"Authorization": f"Bearer {key}"},
+                             timeout=spec.timeout_s)
             if r.status_code in (401, 402, 403):
                 # The key has no pollen budget (or was rejected): the keyless
                 # endpoint still works, so use it for the rest of the run.
@@ -221,7 +228,7 @@ class ImageGenTool(BaseTool):
             model = "flux"
             url = (f"https://image.pollinations.ai/prompt/{encoded}"
                    f"?width={w}&height={h}&seed={seed}&nologo=true&model={model}")
-            r = requests.get(url, timeout=120)
+            r = requests.get(url, timeout=spec.timeout_s)
             endpoint = "legacy"
         r.raise_for_status()
         ctype = r.headers.get("content-type", "")
@@ -261,7 +268,7 @@ class ImageGenTool(BaseTool):
                    "Content-Type": "application/json"}
         payload = {"prompt": prompt[:2048], "seed": seed, **spec.params}
 
-        r = requests.post(url, headers=headers, json=payload, timeout=180)
+        r = requests.post(url, headers=headers, json=payload, timeout=spec.timeout_s)
         # Each model validates its own input schema (flux-1-schnell rejects `seed`).
         # The error names the field, so drop it and try once more.
         if r.status_code == 400:
@@ -270,7 +277,7 @@ class ImageGenTool(BaseTool):
                 _warn_once(f"cf_drop_{model}_{unsupported}",
                            "Cloudflare model %s does not accept %r — dropping it", model, unsupported)
                 payload.pop(unsupported)
-                r = requests.post(url, headers=headers, json=payload, timeout=180)
+                r = requests.post(url, headers=headers, json=payload, timeout=spec.timeout_s)
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
         if r.headers.get("content-type", "").startswith("image/"):
@@ -290,13 +297,14 @@ class ImageGenTool(BaseTool):
     def _provider_openai(self, spec: ProviderSpec, prompt: str, negative: str, out: Path,
                          w: int, h: int, seed: int) -> dict:
         from openai import OpenAI
-        client = OpenAI()
+        # The SDK otherwise waits 600 s and retries twice; the chain is the retry.
+        client = OpenAI(timeout=spec.timeout_s, max_retries=0)
         size = "1792x1024" if max(w, h) >= 1024 else "1024x1024"
         resp = client.images.generate(model=spec.model or "dall-e-3", prompt=prompt,
                                       size=size, n=1)
         import requests
         img_url = resp.data[0].url
-        r = requests.get(img_url, timeout=60)
+        r = requests.get(img_url, timeout=spec.timeout_s)
         r.raise_for_status()
         native = _save_image_bytes(r.content, out, w, h)
         return {"native_size": list(native)}
@@ -314,7 +322,9 @@ class ImageGenTool(BaseTool):
         # Detect Turbo vs standard SD by checking the loaded checkpoint.
         is_turbo = False
         try:
-            opts = requests.get(f"{api}/sdapi/v1/options", timeout=5).json()
+            # A quick probe, but never longer than the provider's own limit.
+            opts = requests.get(f"{api}/sdapi/v1/options",
+                                timeout=min(5, spec.timeout_s)).json()
             is_turbo = "turbo" in str(opts.get("sd_model_checkpoint", "")).lower()
         except Exception:  # noqa: BLE001
             pass
@@ -332,7 +342,7 @@ class ImageGenTool(BaseTool):
                 "width": w, "height": h, "seed": seed,
                 "steps": 20, "sampler_index": "Euler a",
             }
-        r = requests.post(f"{api}/sdapi/v1/txt2img", json=payload, timeout=300)
+        r = requests.post(f"{api}/sdapi/v1/txt2img", json=payload, timeout=spec.timeout_s)
         r.raise_for_status()
         b64 = r.json()["images"][0]
         native = _save_image_bytes(base64.b64decode(b64), out, w, h)
