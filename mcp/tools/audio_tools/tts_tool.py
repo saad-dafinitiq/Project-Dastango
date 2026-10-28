@@ -7,6 +7,11 @@ Engines, in the order config/providers.yaml usually lists them:
   gtts       free, online
   pyttsx3    offline, robotic
   silent     silence of the right length (tests)
+
+The online engines (edge, elevenlabs, gtts) give up after their `timeout_s` in
+config/providers.yaml and the next engine takes over. Kokoro and pyttsx3 run
+inside this process with no network, so there is nothing to wait on and no
+safe way to interrupt them; they have no limit.
 """
 from __future__ import annotations
 import os
@@ -15,6 +20,7 @@ import sys
 from pathlib import Path
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared import providers
 from shared.timeline import estimate_line_ms
 from shared.utils.logging import get_logger
 
@@ -134,7 +140,9 @@ class TtsTool(BaseTool):
         from gtts import gTTS
         if out.suffix.lower() != ".mp3":
             out = out.with_suffix(".mp3")
-        gTTS(text=text, lang=language, tld=tld, slow=False).save(str(out))
+        # gTTS waits forever by default.
+        gTTS(text=text, lang=language, tld=tld, slow=False,
+             timeout=providers.timeout_s("tts", "gtts")).save(str(out))
         return out
 
     def _edge_tts(self, text: str, out: Path, voice: str = "",
@@ -151,8 +159,11 @@ class TtsTool(BaseTool):
                f"--voice={voice_id}", f"--text={text}",
                f"--rate={p['rate']}", f"--pitch={p['pitch']}",
                f"--volume={p['volume']}", f"--write-media={out}"]
+        # On timeout subprocess.run kills edge-tts and raises TimeoutExpired,
+        # which run() treats like any other failure: gTTS takes over.
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace",
+                              timeout=providers.timeout_s("tts", "edge"))
         if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
             raise RuntimeError((proc.stderr or "edge-tts produced no audio").strip()[-300:])
         return out
@@ -225,7 +236,7 @@ class TtsTool(BaseTool):
             url,
             headers={"xi-api-key": api_key, "Content-Type": "application/json"},
             json={"text": text, "model_id": "eleven_monolingual_v1"},
-            timeout=60,
+            timeout=providers.timeout_s("tts", "elevenlabs"),
         )
         r.raise_for_status()
         if out.suffix.lower() != ".mp3":

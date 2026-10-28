@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from shared import providers
-from shared.providers import ProviderSpec
+from shared.providers import ProviderSpec, is_timeout
 from shared.utils.logging import get_logger
 
 log = get_logger("llm_client")
@@ -96,7 +96,7 @@ class LLMClient:
             except Exception as e:  # noqa: BLE001
                 errors.append(f"{spec.provider}: {e}")
                 log.warning("%s failed for role %s (%s) — trying next provider",
-                            spec.provider, self.role, str(e)[:200])
+                            spec.provider, self.role, _reason(e, spec))
         if errors:
             log.warning("every provider failed for role %s: %s", self.role, "; ".join(errors))
         # Mock: callers fall back to their own offline path.
@@ -134,10 +134,10 @@ class LLMClient:
                         "Return only valid JSON matching the schema."
                     )
                 except Exception as e:  # noqa: BLE001
-                    # The provider itself failed (quota, network, outage): move on.
+                    # The provider itself failed (quota, network, outage, timeout): move on.
                     errors.append(f"{spec.provider}: {type(e).__name__}: {e}")
                     log.warning("%s failed for role %s (%s) — trying next provider",
-                                spec.provider, self.role, str(e)[:200])
+                                spec.provider, self.role, _reason(e, spec))
                     break
         raise RuntimeError(
             f"no provider produced valid structured output for role '{self.role}'"
@@ -164,7 +164,11 @@ def _gemini(spec: ProviderSpec, prompt: str, system: str, temperature: float,
             max_tokens: int, schema: Optional[Type[BaseModel]] = None) -> str:
     from google import genai
     from google.genai import types
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    # Unlike every other client here, google-genai takes milliseconds. With no
+    # timeout it passes None to httpx, which waits forever: 36 minutes in the
+    # 2026-10-28 baseline run before it was stopped. It does not retry unless asked.
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"],
+                          http_options=types.HttpOptions(timeout=int(spec.timeout_s * 1000)))
     config: Dict[str, Any] = {
         "temperature": temperature,
         "max_output_tokens": max(max_tokens, MIN_OUTPUT_TOKENS),
@@ -193,7 +197,8 @@ def _gemini(spec: ProviderSpec, prompt: str, system: str, temperature: float,
 def _anthropic(spec: ProviderSpec, prompt: str, system: str, temperature: float,
                max_tokens: int) -> str:
     import anthropic
-    client = anthropic.Anthropic()
+    # max_retries=0: the provider chain is the retry (see _openai_compatible).
+    client = anthropic.Anthropic(timeout=spec.timeout_s, max_retries=0)
     resp = client.messages.create(
         model=spec.model or "claude-sonnet-4-6",
         max_tokens=max_tokens,
@@ -214,7 +219,12 @@ def _openai_compatible(spec: ProviderSpec, prompt: str, system: str, temperature
         api_key = "ollama"   # ignored by Ollama, required by the client
     else:
         api_key = os.environ[key_env] if key_env else None
-    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    # The SDK's defaults are a 600 s read timeout and two retries of its own,
+    # so one hung provider held the chain for up to ~30 minutes. max_retries=0
+    # because the chain is the retry: a failure goes straight to the next provider.
+    limits: Dict[str, Any] = {"timeout": spec.timeout_s, "max_retries": 0}
+    client = (OpenAI(api_key=api_key, base_url=base_url, **limits) if base_url
+              else OpenAI(api_key=api_key, **limits))
 
     messages = ([{"role": "system", "content": system}] if system else []) + \
                [{"role": "user", "content": prompt}]
@@ -240,7 +250,14 @@ def _openai_compatible(spec: ProviderSpec, prompt: str, system: str, temperature
 
 # ---- helpers ---------------------------------------------------------------
 
-_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+def _reason(error: Exception, spec: ProviderSpec) -> str:
+    """Why a provider failed, for the log: a timeout says how long it waited."""
+    if is_timeout(error):
+        return f"no answer within {spec.timeout_s:g} s"
+    return str(error)[:200]
+
+
+_FENCE =re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 def _extract_json(text: str) -> str:
