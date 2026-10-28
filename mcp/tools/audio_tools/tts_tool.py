@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from mcp.base_tool import BaseTool, ToolResult
-from shared import providers
+from shared import providers, tracing
 from shared.timeline import estimate_line_ms
 from shared.utils.logging import get_logger
 
@@ -76,17 +76,27 @@ class TtsTool(BaseTool):
         out.parent.mkdir(parents=True, exist_ok=True)
 
         engine = engine.lower()
+        tried: list = []
+
+        def traced(name: str):
+            """A span for one engine on the ladder; the engine asked for is position 1."""
+            tried.append(name)
+            return tracing.model_call("tts", "tts", name, position=len(tried),
+                                      input={"text_chars": len(text), "voice": voice or None})
+
         if engine == "silent":
             # Same speaking-rate estimate the planner uses, so offline runs
             # behave like real ones.
             duration = estimate_line_ms(text) / 1000.0
-            actual = self._silent_wav(out, duration_s=duration)
+            with traced("silent"):
+                actual = self._silent_wav(out, duration_s=duration)
             return ToolResult(success=True, data=str(actual),
                               metadata={"engine": "silent", "duration_s": duration})
 
         if engine == "kokoro":
             try:
-                actual = self._kokoro(text, out, voice, rate=rate)
+                with traced("kokoro"):
+                    actual = self._kokoro(text, out, voice, rate=rate)
                 return ToolResult(success=True, data=str(actual),
                                   metadata={"engine": "kokoro", "voice": voice,
                                             "speed": round(rate / BASE_RATE_WPM, 2)})
@@ -96,8 +106,9 @@ class TtsTool(BaseTool):
 
         if engine == "edge":
             try:
-                actual = self._edge_tts(text, out, voice, rate=rate, pitch=pitch,
-                                        volume=volume)
+                with traced("edge"):
+                    actual = self._edge_tts(text, out, voice, rate=rate, pitch=pitch,
+                                            volume=volume)
                 return ToolResult(success=True, data=str(actual),
                                   metadata={"engine": "edge", "voice": voice,
                                             **edge_prosody(rate, pitch, volume)})
@@ -107,7 +118,8 @@ class TtsTool(BaseTool):
 
         if engine == "elevenlabs" and os.getenv("ELEVENLABS_API_KEY"):
             try:
-                actual = self._eleven_tts(text, out, voice)
+                with traced("elevenlabs"):
+                    actual = self._eleven_tts(text, out, voice)
                 return ToolResult(success=True, data=str(actual), metadata={"engine": "elevenlabs"})
             except Exception as e:  # noqa: BLE001
                 log.warning("elevenlabs failed (%s) — falling back to gTTS", e)
@@ -115,7 +127,8 @@ class TtsTool(BaseTool):
 
         if engine == "gtts":
             try:
-                actual = self._gtts(text, out, language=language, tld=tld)
+                with traced("gtts"):
+                    actual = self._gtts(text, out, language=language, tld=tld)
                 return ToolResult(success=True, data=str(actual), metadata={"engine": "gtts"})
             except Exception as e:  # noqa: BLE001
                 log.warning("gTTS failed (%s) — falling back to pyttsx3", e)
@@ -123,14 +136,17 @@ class TtsTool(BaseTool):
 
         if engine == "pyttsx3":
             try:
-                actual = self._pyttsx3(text, out, rate=rate, voice=voice)
+                with traced("pyttsx3"):
+                    actual = self._pyttsx3(text, out, rate=rate, voice=voice)
                 return ToolResult(success=True, data=str(actual), metadata={"engine": "pyttsx3"})
             except Exception as e:  # noqa: BLE001
                 log.warning("pyttsx3 failed (%s) — using silent placeholder", e)
 
         # Last-ditch fallback: silent placeholder of approximate duration.
+        # Traced too: a line that came out silent is exactly what to notice.
         duration = estimate_line_ms(text) / 1000.0
-        actual = self._silent_wav(out, duration_s=duration)
+        with traced("silent"):
+            actual = self._silent_wav(out, duration_s=duration)
         return ToolResult(success=True, data=str(actual),
                           metadata={"engine": "silent", "duration_s": duration})
 

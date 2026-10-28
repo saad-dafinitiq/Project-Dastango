@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
-from shared import providers
+from shared import providers, tracing
 from shared.providers import ProviderSpec, is_timeout
 from shared.utils.logging import get_logger
 
@@ -67,7 +67,7 @@ class ImageGenTool(BaseTool):
         seed = seed or int(hashlib.md5(prompt.encode()).hexdigest()[:8], 16) % 2**31
 
         errors = []
-        for spec in providers.chain("image"):
+        for position, spec in enumerate(providers.chain("image"), start=1):
             handler = getattr(self, f"_provider_{spec.provider}", None)
             if handler is None:
                 log.warning("unknown image provider '%s' in config — skipping", spec.provider)
@@ -76,8 +76,15 @@ class ImageGenTool(BaseTool):
             for attempt in range(spec.retries):
                 try:
                     with _limiter(spec.provider, spec.concurrency):
-                        meta = handler(spec, full_prompt, negative_prompt, out,
-                                       width, height, seed) or {}
+                        # Inside the limiter, so waiting for a free slot is not
+                        # counted as the provider's latency.
+                        with tracing.model_call("image", "image", spec.provider, spec.model,
+                                                position=position, attempt=attempt + 1,
+                                                input={"width": width, "height": height}) as call:
+                            meta = handler(spec, full_prompt, negative_prompt, out,
+                                           width, height, seed) or {}
+                            native = meta.get("native_size") or [None, None]
+                            call.output(native_width=native[0], native_height=native[1])
                     return ToolResult(success=True, data=str(out),
                                       metadata={"provider": spec.provider, "model": spec.model,
                                                 "seed": seed, "attempt": attempt + 1, **meta})

@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from shared import providers
+from shared import providers, tracing
 from shared.providers import ProviderSpec, is_timeout
 from shared.utils.logging import get_logger
 
@@ -84,13 +84,17 @@ class LLMClient:
     def generate(self, prompt: str, system: str = "", temperature: float = 0.7,
                  max_tokens: int = 2000) -> LLMResponse:
         errors = []
-        for spec in self.specs:
+        for position, spec in enumerate(self.specs, start=1):
             if spec.provider == MOCK:
                 break
             try:
-                text = self._call(spec, prompt, system, temperature, max_tokens)
-                if not text.strip():
-                    raise ValueError("empty response")
+                with tracing.model_call("llm", self.role, spec.provider, spec.model,
+                                        position=position,
+                                        input=_sizes(prompt, system, max_tokens)) as call:
+                    text = self._call(spec, prompt, system, temperature, max_tokens)
+                    if not text.strip():
+                        raise ValueError("empty response")
+                    call.output(answer_chars=len(text))
                 return LLMResponse(text=text, provider=spec.provider,
                                    model=spec.model or spec.provider)
             except Exception as e:  # noqa: BLE001
@@ -114,15 +118,22 @@ class LLMClient:
               "schema. Do not include markdown fences, comments, or any text outside the JSON."
         )
         errors: List[str] = []
-        for spec in self.specs:
+        for position, spec in enumerate(self.specs, start=1):
             if spec.provider == MOCK:
                 break
             attempt_prompt = prompt
             for attempt in range(max_retries + 1):
                 try:
-                    text = self._call(spec, attempt_prompt, sys_msg, temperature, max_tokens,
-                                      schema=schema)
-                    return schema.model_validate(json.loads(_extract_json(text)))
+                    # Validation is inside the span: an answer that is not usable
+                    # JSON is a failed call as far as the film is concerned.
+                    with tracing.model_call("llm", self.role, spec.provider, spec.model,
+                                            position=position, attempt=attempt + 1,
+                                            input={**_sizes(attempt_prompt, sys_msg, max_tokens),
+                                                   "schema": schema.__name__}) as call:
+                        text = self._call(spec, attempt_prompt, sys_msg, temperature,
+                                          max_tokens, schema=schema)
+                        call.output(answer_chars=len(text))
+                        return schema.model_validate(json.loads(_extract_json(text)))
                 except (json.JSONDecodeError, ValidationError, TypeError) as e:
                     # The model answered, but not with usable JSON: worth one more try
                     # with the error fed back to it.
@@ -184,6 +195,12 @@ def _gemini(spec: ProviderSpec, prompt: str, system: str, temperature: float,
         contents=prompt,
         config=types.GenerateContentConfig(**config),
     )
+    usage = getattr(resp, "usage_metadata", None)
+    if usage is not None:
+        # The total includes the model's thinking, which the output count leaves out.
+        tracing.record_tokens(input=usage.prompt_token_count,
+                              output=usage.candidates_token_count,
+                              total=usage.total_token_count)
     if not resp.text:
         finish = getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else None
         raise RuntimeError(
@@ -206,6 +223,10 @@ def _anthropic(spec: ProviderSpec, prompt: str, system: str, temperature: float,
         system=system or "You are a helpful assistant.",
         messages=[{"role": "user", "content": prompt}],
     )
+    usage = getattr(resp, "usage", None)
+    if usage is not None:
+        tracing.record_tokens(input=usage.input_tokens, output=usage.output_tokens,
+                              total=usage.input_tokens + usage.output_tokens)
     return "".join(b.text for b in resp.content if hasattr(b, "text"))
 
 
@@ -241,6 +262,10 @@ def _openai_compatible(spec: ProviderSpec, prompt: str, system: str, temperature
         # Open-weight reasoning models: keep the thinking short so the answer fits.
         kwargs["extra_body"] = {"reasoning_effort": "low"}
     resp = client.chat.completions.create(**kwargs)
+    usage = getattr(resp, "usage", None)
+    if usage is not None:
+        tracing.record_tokens(input=usage.prompt_tokens, output=usage.completion_tokens,
+                              total=usage.total_tokens)
     text = resp.choices[0].message.content or ""
     if not text.strip():
         finish = resp.choices[0].finish_reason
@@ -249,6 +274,11 @@ def _openai_compatible(spec: ProviderSpec, prompt: str, system: str, temperature
 
 
 # ---- helpers ---------------------------------------------------------------
+
+def _sizes(prompt: str, system: str, max_tokens: int) -> Dict[str, Any]:
+    """A call's input for its trace: how big it was, never what it said."""
+    return {"prompt_chars": len(prompt), "system_chars": len(system), "max_tokens": max_tokens}
+
 
 def _reason(error: Exception, spec: ProviderSpec) -> str:
     """Why a provider failed, for the log: a timeout says how long it waited."""

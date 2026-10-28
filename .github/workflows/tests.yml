@@ -58,7 +58,7 @@ jobs:
         # backup tests run here too, offline.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-s3.txt "moto>=5"
+          pip install -r requirements.txt -r requirements-s3.txt -r requirements-tracing.txt "moto>=5"
 
       - name: Every module imports
         # A syntax error in a file no test touches should still fail the build.

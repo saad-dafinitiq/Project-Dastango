@@ -6,6 +6,7 @@ the keyless Pollinations endpoint answers one request per IP, and a local GPU
 pipeline must stay at one.
 """
 from __future__ import annotations
+import contextvars
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, List, Sequence, Tuple
@@ -23,7 +24,11 @@ def run_jobs(jobs: List[Job], workers: int, label: str = "") -> List[Any]:
         return [fn(*args) for fn, args in jobs]
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(fn, *args) for fn, args in jobs]
+        # Threads do not inherit context variables, so each job runs in a copy
+        # of the caller's: that is how a model call in a worker thread knows
+        # which job it belongs to (shared/tracing.py). One copy per job,
+        # because a context cannot be entered by two threads at once.
+        futures = [pool.submit(contextvars.copy_context().run, fn, *args) for fn, args in jobs]
         results = [f.result() for f in futures]
     log.info("%s: %d job(s) on %d workers in %.1fs", label or "batch", len(jobs), workers,
              time.monotonic() - started)
