@@ -21,13 +21,19 @@ roles:
       requires: [CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN]
       concurrency: 4                    # calls it tolerates at once
       retries: 3                        # attempts before the next provider
+      timeout_s: 180                    # longest one call may wait
     - provider: pollinations
       concurrency: 1
       retries: 3
     - provider: placeholder             # offline, always works
 ```
 
-`requires: [A|B]` means either variable will do. See what this machine would
+`requires: [A|B]` means either variable will do. `timeout_s` is optional:
+without it a call may wait 180 s for a script, 60 s for an edit or a
+translation, 120 s for an image and 60 s for a voice line. When the time runs
+out the call counts as failed and the next provider takes over at once; a
+timeout is never retried, because a provider that hung once will likely hang
+again (see F1 in [REQUEST_TRACE.md](REQUEST_TRACE.md)). See what this machine would
 use, and why the rest are skipped:
 
 ```bash
@@ -108,7 +114,8 @@ because each costs money per clip.
    `mcp/tools/llm_tools/llm_client.py` for a language model (anything
    OpenAI-compatible needs only a base URL and a key name).
 2. An entry in `config/providers.yaml` under the role, with `requires`,
-   `concurrency` and `retries`.
+   `concurrency` and `retries`, and `timeout_s` if the role's default does not
+   suit it. The adapter must pass `spec.timeout_s` to its HTTP call.
 3. A test with the HTTP mocked, including what a failure looks like.
 
 Never an `if os.getenv(...)` inside an agent. That is what this layer
