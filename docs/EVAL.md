@@ -21,6 +21,7 @@ are reported separately and never averaged together.
 - **Test set:** `eval/testset.jsonl`, 25 prompts, unchanged since commit `0bc83f4` (2026-10-28). Field guide: `eval/README.md`.
 - **Command:** `python scripts/benchmark.py --testset eval/testset.jsonl` with `--plan-only` (P1 to P3), `--ids <one id>` (R), `--render-subset` (A).
 - **Code:** reports from the 2026-10-29 runs record `2823ce3-dirty`. The uncommitted changes were the new `--plan-only` flag (`scripts/benchmark.py`, `tests/unit/test_eval_testset.py`) and this file; no pipeline code was changed. `2823ce3` includes DST-9, DST-11 (tracing) and DST-12 (model-call timeouts). Runs A and B predate both.
+- `--plan-only` committed in this PR (DST-10); the pipeline code is identical to `2823ce3`.
 - **Machine:** the dev laptop (Windows 11), one run at a time.
 - **Excluded:** P1's first tries of dst-04 and dst-05. The laptop lost its internet connection (DNS failing, first logged 02:39:15, back by 02:43:35), so every provider failed and both got the template script. The P2 and P3 reruns replace them. Run A0 (`20261028_111104_render_subset.log`) was stopped on purpose and measured nothing.
 
