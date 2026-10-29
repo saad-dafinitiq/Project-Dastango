@@ -51,7 +51,8 @@ flowchart TB
 
     subgraph chains["Provider chains · config/providers.yaml"]
         direction LR
-        cLLM["story · edit_intent · translate<br/>Gemini → Groq → OpenRouter → Ollama → offline"]
+        cStory["story<br/>Groq → OpenRouter → Gemini → Ollama → template"]
+        cLLM["edit_intent · translate<br/>Gemini → Groq → OpenRouter → Ollama → offline"]
         cImg["image<br/>Cloudflare FLUX → local SD → Pollinations → placeholder"]
         cTts["tts<br/>Kokoro → ElevenLabs → Edge → gTTS → pyttsx3 → silent"]
         cMot["video · lipsync<br/>fal → HF → Veo (opt-in) → Replicate → ffmpeg"]
@@ -65,7 +66,7 @@ flowchart TB
     edit --> tLLM
     audio --> tAud
     video --> tVis & tVid & tLLM
-    tLLM --> cLLM
+    tLLM --> cStory & cLLM
     tVis --> cImg & cMot
     tAud --> cTts
     audio -- "places every line" --> timeline
@@ -77,7 +78,7 @@ flowchart TB
     classDef chain fill:#fef3c7,stroke:#d97706,color:#1c1917
     classDef store fill:#dcfce7,stroke:#16a34a,color:#052e16
     class story,audio,video,edit agent
-    class cLLM,cImg,cTts,cMot chain
+    class cStory,cLLM,cImg,cTts,cMot chain
     class memory,timeline store
 ```
 
@@ -181,7 +182,7 @@ How a provider hands over:
 
 | Role | Chain (first available wins) | Offline end |
 |---|---|---|
-| `story` | Gemini Flash → Groq gpt-oss-120b → OpenRouter → OpenAI → Anthropic → Ollama | deterministic template |
+| `story` | Groq gpt-oss-120b → OpenRouter → Gemini Flash → Ollama (Groq first since DST-15; see [EVAL.md](EVAL.md)) | deterministic template |
 | `edit_intent` | Gemini → Groq gpt-oss-20b → OpenRouter → Ollama | regex + keyword classifier |
 | `translate` | Gemini → Groq → OpenRouter → Ollama → MyMemory | skip that language |
 | `image` | Cloudflare Workers AI FLUX.1-schnell → local Stable Diffusion → SD WebUI → Pollinations → OpenAI | placeholder image |

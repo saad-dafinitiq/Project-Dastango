@@ -111,7 +111,7 @@ sequenceDiagram
 | 4 | `start_plan` records the project's owner, **writes a `plan` job row**, and returns `job_id` and the WebSocket URL immediately | `backend/routes/pipeline.py` `start_plan` → `_accepted()` → `jobs/queue.py` `enqueue()` |
 | 5 | The browser opens `/ws/progress/{project_id}`, which authenticates by cookie, checks ownership (`may_access`), sends a snapshot, then polls job events | `backend/websocket/progress.py` → `backend/services/progress.py` `stream()` |
 | 6 | A worker **claims the job atomically** (`UPDATE … SKIP LOCKED`) and starts a heartbeat thread (every 15 s) | `jobs/worker.py` `run_forever()` → `queue.claim()` → `run_job()` / `_Heartbeat` |
-| 7 | The orchestrator runs the story agent, which makes one LLM call through the `story` provider chain (Gemini → Groq → OpenRouter → … → mock template) and gets back a structured script. Each character gets an appearance lock and a seed | `agents/orchestrator/workflow.py` `plan()` → `agents/story_agent/` → `mcp/tools/llm_tools/llm_client.py` |
+| 7 | The orchestrator runs the story agent, which makes one LLM call through the `story` provider chain (Groq → OpenRouter → Gemini → Ollama → mock template; Groq first since DST-15) and gets back a structured script. Each character gets an appearance lock and a seed | `agents/orchestrator/workflow.py` `plan()` → `agents/story_agent/` → `mcp/tools/llm_tools/llm_client.py` |
 | 8 | One storyboard preview per scene is drawn through the `image` chain (Cloudflare FLUX → Pollinations.ai → placeholder) | `mcp/tools/vision_tools/image_gen_tool.py` |
 | 9 | The state is **snapshotted** (every referenced file is copied into a new version), a progress event is written, and the job is marked complete | `state_manager/` `snapshot()` → `jobs/queue.py` `complete()` |
 
@@ -210,7 +210,7 @@ without it the role's default from `shared/providers.py` applies:
   a refusal.
 
 **Worst case now**, if every provider in a chain hangs: a script waits at most
-3 × 180 s (Gemini, Groq, OpenRouter) and then uses the template; an image waits
+3 × 180 s (Groq, OpenRouter, Gemini) and then uses the template; an image waits
 180 s (Cloudflare) plus 120 s (Pollinations) and then gets a placeholder.
 
 **Tests** (`tests/unit/test_model_call_timeouts.py`) use a real local server

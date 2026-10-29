@@ -54,9 +54,9 @@ online voices.
 
 | Key in `.env` | Unlocks | Where |
 |---|---|---|
-| `GEMINI_API_KEY` | Gemini Flash writes scripts, reads edits, translates subtitles | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
-| `GROQ_API_KEY` | Fast fallback for the same roles (gpt-oss-120b / 20b) | [console.groq.com](https://console.groq.com/keys) |
-| `OPENROUTER_API_KEY` | A third fallback (`openrouter/free`) | [openrouter.ai](https://openrouter.ai/keys) |
+| `GROQ_API_KEY` | Groq writes scripts first (open-weight gpt-oss-120b) and is the fast fallback for edits and translation (gpt-oss-20b / 120b) | [console.groq.com](https://console.groq.com/keys) |
+| `GEMINI_API_KEY` | Gemini Flash reads edits and translates subtitles first, and is the last cloud fallback for scripts | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| `OPENROUTER_API_KEY` | Second for scripts, third for edits and translation (`openrouter/free`) | [openrouter.ai](https://openrouter.ai/keys) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | FLUX images, four at a time; 10,000 neurons a day ≈ 170 images | [dash.cloudflare.com](https://dash.cloudflare.com), a Workers AI token |
 | `POLLINATIONS_API_KEY` | Pollinations' real models at full size instead of the keyless endpoint | [enter.pollinations.ai](https://enter.pollinations.ai) |
 | `MYMEMORY_EMAIL` | Raises the free translation fallback from ~5,000 to ~50,000 characters a day | any address |
