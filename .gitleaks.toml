@@ -1,0 +1,22 @@
+# gitleaks configuration: the default rules, plus one narrow exception.
+#
+# Two tests contain key-shaped strings on purpose: they check that credentials
+# are blanked out of benchmark errors (tests/unit/test_eval_testset.py, DST-9)
+# and of Langfuse traces (tests/unit/test_model_call_tracing.py, DST-11), so
+# they need a value that looks like a real key. Only those two exact fake
+# values are allowed. Any other key-shaped value, in any file, those two
+# included, is still reported.
+#
+# The values are matched exactly rather than by file path: a path-based
+# allowlist hid every secret in those files (checked against gitleaks 8.30.1).
+title = "Dastango"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake credentials used by redaction tests (DST-9, DST-11)"
+regexes = [
+  '''^sk-test-1234567890$''',
+  '''^sk-live-0123456789abcdef$''',
+]

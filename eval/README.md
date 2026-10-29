@@ -8,12 +8,15 @@ Run them through the benchmark rather than by hand:
 
 ```bash
 python scripts/benchmark.py --testset eval/testset.jsonl --render-subset   # the 8 full renders
+python scripts/benchmark.py --testset eval/testset.jsonl --plan-only       # all 25 planned, none rendered
 python scripts/benchmark.py --testset eval/testset.jsonl --ids dst-03,dst-07
 python scripts/benchmark.py --testset eval/testset.jsonl --offline         # all 25, no network
 ```
 
 Each prompt brings its own length, scene count and subtitle language, so
 `--duration`, `--scenes` and `--subtitle-lang` are ignored with `--testset`.
+Without `--plan-only`, every prompt is planned and the 8 marked
+`render_subset` are also rendered. Results so far: [docs/EVAL.md](../docs/EVAL.md).
 
 ## Fields
 

@@ -273,7 +273,9 @@ def run_case(case: Dict[str, Any], args) -> Dict[str, Any]:
         "llm_calls": planned["llm"],
         "render": None,
     })
-    if not case["render_subset"]:
+    # --plan-only measures every prompt at script and storyboard level, on one
+    # commit, without rendering the subset (no voices, no video, fewer images).
+    if not case["render_subset"] or args.plan_only:
         return row
 
     with _watch_calls() as rendered:
@@ -436,9 +438,14 @@ def main() -> int:
     parser.add_argument("--ids", help="with --testset: only these ids, comma-separated")
     parser.add_argument("--render-subset", action="store_true",
                         help="with --testset: only the prompts marked render_subset")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="with --testset: plan every prompt (script and storyboard) "
+                        "and render none, not even the render subset")
     args = parser.parse_args()
-    if (args.ids or args.render_subset) and not args.testset:
-        parser.error("--ids and --render-subset need --testset")
+    if (args.ids or args.render_subset or args.plan_only) and not args.testset:
+        parser.error("--ids, --render-subset and --plan-only need --testset")
+    if args.plan_only and args.render_subset:
+        parser.error("--plan-only and --render-subset contradict each other")
     if args.testset and args.out:
         parser.error("--out is not used with --testset; the report is the JSON "
                      "written to data/benchmarks/")

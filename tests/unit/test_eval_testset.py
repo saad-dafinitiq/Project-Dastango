@@ -102,10 +102,29 @@ def test_the_loader_narrows_by_id_and_by_subset(bench, tmp_path):
     assert [c["id"] for c in bench.load_testset(path, ids=["a", "b"], render_subset=True)] == ["b"]
 
 
-def test_testset_only_options_need_a_testset(bench, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["benchmark.py", "--render-subset"])
+@pytest.mark.parametrize("argv", [
+    ["--render-subset"],
+    ["--plan-only"],
+    ["--testset", "eval/testset.jsonl", "--plan-only", "--render-subset"],
+])
+def test_testset_options_are_checked_before_anything_runs(bench, monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", ["benchmark.py", *argv])
     with pytest.raises(SystemExit):
         bench.main()
+
+
+def test_plan_only_plans_the_render_subset_without_rendering_it(
+        bench, tmp_path, monkeypatch, isolated_dirs):
+    path = _write(tmp_path / "set.jsonl", _case(id="subset", render_subset=True))
+    monkeypatch.setattr(bench, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["benchmark.py", "--testset", str(path), "--plan-only"])
+    assert bench.main() == 0
+
+    report = json.loads(next((tmp_path / "data" / "benchmarks").glob("*_testset.json"))
+                        .read_text(encoding="utf-8"))
+    (row,) = report["runs"]
+    assert row["render"] is None                         # not rendered, though in the subset
+    assert row["scenes"] == 2 and len(row["storyboard_images"]) == 2   # but fully planned
 
 
 # ---- what a run records ---------------------------------------------------------
