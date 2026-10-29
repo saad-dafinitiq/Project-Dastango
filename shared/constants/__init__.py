@@ -16,6 +16,30 @@ DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_SAMPLE_RATE = 22050
 
+# A finished film further than this from its target length, as a fraction of the
+# target, is flagged to the creator rather than reported as a plain success
+# (DST-17). Why 0.5: in the DST-10 baseline (2026-10-29) normal films came out
+# 0.4% to 42% short and none was long, while a broken one (dst-05, dialogue the
+# voice engine could not read) was 5x its target. 0.5 flags the broken film and
+# none of the normal ones. FILM_LENGTH_TOLERANCE in .env overrides it.
+FILM_LENGTH_TOLERANCE = 0.5
+
+
+def film_length_tolerance() -> float:
+    """FILM_LENGTH_TOLERANCE from the environment, read when a film finishes."""
+    raw = os.getenv("FILM_LENGTH_TOLERANCE", "").strip()
+    try:
+        value = float(raw) if raw else FILM_LENGTH_TOLERANCE
+    except ValueError:
+        value = -1.0
+    if not 0 < value < 10:     # also catches nan and inf
+        from shared.utils.logging import get_logger
+        get_logger("constants").warning(
+            "FILM_LENGTH_TOLERANCE=%r is not a fraction above 0; using %s",
+            raw, FILM_LENGTH_TOLERANCE)
+        return FILM_LENGTH_TOLERANCE
+    return value
+
 # Phase names
 PHASE_STORY = "story"
 PHASE_AUDIO = "audio"

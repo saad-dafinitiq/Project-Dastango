@@ -34,10 +34,15 @@ export function describe(ev: ProgressEvent | undefined): string {
     case "edit:step":
     case "revert:started":
       return ev.message;
-    case "complete:complete":
-      if (ev.payload?.kind === "edit") return "Change made";
+    case "complete:complete": {
+      // A film far from the length asked for is finished, but not as asked:
+      // say so instead of a plain "ready" (DST-17).
+      const off = ev.payload?.length_warning as { film_s: number; target_s: number } | undefined;
+      const lengthNote = off ? `, but it came out ${Math.round(off.film_s)} s for a ${off.target_s} s target` : "";
+      if (ev.payload?.kind === "edit") return `Change made${lengthNote}`;
       if (ev.payload?.kind === "revert") return ev.message;
-      return "Your film is ready";
+      return `Your film is ready${lengthNote}`;
+    }
     case "cancelled:cancelled":
       return "Stopped";
     case "error:retrying":

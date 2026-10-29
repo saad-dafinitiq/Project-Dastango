@@ -14,11 +14,12 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from mcp.tool_executor import ToolExecutor
 from shared import providers
 from shared.constants import PHASE_AUDIO
+from shared.languages import SPEECH_VOICES, spoken_language
 from shared.schemas.audio import (
     AudioOutput, AudioSegment, SceneTiming, TimingManifest, VoiceConfig,
 )
@@ -83,6 +84,13 @@ TONE_ALIASES = {
 }
 
 
+class RenderedLine(NamedTuple):
+    path: str
+    duration_ms: int
+    engine: str             # who actually spoke it, after any fallback
+    voice: Optional[str]
+
+
 class AudioAgent:
     def __init__(self):
         self.tools = ToolExecutor()
@@ -115,11 +123,12 @@ class AudioAgent:
                 AudioSegment(
                     segment_id=f"{scene.scene_id}_{line.line_id}",
                     scene_id=scene.scene_id, line_id=line.line_id,
-                    character_id=line.character_id, file_path=path,
-                    kind="dialogue", start_ms=0, end_ms=dur, duration_ms=dur,
-                    text=line.text,
+                    character_id=line.character_id, file_path=out.path,
+                    kind="dialogue", start_ms=0, end_ms=out.duration_ms,
+                    duration_ms=out.duration_ms, text=line.text,
+                    engine=out.engine, voice=out.voice,
                 )
-                for (scene, line), (path, dur) in zip(lines, rendered)
+                for (scene, line), out in zip(lines, rendered)
             ]
 
             state.audio = AudioOutput(
@@ -145,8 +154,8 @@ class AudioAgent:
             raise
 
     def render_line(self, project_id: str, scene_id: str, line_id: str, text: str,
-                    cfg: Optional[VoiceConfig], fallback_ms: int = 2500) -> Tuple[str, int]:
-        """Record one dialogue line with its character's voice. Returns (path, duration_ms)."""
+                    cfg: Optional[VoiceConfig], fallback_ms: int = 2500) -> RenderedLine:
+        """Record one dialogue line with its character's voice."""
         audio_dir = project_dir(project_id) / "audio"
         audio_dir.mkdir(exist_ok=True, parents=True)
         out_file = audio_dir / f"{scene_id}_{line_id}.mp3"
@@ -164,12 +173,14 @@ class AudioAgent:
         )
         if res.success:
             rendered = Path(res.data)
+            engine, voice = res.metadata.get("engine", "unknown"), res.metadata.get("voice")
         else:
             log.warning("tts failed for %s: %s — using silent placeholder", line_id, res.error)
             rendered = audio_dir / f"{scene_id}_{line_id}.wav"
             self.tools.execute("audio.tts", text=text, out_path=str(rendered), engine="silent")
+            engine, voice = "silent", None
         duration = self._probe_duration_ms(rendered) or fallback_ms or estimate_line_ms(text)
-        return str(rendered), duration
+        return RenderedLine(str(rendered), duration, engine, voice)
 
     def retime(self, state: PipelineState) -> TimingManifest:
         """Lay every segment out on the film timeline (script order, real durations)."""
@@ -217,17 +228,48 @@ class AudioAgent:
 
     def _build_voice_configs(self, script: ScriptOutput, default_engine: str) -> List[VoiceConfig]:
         out: List[VoiceConfig] = []
+        languages = self.speaker_languages(script)
         for c in script.characters.characters:
+            engine, voice_id, language = self.voice_plan(c, default_engine, languages.get(c.id))
+            if engine != default_engine:
+                log.info("%s speaks %s, which %s cannot voice: %s (%s) will",
+                         c.name, languages[c.id], default_engine, engine, voice_id)
             out.append(VoiceConfig(
                 character_id=c.id,
-                engine=default_engine,
-                language="en",
-                voice_id=self.voice_for(c, default_engine),
+                engine=engine,
+                language=language,
+                voice_id=voice_id,
                 tld=self._tld_for(c),
                 rate=self._rate_for(c),
                 tone=c.voice_style,
             ))
         return out
+
+    @staticmethod
+    def speaker_languages(script: ScriptOutput) -> Dict[str, Optional[str]]:
+        """Each character's language, from the writing system of all their lines."""
+        said: Dict[str, List[str]] = {}
+        for scene in script.scenes:
+            for line in scene.dialogue:
+                said.setdefault(line.character_id, []).append(line.text)
+        return {cid: spoken_language(" ".join(texts)) for cid, texts in said.items()}
+
+    @classmethod
+    def voice_plan(cls, c: Character, engine: str,
+                   language: Optional[str] = None) -> Tuple[str, str, str]:
+        """(engine, voice, gTTS language code) for a character speaking `language`.
+
+        Kokoro reads only English, so a speaker of a language in SPEECH_VOICES
+        moves to Edge TTS with a voice in that language; gTTS, Edge's fallback,
+        gets the language code. Other engines keep their own voice and get the
+        code too. English (or undetected) speakers are unchanged.
+        """
+        if language not in SPEECH_VOICES:
+            return engine, cls.voice_for(c, engine), "en"
+        code, male, female = SPEECH_VOICES[language]
+        if engine in ("kokoro", "edge"):
+            return "edge", female if c.voice_gender == "female" else male, code
+        return engine, cls.voice_for(c, engine), code
 
     @staticmethod
     def normalise_voice_params(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -267,6 +309,13 @@ class AudioAgent:
         if voice:
             if voice == "alternate":
                 gender = character.voice_gender if character else "neutral"
+                spoken = next((name for name, (code, *_rest) in SPEECH_VOICES.items()
+                               if code == cfg.language), None)
+                if spoken:
+                    # The English pools would put the old bug back: an Urdu
+                    # speaker given an English voice. Each language has one
+                    # voice per gender here, so there is no alternate to offer.
+                    raise ValueError(f"there is no other {spoken} voice to switch to")
                 pools = KOKORO_POOL if cfg.engine == "kokoro" else VOICE_POOL
                 pool = pools.get(gender, pools["neutral"])
                 current = cfg.voice_id or ""
