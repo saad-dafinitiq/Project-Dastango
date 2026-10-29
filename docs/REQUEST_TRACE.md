@@ -159,6 +159,7 @@ sequenceDiagram
 | **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | CI tests the image | Medium |
 | **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation | Account security is incomplete | Sign-ups closed by default | Medium |
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
+| **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
 
 ### F1 in detail (fixed in DST-12)
 
@@ -238,6 +239,39 @@ The one that passes on both checks that a slow answer inside the limit is kept.
   were left alone.
 - `requests` and httpx limit each wait for data, not the whole call: a server
   that sent one byte every 59 s would not be cut off by a 60 s limit.
+
+### F14 in detail (fixed in DST-17)
+
+**Reproduced in the baseline.** dst-05, a prompt written in Urdu, got Urdu
+dialogue, and every line was voiced by Kokoro with English phonemes: espeak
+logged "words count mismatch on 100.0% of the lines", and each line came out
+6 to 11 times longer than estimated (a 10-word line: 4.5 s estimated, 28.8 s
+recorded). The film was 150.8 s for a 30 s target on 2026-10-29 (210.0 s on
+2026-10-28) and reported as a success.
+
+**The fix.**
+- Each speaker's language is read from the writing system of their lines
+  (`shared/languages.py` `spoken_language`). A speaker of Urdu, Arabic, Hindi,
+  Japanese, Korean, Chinese or Russian is voiced by Edge TTS in that language,
+  with gTTS in that language as its fallback (`AudioAgent.voice_plan`). The
+  storyboard names the same voice. Who actually spoke each line is kept on the
+  line (`AudioSegment.engine`, `voice`) and in the trace.
+- A film more than `FILM_LENGTH_TOLERANCE` (0.5) from its target is flagged on
+  the job's completion event (`length_warning`) and in the creator interface
+  ("Your film is ready, but it came out 151 s for a 30 s target").
+- **Re-run of dst-05 after the fix** (2026-10-29, placeholder images): 21.4 s
+  for the 30 s target, all 4 lines by Edge's `ur-PK-AsadNeural`, each within
+  its estimate.
+
+**Gaps that remain:**
+- Latin-script languages (Spanish, French, Roman Urdu) cannot be told from
+  English by their letters, so they stay with Kokoro's English voice. Their
+  length stays close to normal, and the length check would catch a bad one.
+- Edge has one voice per gender in these languages, so every male speaker of
+  a film in Urdu has the same voice; "switch to another voice" fails with a
+  clear message for them instead of switching to an English voice.
+- Subtitles assume English dialogue: translation always starts from English,
+  so a film in Urdu gets an "English" track in Urdu.
 
 ---
 

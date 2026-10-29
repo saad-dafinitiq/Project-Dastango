@@ -30,6 +30,9 @@ class AudioSegment(BaseModel):
     end_ms: int = Field(..., ge=0)
     duration_ms: int = Field(..., ge=0)
     text: Optional[str] = None
+    # Who actually spoke the line, after any fallback: the engine and its voice.
+    engine: Optional[str] = None
+    voice: Optional[str] = None
 
 
 class SceneTiming(BaseModel):

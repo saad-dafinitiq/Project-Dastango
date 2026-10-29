@@ -5,6 +5,8 @@ MyMemory locale code for the free translation fallback).
 The web UI's language dropdown should only offer names listed here.
 """
 from __future__ import annotations
+import unicodedata
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 SUBTITLE_LANGUAGES: Dict[str, Tuple[str, str]] = {
@@ -61,3 +63,51 @@ def mymemory_code(name: str) -> Optional[str]:
 
 def supported_names() -> List[str]:
     return list(SUBTITLE_LANGUAGES)
+
+
+# ---- spoken dialogue (DST-17) ---------------------------------------------------
+# Kokoro reads every line as English (`lang="en-us"`), so a line written in another
+# writing system comes out as minutes of letter-by-letter noise: Urdu dialogue made
+# a 30 s film 150.8 s long in the DST-10 baseline. A line's writing system says its
+# language; these are voiced by Edge TTS instead (or gTTS, its fallback).
+# Language -> (gTTS code, Edge male voice, Edge female voice). Every voice was
+# checked against edge-tts 7.3.1's voice list and every code against gTTS 2.5.4's
+# languages on 2026-10-29.
+SPEECH_VOICES: Dict[str, Tuple[str, str, str]] = {
+    "Urdu":     ("ur", "ur-PK-AsadNeural", "ur-PK-UzmaNeural"),
+    "Arabic":   ("ar", "ar-SA-HamedNeural", "ar-SA-ZariyahNeural"),
+    "Hindi":    ("hi", "hi-IN-MadhurNeural", "hi-IN-SwaraNeural"),
+    "Japanese": ("ja", "ja-JP-KeitaNeural", "ja-JP-NanamiNeural"),
+    "Korean":   ("ko", "ko-KR-InJoonNeural", "ko-KR-SunHiNeural"),
+    "Chinese":  ("zh-CN", "zh-CN-YunxiNeural", "zh-CN-XiaoxiaoNeural"),
+    "Russian":  ("ru", "ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"),
+}
+# Letters Urdu writes and Arabic does not: tteh, ddal, rreh, noon ghunna, barree
+# yeh (and its hamza form), do-chashmee heh and heh goal.
+_URDU_ONLY = set("ٹڈڑںےۓھہ")
+# First word of a letter's Unicode name -> the language that script stands for.
+_SCRIPTS = {"ARABIC": "Arabic", "DEVANAGARI": "Hindi", "HIRAGANA": "Japanese",
+            "KATAKANA": "Japanese", "HANGUL": "Korean", "CJK": "Chinese",
+            "CYRILLIC": "Russian"}
+
+
+def spoken_language(text: str) -> Optional[str]:
+    """The language `text` is written in, when its writing system decides it.
+
+    None for Latin script (English, but also Spanish or Roman Urdu, which cannot
+    be told apart by their letters) and for text with no letters: those stay with
+    whichever engine the voice chain picks.
+    """
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return None
+    scripts = Counter(_SCRIPTS.get(unicodedata.name(c, "").split(" ")[0], "Latin")
+                      for c in letters)
+    language, count = scripts.most_common(1)[0]
+    if language == "Latin" or count * 2 < len(letters):
+        return None
+    if language == "Chinese" and scripts["Japanese"]:
+        return "Japanese"          # Japanese mixes kanji with kana; Chinese has no kana
+    if language == "Arabic" and any(c in _URDU_ONLY for c in letters):
+        return "Urdu"
+    return language

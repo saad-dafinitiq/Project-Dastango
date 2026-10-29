@@ -104,12 +104,13 @@ class EditExecutor:
 
         affected: List[str] = []
         for seg in targets:
-            path, dur = self.audio.render_line(
+            out = self.audio.render_line(
                 state.project_id, seg.scene_id, seg.line_id, seg.text or "",
                 audio.voice_for(seg.scene_id, seg.character_id), fallback_ms=seg.duration_ms,
             )
-            seg.file_path, seg.duration_ms = path, dur
-            affected.append(path)
+            seg.file_path, seg.duration_ms = out.path, out.duration_ms
+            seg.engine, seg.voice = out.engine, out.voice
+            affected.append(out.path)
         self._rebuild_audio(state)
         return affected + [state.audio.master_track]
 

@@ -6,7 +6,7 @@ streaming, and snapshots the final state via StateManager.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from agents.audio_agent import AudioAgent
 from agents.edit_agent import EditAgent
@@ -14,7 +14,7 @@ from agents.edit_agent.describe import STEP_WORDS, describe
 from agents.story_agent import StoryAgent
 from agents.video_agent import VideoAgent
 from shared.assets import asset_url
-from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
+from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, film_length_tolerance
 
 from .storyboard_view import cast, image_budget, scene_cards
 from shared.schemas.edit import EditCommand, EditResult
@@ -119,13 +119,13 @@ class PipelineOrchestrator:
             asset_paths=self._collect_assets(state),
             description=INITIAL_RUN,
         )
-        note, skipped = self._subtitle_outcome(state)
+        note, notes = self._completion_notes(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Pipeline finished (version {version.version}){note}",
                            progress=1.0,
                            payload={"version": version.version,
                                     "video_path": state.video.final_video_path
-                                    if state.video else None, **skipped}))
+                                    if state.video else None, **notes}))
         return state
 
     # ---- storyboard: plan cheaply, approve, then render ------------------
@@ -286,13 +286,13 @@ class PipelineOrchestrator:
         state.stage = "rendered"
         version = self.sm.snapshot(state, asset_paths=self._collect_assets(state),
                                    description=RENDERED)
-        note, skipped = self._subtitle_outcome(state)
+        note, notes = self._completion_notes(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Film rendered (version {version.version}){note}",
                            progress=1.0,
                            payload={"version": version.version,
                                     "video_path": state.video.final_video_path
-                                    if state.video else None, **skipped}))
+                                    if state.video else None, **notes}))
         return state
 
     # ---- generator variant for SSE/WebSocket streaming ------------------
@@ -353,11 +353,11 @@ class PipelineOrchestrator:
             asset_paths=self._collect_assets(state),
             description=f"re-run phase: {phase}",
         )
-        note, skipped = self._subtitle_outcome(state)
+        note, notes = self._completion_notes(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Phase {phase} re-run, version {version.version}{note}",
                            progress=1.0,
-                           payload={"version": version.version, **skipped}))
+                           payload={"version": version.version, **notes}))
         return state
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
@@ -390,12 +390,12 @@ class PipelineOrchestrator:
                                               user_id=user_id), on_progress=progress)
         if not result.success:
             raise EditFailed(result.error or "the edit could not be applied")
-        note, skipped = self._subtitle_outcome(self.sm.latest(project_id))
+        note, notes = self._completion_notes(self.sm.latest(project_id))
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Edit applied (version {result.new_version}){note}",
                            progress=1.0,
                            payload={"version": result.new_version, "kind": "edit",
-                                    "result": result.model_dump(mode="json"), **skipped}))
+                                    "result": result.model_dump(mode="json"), **notes}))
         return result
 
     def revert(self, project_id: str, version: int,
@@ -473,15 +473,28 @@ class PipelineOrchestrator:
                              progress=done_p if done else start_p)
 
     @staticmethod
-    def _subtitle_outcome(state: Optional[PipelineState]) -> Tuple[str, Dict[str, List[str]]]:
-        """A note for the completion message, and payload, when a subtitle language
-        could not be translated: the film is finished without it, so say so rather
-        than report a plain success."""
-        skipped = list(state.video.subtitles_skipped) if state and state.video else []
-        if not skipped:
+    def _completion_notes(state: Optional[PipelineState]) -> Tuple[str, Dict[str, Any]]:
+        """Notes for the completion message, and payload, when the film is finished
+        but not as asked, so the job says so rather than report a plain success:
+        a subtitle language that could not be translated (DST-18), or a length far
+        from the target (DST-17, FILM_LENGTH_TOLERANCE)."""
+        video = state.video if state else None
+        if not video:
             return "", {}
-        return (f" · subtitles skipped, translation failed: {', '.join(skipped)}",
-                {"subtitles_skipped": skipped})
+        note, payload = "", {}
+        if video.subtitles_skipped:
+            note += f" · subtitles skipped, translation failed: {', '.join(video.subtitles_skipped)}"
+            payload["subtitles_skipped"] = list(video.subtitles_skipped)
+        target_s = state.script.story.target_duration_s if state.script else 0
+        film_s = video.duration_ms / 1000
+        tolerance = film_length_tolerance()
+        if target_s and film_s and abs(film_s - target_s) > tolerance * target_s:
+            note += f" · length off target: {film_s:.1f} s for a {target_s} s target"
+            payload["length_warning"] = {"film_s": round(film_s, 1), "target_s": target_s,
+                                         "tolerance": tolerance}
+            log.warning("film %s is %.1f s for a %d s target (more than %g%% off)",
+                        state.project_id, film_s, target_s, tolerance * 100)
+        return note, payload
 
     @staticmethod
     def _collect_assets(state: PipelineState) -> List[str]:

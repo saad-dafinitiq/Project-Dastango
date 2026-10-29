@@ -39,10 +39,12 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
         engine = spec.provider if spec else "edge"
 
     people = {c.id: c for c in script.characters.characters}
+    languages = AudioAgent.speaker_languages(script)
     spoken = {}
     for c in script.characters.characters:
-        voice_id = AudioAgent.voice_for(c, engine)
-        spoken[c.id] = {"name": c.name, "voice": _voice_label(engine, voice_id)}
+        # The voice the render will use: a speaker Kokoro cannot voice moves to Edge.
+        used, voice_id, _code = AudioAgent.voice_plan(c, engine, languages.get(c.id))
+        spoken[c.id] = {"name": c.name, "voice": _voice_label(used, voice_id)}
 
     cards = []
     for scene in script.scenes:
@@ -85,11 +87,13 @@ def cast(script, engine: Optional[str] = None) -> List[Dict]:
     if engine is None:
         spec = providers.active("tts")
         engine = spec.provider if spec else "edge"
-    return [
-        {"character_id": c.id, "name": c.name, "role": c.role,
-         "voice": _voice_label(engine, AudioAgent.voice_for(c, engine))}
-        for c in script.characters.characters
-    ]
+    languages = AudioAgent.speaker_languages(script)
+    out = []
+    for c in script.characters.characters:
+        used, voice_id, _code = AudioAgent.voice_plan(c, engine, languages.get(c.id))
+        out.append({"character_id": c.id, "name": c.name, "role": c.role,
+                    "voice": _voice_label(used, voice_id)})
+    return out
 
 
 def image_budget(script) -> Dict[str, int]:
