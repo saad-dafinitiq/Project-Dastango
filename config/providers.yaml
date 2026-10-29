@@ -21,22 +21,20 @@ version: 1
 
 roles:
   # ---- Writing the script (structured JSON out) --------------------------
+  # Groq first (DST-15): in the DST-10 baseline Gemini hung once for 36 min, hit
+  # the 180 s timeout 7 times and ran out of daily quota mid-run. OpenAI and
+  # Anthropic adapters still exist in llm_client; add them back here once a key
+  # exists (the project has none at $0).
   story:
-    - provider: gemini            # free tier at aistudio.google.com/app/apikey
-      model: gemini-flash-latest  # alias: always the current Flash, never a retired id
-      requires: [GEMINI_API_KEY]
     - provider: groq              # free tier at console.groq.com
-      model: openai/gpt-oss-120b
+      model: openai/gpt-oss-120b  # open-weight (Apache 2.0)
       requires: [GROQ_API_KEY]
     - provider: openrouter        # free tier at openrouter.ai
       model: openrouter/free      # routes to whichever free model fits the request
       requires: [OPENROUTER_API_KEY]
-    - provider: openai
-      model: gpt-4o-mini
-      requires: [OPENAI_API_KEY]
-    - provider: anthropic
-      model: claude-sonnet-4-6
-      requires: [ANTHROPIC_API_KEY]
+    - provider: gemini            # free tier at aistudio.google.com/app/apikey
+      model: gemini-flash-latest  # alias: always the current Flash, never a retired id
+      requires: [GEMINI_API_KEY]
     - provider: ollama            # local models; set OLLAMA_HOST=http://localhost:11434
       model: qwen3:4b
       requires: [OLLAMA_HOST]

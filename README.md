@@ -62,7 +62,7 @@ flowchart LR
         edit["Edit agent<br/>understand → plan → execute"]
     end
 
-    wk -- "provider chains:<br/>free first, offline last" --> models["Gemini · Groq · FLUX<br/>Kokoro · Edge TTS"]
+    wk -- "provider chains:<br/>free first, offline last" --> models["Groq · Gemini · FLUX<br/>Kokoro · Edge TTS"]
     wk -- "the film and<br/>every version" --> films[("Films and<br/>version snapshots")]
     api -. "streams the film<br/>to the player" .-> films
 

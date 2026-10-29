@@ -1,7 +1,8 @@
 # Evaluation: baseline quality on the test set
 
-DST-10 baseline. Every number below comes from a run listed in this file, on
-the date given. Raw results are in `data/benchmarks/` (not committed; `data/`
+DST-10 baseline, measured on the **Gemini-first** story chain, and the DST-15
+comparison with the **Groq-first** chain (run G). Every number below comes
+from a run listed in this file, on the date given. Raw results are in `data/benchmarks/` (not committed; `data/`
 is ignored). Results from different commits or different provider conditions
 are reported separately and never averaged together.
 
@@ -17,6 +18,11 @@ are reported separately and never averaged together.
 | **A** | `20261028_111752_testset.json` | 2026-10-28 11:17 | pipeline code `9cedcf7` (before DST-11 and DST-12) | full render, dst-01 to dst-06 | forced placeholder | Gemini first | Kokoro |
 | **B** | `20261028_120715_testset.json` | 2026-10-28 12:07 | pipeline code `9cedcf7` | full render, dst-07 and dst-08 | forced placeholder | Gemini first | Kokoro |
 | **H** | `20261028_dst07_gemini_hang.json` | 2026-10-28 11:29 | pipeline code `9cedcf7` | the dst-07 hang (inside run A) | | | |
+| **G** | `20261029_124621_testset.json` … `20261029_132100_testset.json` (one per prompt), logs `DST-15_dst-NN.log` | 2026-10-29 12:46 to 13:21 | `2acce54` + DST-15's story chain change (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart, 10 min cap each | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (DST-15) | none |
+
+Runs P1 to P3, R, S, A and B are on the **Gemini-first** story chain (Gemini →
+Groq → OpenRouter → OpenAI → Anthropic → Ollama → mock); only run G is
+Groq-first.
 
 - **Test set:** `eval/testset.jsonl`, 25 prompts, unchanged since commit `0bc83f4` (2026-10-28). Field guide: `eval/README.md`.
 - **Command:** `python scripts/benchmark.py --testset eval/testset.jsonl` with `--plan-only` (P1 to P3), `--ids <one id>` (R), `--render-subset` (A).
@@ -25,7 +31,7 @@ are reported separately and never averaged together.
 - **Machine:** the dev laptop (Windows 11), one run at a time.
 - **Excluded:** P1's first tries of dst-04 and dst-05. The laptop lost its internet connection (DNS failing, first logged 02:39:15, back by 02:43:35), so every provider failed and both got the template script. The P2 and P3 reruns replace them. Run A0 (`20261028_111104_render_subset.log`) was stopped on purpose and measured nothing.
 
-## Plan level: all 25 prompts (P1, P2, P3)
+## Plan level, Gemini-first chain: all 25 prompts (P1, P2, P3)
 
 Images were forced to the placeholder, so **the storyboard placeholder rate
 is not measured** (it is 100% by construction).
@@ -79,6 +85,109 @@ count, so it always equals the target (see Findings).
 | Plan time (all 25) | 4.4 to 189.4 s, median 56.0 s. Seven prompts took 186.8 to 189.4 s (Gemini at its 180 s limit, then Groq); Groq-only prompts took 4.4 to 8.5 s |
 | Who wrote the scripts (all 25) | Groq 16, Gemini 5, OpenRouter 1, template 3 |
 | Storyboard placeholder rate | **Not measured** (images forced to placeholder) |
+
+## DST-15: Groq-first story chain (run G) against the Gemini-first baseline
+
+The `story` chain in `config/providers.yaml` changed from Gemini → Groq →
+OpenRouter → OpenAI → Anthropic → Ollama → mock to **Groq → OpenRouter →
+Gemini → Ollama → mock**. OpenAI and Anthropic were removed from `story` only
+(no keys exist; a provider without its key was already skipped without a
+call). `edit_intent` and `translate` are unchanged (Gemini first) and were not
+measured here.
+
+**Code.** Run G's reports record `2acce54-dirty`. The uncommitted changes were
+the story chain in `config/providers.yaml`, which is what is being measured,
+and documentation; no pipeline code was changed. Both are committed in the
+DST-15 PR.
+
+**Not like for like, in two ways.** (1) Run P3 planned its prompts back to
+back in one process; run G waited 45 s between prompts, which gives Groq's
+tokens-per-minute limit time to recover (P3 hit that limit 4 times, G never).
+(2) Every prompt ran once per chain, at different times of day, so
+run-to-run variation is not measured; the same prompt on the same provider
+can differ (dst-03 by Groq: 17.4% length error in P1, 41.8% in G).
+
+### Per prompt
+
+"Invalid answers" counts structured answers that failed JSON or schema
+validation, from any provider, as logged (`structured attempt N failed`).
+
+| id | plan time, Gemini-first → Groq-first | script by, Gemini-first → Groq-first | invalid answers (G) | providers that failed (G) | characters got/label (G) | planned length error (G) |
+|---|---|---|---|---|---|---|
+| dst-01 | 18.3 → 9.8 s | groq → groq | 1 | none | 2/1 | 8.3% |
+| dst-02 | 169.2 → 6.2 s | gemini → groq | 0 | none | 2/2 | 14.5% |
+| dst-03 | 186.8 → 4.8 s | groq → groq | 0 | none | 2/1 | 41.8% |
+| dst-04 | 88.3 → 10.2 s | gemini → groq | 1 | none | 3/2 | 28.7% |
+| dst-05 | 91.8 → 5.5 s | gemini → groq | 0 | none | 2/2 | 5.3% |
+| dst-06 | 189.2 → 7.6 s | groq → groq | 1 | none | 2/2 | 10.8% |
+| dst-07 | 92.4 → 6.8 s | gemini → groq | 0 | none | 3/unlabelled | 0.8% |
+| dst-08 | 188.5 → 11.1 s | groq → groq | 1 | none | 4/4 | 27.1% |
+| dst-09 | 187.2 → 8.6 s | groq → groq | 1 | none | 3/1 | 52.5% |
+| dst-10 | 95.0 → **219.8 s** | gemini → ⚠ **template** ¹ | 2 | groq (invalid twice), openrouter cut short, gemini 180 s limit | ⚠ template | ⚠ |
+| dst-11 | 188.1 → 6.8 s | groq → groq | 0 | none | 2/2 | 2.3% |
+| dst-12 | 189.4 → 13.0 s | groq → groq | 1 | none | 4/4 | 25.5% |
+| dst-13 | 187.9 → 8.5 s | groq → groq | 1 | none | 3/1 | 22.1% |
+| dst-14 | 50.9 → 6.1 s | template → groq | 0 | none | 3/3 | 27.5% |
+| dst-15 | 7.7 → 9.3 s | groq → groq | 1 | none | 2/1 | 3.8% |
+| dst-16 | 8.5 → **338.4 s** | groq → ⚠ **template** ¹ | 1 | groq `400 Failed to generate JSON`, openrouter invalid then cut short, gemini 180 s limit | ⚠ template | ⚠ |
+| dst-17 | 55.3 → 6.4 s | openrouter → groq | 0 | none | 2/2 | 2.3% |
+| dst-18 | 5.8 → 8.0 s | groq → groq | 1 | none | 2/2 | 16.7% |
+| dst-19 | 4.4 → 4.9 s | groq → groq | 0 | none | 3/2 | 32.6% |
+| dst-20 | 5.2 → 4.8 s | groq → groq | 0 | none | 2/unlabelled | 20.5% |
+| dst-21 | 40.6 → **218.9 s** | template → ⚠ **template** ¹ | 3 | groq (invalid twice), openrouter invalid then cut short, gemini 180 s limit | ⚠ template | ⚠ |
+| dst-22 | 8.2 → 11.5 s | groq → groq | 1 | none | 3/3 | 3.0% |
+| dst-23 | 56.0 → 7.7 s | template → groq | 1 | none | 2/2 | 12.7% |
+| dst-24 | 6.4 → 4.8 s | groq → groq | 0 | none | 2/1 | 8.6% |
+| dst-25 | 5.8 → 5.4 s | groq → groq | 0 | none | 1/1 | 0.9% |
+
+¹ **Every provider failed** (logged for each): Groq's answer failed schema
+validation on both attempts (an invented role such as `friend` or
+`environment`, or an empty `gender`), or for dst-16 Groq refused with `400
+Failed to generate JSON`; OpenRouter's free model cut its answer short
+(`finish_reason=length`); Gemini used its full 180 s limit (`504
+DEADLINE_EXCEEDED`). The story agent then used its template.
+
+### Summary
+
+dst-01 to dst-13 are the fair comparison: in the baseline Gemini still had
+quota for those, so they really ran Gemini first. From dst-14 on, Gemini's
+daily quota was used up in the baseline and every prompt was effectively Groq
+first already.
+
+| Measure | Gemini-first (P1 to P3) | Groq-first (G) |
+|---|---|---|
+| Plan time, dst-01 to dst-13 | median **186.8 s**, mean 144.0 s; 7 of 13 over 180 s | median **8.5 s**, mean 24.5 s; 1 of 13 over 180 s |
+| Plan time, all 25 | median 56.0 s, mean 85.1 s; 9 under 20 s | median **7.7 s**, mean 37.8 s; 22 under 20 s |
+| Scripts where the first provider failed, dst-01 to dst-13 | 8 of 13 (Gemini: 7 timeouts at 180 s, 1 `503`) | 1 of 13 (dst-10) |
+| Template scripts, all 25 | 3 (dst-14, dst-21, dst-23; Gemini quota gone, Groq rate-limited) | 3 (dst-10, dst-16, dst-21; every provider failed) |
+| Time spent before a template script | 40.6 to 56.0 s | **218.9 to 338.4 s** (the whole fallback chain, ending in Gemini's 180 s limit) |
+| Who wrote the scripts, all 25 | Groq 16, Gemini 5, OpenRouter 1, template 3 | **Groq 22**, template 3 |
+| Groq answers that failed validation the first time | 15 of the 20 prompts that reached Groq | 13 of 25; the retry rescued 11 of them |
+| Fallbacks that worked when reached (G) | | OpenRouter **0 of 3**, Gemini **0 of 3** |
+| Scene count as asked (model-written) | 22 of 22 | 22 of 22 |
+| Character count as labelled (model-written) | 9 of 20 exact, 11 over | 12 of 20 exact, 8 over |
+| Planned length error (model-written) | median 11.1%, mean 14.1% | median 13.6%, mean 16.7% |
+| Planned length error, dst-01 to dst-13 | median 9.8% (Gemini's 5 scripts: 0.3 to 9.8%, four of them under 5%) | median 18.3% |
+| Provider rate-limit `429`s | Gemini daily quota 12, Groq tokens-per-minute 4 | none |
+
+### Decision: keep Groq first (Saad, 2026-10-29)
+
+- **Keep:** a script now takes a median 7.7 s instead of 56.0 s, 22 of 25 in
+  under 20 s against 9, and the 180 s Gemini timeouts that dominated the
+  baseline (7 of 13 fair-comparison prompts) happened once. The open-weight
+  model writes the scripts, as the program prefers.
+- **What it costs:** Gemini's scripts, when it answered, were closer to the
+  target length (0.3 to 9.8% error, four of five under 5%, against Groq's
+  median 13.6%), so plans
+  come out a little shorter. Character counts were slightly closer to the
+  labels (12 of 20 against 9 of 20). One run each, so neither difference is
+  established.
+- **The fallbacks behind Groq did not help in this run.** Each time Groq
+  failed, OpenRouter and then Gemini failed too (0 of 3 each), and the
+  template script arrived after 219 to 338 s instead of at once. Groq's
+  failures are mostly its own invalid JSON: invented character roles and an
+  empty `gender` field, which the schema rejects. Fixing that, rather than
+  the order, is the next lever (suggested as a separate ticket).
 
 ## Render level: the 8 subset films with real images (R)
 
@@ -218,5 +327,9 @@ itself stays about 10 MB; each new version adds 6.5 to 6.8 MB to
 - **Run-to-run variation**: every prompt ran once per run.
 - **A Gemini-first render on today's code**: Gemini's quota was used up
   before run R.
+- **The Groq-first chain at render level**: run G planned only. Run R's 8
+  scripts were all Groq's anyway, because Gemini's quota had run out.
+- **`edit_intent` and `translate`** on a Groq-first chain: DST-15 changed only
+  `story`.
 - **Character consistency across images**: needs a visual check, not done.
 - **The same runs on the production VM.**
