@@ -1,8 +1,9 @@
 """Tracing for every model call: one generation per provider attempt, nested per job.
 
-The three places that call a model (the LLM client, the image tool and the TTS
-tool) wrap each attempt in `model_call(...)`; the worker wraps each job in
-`job_trace(...)`. Nothing else in the pipeline knows tracing exists.
+The four places that call a model (the LLM client, the image tool, the TTS tool
+and MyMemory in the translate tool) wrap each attempt in `model_call(...)`; the
+worker wraps each job in `job_trace(...)`. Nothing else in the pipeline knows
+tracing exists.
 
 Off unless all of LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL
 are set and the optional package is installed (requirements-tracing.txt).

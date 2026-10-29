@@ -660,6 +660,7 @@ class VideoAgent:
                                       video.speed_factor, has_audio=bool(master))
 
         video.subtitle_languages = []
+        video.subtitles_skipped = []
         if video.has_subtitles and state.audio:
             subbed = self._embed_subtitles(state, final)
             if subbed:
@@ -723,6 +724,7 @@ class VideoAgent:
                 if not res.success:
                     log.warning("subtitle translation to %s failed (%s) — track skipped",
                                 lang, res.error)
+                    video.subtitles_skipped.append(lang)
                     continue
                 texts = res.data
                 video.subtitle_cache[lang] = texts

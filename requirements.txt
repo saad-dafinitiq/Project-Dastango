@@ -12,8 +12,7 @@ python-multipart>=0.0.9
 Pillow>=10.0
 gTTS>=2.4
 edge-tts>=7.0.0
-requests>=2.31
-deep-translator>=1.11.0   # free Google Translate fallback for multi-language subtitles
+requests>=2.31            # also calls MyMemory, the subtitle fallback (DST-18)
 
 # Model settings layer (config/providers.yaml)
 PyYAML>=6.0
