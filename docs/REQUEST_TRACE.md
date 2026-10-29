@@ -225,8 +225,15 @@ The one that passes on both checks that a slow answer inside the limit is kept.
 **Not covered, on purpose or by limitation:**
 - Kokoro, pyttsx3 and local Stable Diffusion run inside the process with no
   network, so there is nothing to wait on and no safe way to interrupt them.
-- MyMemory, the last step of the translate chain, is called through
-  `deep_translator`, which offers no timeout. It still has none.
+- ~~MyMemory, the last step of the translate chain, is called through
+  `deep_translator`, which offers no timeout.~~ **Fixed in DST-18**: MyMemory is
+  now called directly with the translate role's `timeout_s` (60 s by default),
+  a timeout is not retried, each attempt is traced like any other model call,
+  and a language that could not be translated is named on the job's completion
+  event (`subtitles_skipped`) instead of disappearing silently. Reproduced
+  before the fix: pointed at a server that never answers, the old call was
+  still waiting after 10 s; now it stops at its limit
+  (`tests/unit/test_mymemory_timeout.py`).
 - The paid video and lip-sync roles (Veo and others) have never been called and
   were left alone.
 - `requests` and httpx limit each wait for data, not the whole call: a server

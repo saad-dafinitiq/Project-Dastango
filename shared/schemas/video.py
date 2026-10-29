@@ -81,6 +81,9 @@ class VideoOutput(BaseModel):
     burn_subtitles: bool = True
     burned_subtitle_language: Optional[str] = None
     subtitle_languages: List[str] = Field(default_factory=list)
+    # Languages asked for whose translation failed on the last compose, so the
+    # film was finished without them; reported on the job's completion event.
+    subtitles_skipped: List[str] = Field(default_factory=list)
     # Translation cache: language -> texts aligned with the dialogue segments.
     # Valid only while `subtitle_source` matches the current English lines.
     subtitle_source: List[str] = Field(default_factory=list)

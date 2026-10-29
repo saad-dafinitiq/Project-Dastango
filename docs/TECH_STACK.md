@@ -87,7 +87,7 @@ flowchart LR
         osdk --> orr["OpenRouter<br/>openrouter/free"]
         osdk --> oll["Ollama<br/>local models"]
         asdk["anthropic SDK"] --> cl["Claude<br/>paid, off by default"]
-        mm["deep-translator<br/>MyMemory"]
+        mm["requests<br/>MyMemory"]
     end
 
     subgraph visL["Images and motion"]
@@ -168,7 +168,7 @@ flowchart LR
 | **Pollinations** | HTTP | images, fallback | Keyed (budgeted) and keyless endpoints; keyless is one request per IP. |
 | **Kokoro-82M** | `kokoro-onnx` 0.6 on `onnxruntime` 1.30 | voices (default) | Apache-2.0, runs on CPU with no GPU and no torch; ~2 s a line on a laptop. Model files verified by SHA-256. |
 | **Edge TTS**, **gTTS**, **pyttsx3** | `edge-tts` 7.2, `gTTS` 2.5 | voice fallbacks | Free online neural voices, then simpler ones; pyttsx3 only where the OS has a speech engine. |
-| **MyMemory** | `deep-translator` 1.11 | subtitle fallback | Free, no key; used when no LLM can translate. |
+| **MyMemory** | HTTP (`requests`) | subtitle fallback | Free, no key; used when no LLM can translate. Called directly, with the translate role's time limit (DST-18): `deep-translator` offered no way to set one. |
 | **fal.ai, Replicate, Hugging Face, Veo 3.1** | `fal-client`, `replicate`, HTTP, `google-genai` | real motion and lip sync (opt-in) | Every good option is billed per clip, so they sit behind the free path and Veo needs a second opt-in. |
 
 ### Media

@@ -33,8 +33,11 @@ without it a call may wait 180 s for a script, 60 s for an edit or a
 translation, 120 s for an image and 60 s for a voice line. When the time runs
 out the call counts as failed and the next provider takes over at once; a
 timeout is never retried, because a provider that hung once will likely hang
-again (see F1 in [REQUEST_TRACE.md](REQUEST_TRACE.md)). See what this machine would
-use, and why the rest are skipped:
+again (see F1 in [REQUEST_TRACE.md](REQUEST_TRACE.md)). This covers MyMemory, the
+last step of the `translate` chain, too (since DST-18); when it is the last
+provider and runs out of time, that subtitle language is left out of the film
+and named on the job's completion event, never shipped untranslated. See what
+this machine would use, and why the rest are skipped:
 
 ```bash
 python main.py providers           # the chain per role and what each needs

@@ -6,7 +6,7 @@ streaming, and snapshots the final state via StateManager.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 from agents.audio_agent import AudioAgent
 from agents.edit_agent import EditAgent
@@ -119,12 +119,13 @@ class PipelineOrchestrator:
             asset_paths=self._collect_assets(state),
             description=INITIAL_RUN,
         )
+        note, skipped = self._subtitle_outcome(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                           message=f"Pipeline finished (version {version.version})",
+                           message=f"Pipeline finished (version {version.version}){note}",
                            progress=1.0,
                            payload={"version": version.version,
                                     "video_path": state.video.final_video_path
-                                    if state.video else None}))
+                                    if state.video else None, **skipped}))
         return state
 
     # ---- storyboard: plan cheaply, approve, then render ------------------
@@ -285,11 +286,13 @@ class PipelineOrchestrator:
         state.stage = "rendered"
         version = self.sm.snapshot(state, asset_paths=self._collect_assets(state),
                                    description=RENDERED)
+        note, skipped = self._subtitle_outcome(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                           message=f"Film rendered (version {version.version})", progress=1.0,
+                           message=f"Film rendered (version {version.version}){note}",
+                           progress=1.0,
                            payload={"version": version.version,
                                     "video_path": state.video.final_video_path
-                                    if state.video else None}))
+                                    if state.video else None, **skipped}))
         return state
 
     # ---- generator variant for SSE/WebSocket streaming ------------------
@@ -350,10 +353,11 @@ class PipelineOrchestrator:
             asset_paths=self._collect_assets(state),
             description=f"re-run phase: {phase}",
         )
+        note, skipped = self._subtitle_outcome(state)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                           message=f"Phase {phase} re-run, version {version.version}",
+                           message=f"Phase {phase} re-run, version {version.version}{note}",
                            progress=1.0,
-                           payload={"version": version.version}))
+                           payload={"version": version.version, **skipped}))
         return state
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
@@ -386,11 +390,12 @@ class PipelineOrchestrator:
                                               user_id=user_id), on_progress=progress)
         if not result.success:
             raise EditFailed(result.error or "the edit could not be applied")
+        note, skipped = self._subtitle_outcome(self.sm.latest(project_id))
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                           message=f"Edit applied (version {result.new_version})",
+                           message=f"Edit applied (version {result.new_version}){note}",
                            progress=1.0,
                            payload={"version": result.new_version, "kind": "edit",
-                                    "result": result.model_dump(mode="json")}))
+                                    "result": result.model_dump(mode="json"), **skipped}))
         return result
 
     def revert(self, project_id: str, version: int,
@@ -466,6 +471,17 @@ class PipelineOrchestrator:
                              project_id=project_id,
                              message=done_msg if done else start_msg,
                              progress=done_p if done else start_p)
+
+    @staticmethod
+    def _subtitle_outcome(state: Optional[PipelineState]) -> Tuple[str, Dict[str, List[str]]]:
+        """A note for the completion message, and payload, when a subtitle language
+        could not be translated: the film is finished without it, so say so rather
+        than report a plain success."""
+        skipped = list(state.video.subtitles_skipped) if state and state.video else []
+        if not skipped:
+            return "", {}
+        return (f" · subtitles skipped, translation failed: {', '.join(skipped)}",
+                {"subtitles_skipped": skipped})
 
     @staticmethod
     def _collect_assets(state: PipelineState) -> List[str]:
