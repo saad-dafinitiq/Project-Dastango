@@ -157,7 +157,7 @@ sequenceDiagram
 | **F9** | 12 | **Voices:** Edge TTS is an online Microsoft service; Kokoro takes ~30 s to load its model on first use | Voices fail during an outage; the first render after a restart is slow | Falls back to gTTS, then silence | Medium |
 | **F10** | all | **Everything runs on one VM** (Postgres, API, worker, Caddy); Oracle may stop an idle free VM | Total outage | Nightly backups, tested restore | Medium |
 | **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | **Yes, DST-16**: `uv.lock` pins every package; CI and the image install from it (see below) | ~~Medium~~ **Fixed**, with gaps |
-| **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation | Account security is incomplete | Sign-ups closed by default | Medium |
+| **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation, no per-IP rate limit, password rules weaker than the standard | Account security is incomplete: 14 of the 71 ASVS login and session requirements fail, 10 of them at level 1 | **Audited in DST-21** ([SECURITY.md](SECURITY.md)); each failure is a drafted Sprint 2 ticket. Sign-ups closed by default | **High** (was Medium) until the three High tickets land |
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
 | **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
 | **F15** | 7–8 | **Retry decisions read the error text by substring.** A used-up daily quota was not told apart from a short rate limit; Cloudflare's daily-quota 429 skipped its retries only because its body contains "400", and the same match would end the retries of a short rate limit that quotes a number like 14400. Nothing recorded why a provider was skipped | Retries that cannot succeed, or a short limit that falls to a weaker provider; no way to see a quota ran out | **Yes, DST-20** (see below) | ~~Medium~~ **Fixed**, with gaps |
@@ -369,6 +369,50 @@ versions, and the last two changed whenever a package published a release.
   (`python:3.11-slim`, `node:22-slim`) and apt packages still float.
 - CI builds the image for x86 only. The aarch64 image was checked for wheels,
   not built; the build on the VM is the check.
+
+### F12 in detail (audited in DST-21)
+
+**What was checked.** How people sign in, sign up and hold a session, against
+OWASP ASVS 4.0.3 chapters 2 and 3 at levels 1 and 2 (71 requirements), by
+reading the code and probing a throwaway local instance on 2026-10-30. Audit
+only; no code changed. The full result, with the file, function, test or probe
+behind every verdict, is in [SECURITY.md](SECURITY.md).
+
+**Result:** 25 pass, 14 fail, 28 not applicable, 4 not assessed (service
+authentication). At level 1 alone: 21 pass, 10 fail, 8 not applicable.
+
+**What is solid:** argon2id with a unique salt; 256-bit random session tokens
+stored only as a digest; an `HttpOnly`, `SameSite=Lax` cookie that is `Secure`
+in production; a new token at every sign-in; sign-out, password change and
+disabling an account end sessions at once.
+
+**What fails, most important first:**
+- No per-IP limit on sign-in or sign-up, and anyone can lock a known account
+  for 15 minutes (2.2.1). 40 failed logins for 40 emails were all answered in
+  3.0 s.
+- Password rules below the standard: 10 characters where it asks for 12,
+  1,024 where it asks for at most 128, no breached-password check (2.1.1,
+  2.1.2, 2.1.7).
+- A locked or disabled account answers differently from a wrong password, and
+  5 times faster (14 and 15 ms against 70 ms), so the earlier claim of identical
+  answers held only for active, unlocked accounts. Corrected in the root
+  SECURITY.md.
+- No email at all: no reset, no notices, no verification (2.2.3, 2.5.5, 2.5.6).
+- Sessions cannot be ended one by one (3.3.4), have no idle limit at level 2
+  (3.3.2), and the cookie has no `__Host-` prefix (3.4.4).
+- No CSRF token or `Origin` check (4.2.2, 13.2.3); `SameSite=Lax`, JSON-only
+  bodies and no CORS are the protection today.
+
+**Tickets:** 14 drafted for Sprint 2 (30 points), in section 7 of SECURITY.md.
+The three High ones (rate limiting, indistinguishable failures, password rules)
+are 7 points.
+
+**Gaps that remain in the audit itself:**
+- Probes ran once, on one instance, and the sign-in page was read, not driven
+  in a browser.
+- Service authentication (V2.10: how the server logs in to Postgres and third
+  parties) was not assessed.
+- ASVS 5.0, which renumbers these chapters, was not mapped.
 
 ---
 
