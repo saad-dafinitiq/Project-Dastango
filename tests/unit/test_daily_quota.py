@@ -9,6 +9,8 @@ Messages marked "measured" are copied from the DST-10 baseline logs
 """
 from __future__ import annotations
 
+import types
+
 import httpx
 import openai
 import pytest
@@ -124,9 +126,15 @@ def test_a_permanent_failure_is_decided_by_its_status_not_a_substring(make_error
 
 @pytest.fixture
 def image_chain(chain, monkeypatch):  # noqa: F811
-    """Cloudflare with its three attempts, then the placeholder; no real waiting."""
+    """Cloudflare with its three attempts, then the placeholder; no real waiting.
+
+    The returned list holds the image tool's back-off waits. The tool's own `time`
+    is swapped, not `time.sleep` itself: that is the process-wide function, and on
+    Linux `subprocess.wait` (ffmpeg, in the full-run tests) sleeps in it too, which
+    filled this list with thousands of 1 ms waits on CI.
+    """
     sleeps = []
-    monkeypatch.setattr(image_gen_tool.time, "sleep", sleeps.append)
+    monkeypatch.setattr(image_gen_tool, "time", types.SimpleNamespace(sleep=sleeps.append))
     monkeypatch.delenv("PROVIDER_IMAGE", raising=False)     # conftest pins the placeholder
     chain("""
         roles:
@@ -234,7 +242,7 @@ def test_mymemory_stops_at_a_daily_quota_429_and_retries_a_short_one(chain, monk
         return FakeResponse(429, {}, text=body)
 
     monkeypatch.setattr(translate_tool.requests, "get", answering_429)
-    monkeypatch.setattr(translate_tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(translate_tool, "time", types.SimpleNamespace(sleep=lambda _s: None))
     chain("roles:\n  translate:\n    - {provider: mymemory}\n")
     result = TranslateTool().run(lines=["Hello."], target_language="French")
 
