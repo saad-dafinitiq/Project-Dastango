@@ -108,16 +108,18 @@ with copies of its files, which is what makes undo exact.
 **On a laptop (one process, no keys needed):**
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate                         # Windows: .venv\Scriptsctivate
-pip install -r requirements.txt
+pip install uv                                    # once; the Python packages install from uv.lock
+uv sync                                           # creates .venv with the exact locked versions
+source .venv/bin/activate                         # Windows: .venv\Scripts\activate
 cd web && npm ci && npm run build && cd ..        # the creator UI (Node 22)
 python main.py serve                              # http://localhost:8000
 ```
 
 FFmpeg must be on `PATH`. With no keys everything runs offline (template
 scripts, placeholder images); add free keys in `.env` for real models. See
-[PROVIDERS.md](docs/PROVIDERS.md).
+[PROVIDERS.md](docs/PROVIDERS.md). Optional parts (Kokoro voices, Postgres, S3,
+tracing) and adding or upgrading a package are in
+[DEVELOPMENT.md](docs/DEVELOPMENT.md#dependencies).
 
 **From the command line:**
 

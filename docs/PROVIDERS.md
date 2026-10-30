@@ -89,7 +89,7 @@ What running it live taught, now handled in the adapters:
 
 | Engine | Cost | Notes |
 |---|---|---|
-| **Kokoro** (default) | free, offline | Apache-2.0, 82M parameters on onnxruntime; no GPU, no PyTorch. `pip install -r requirements-voices.txt` then `python scripts/get_kokoro.py` (≈340 MB, SHA-256 verified) and set `KOKORO_MODEL` / `KOKORO_VOICES`. The container does all of this itself. |
+| **Kokoro** (default) | free, offline | Apache-2.0, 82M parameters on onnxruntime; no GPU, no PyTorch. `uv sync --extra voices` then `python scripts/get_kokoro.py` (≈340 MB, SHA-256 verified) and set `KOKORO_MODEL` / `KOKORO_VOICES`. The container does all of this itself. |
 | Edge TTS | free, online | Microsoft neural voices, mapped to character archetypes |
 | ElevenLabs | paid | `ELEVENLABS_API_KEY` |
 | gTTS | free, online | Clear but flat |

@@ -33,9 +33,9 @@ Pipeline: **Phase 1 Story** → **Phase 2 Audio** → **Phase 3 Video**, the
 ## Setup
 
 ```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # Windows
-# optional local Stable Diffusion (pulls PyTorch): see requirements-local-sd.txt
+pip install uv                                    # once
+uv sync                  # creates .venv from uv.lock (exact versions); optional parts: --extra voices|s3|postgres|tracing
+# optional local Stable Diffusion (pulls PyTorch, outside the lock): see docs/DEVELOPMENT.md
 cp .env.example .env    # all keys optional; runs in mock/template mode without them
 ```
 

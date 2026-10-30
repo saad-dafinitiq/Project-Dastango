@@ -203,11 +203,11 @@ export function Developers() {
       </p>
 
       <H2 id="self-host">Running your own</H2>
-      <p>On a laptop, with Python 3.11 and FFmpeg:</p>
+      <p>On a laptop, with Python 3.11, uv and FFmpeg:</p>
       <pre>
-        <code>{`pip install -r requirements.txt
+        <code>{`uv sync
 cd web && npm ci && npm run build && cd ..
-python main.py serve        # http://localhost:8000`}</code>
+uv run python main.py serve        # http://localhost:8000`}</code>
       </pre>
       <p>
         With no keys at all it runs offline, with template scripts and placeholder pictures; free keys for

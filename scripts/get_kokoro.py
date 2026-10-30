@@ -1,6 +1,6 @@
 """Download the Kokoro voice model (open-source TTS, runs offline on CPU).
 
-    pip install -r requirements-voices.txt
+    uv sync --extra voices
     python scripts/get_kokoro.py
 
 Puts ~340 MB in <DATA_DIR>/models/kokoro/ and prints the two .env lines to add.

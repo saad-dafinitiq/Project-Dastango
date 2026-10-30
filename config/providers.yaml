@@ -83,7 +83,7 @@ roles:
       concurrency: 4
       retries: 3                  # free endpoints hiccup; retry before falling through
       timeout_s: 180              # the limit this call already had before timeouts were configurable
-    - provider: local_sd          # in-process diffusers; needs CUDA torch (requirements-local-sd.txt)
+    - provider: local_sd          # in-process diffusers; needs CUDA torch (docs/DEVELOPMENT.md)
       model: stabilityai/sdxl-turbo
       params: {steps: 4}
       requires: [LOCAL_SD]
@@ -106,7 +106,7 @@ roles:
   # ---- Character voices ---------------------------------------------------
   tts:
     - provider: kokoro            # open-source, offline, Apache-2.0; no key, no GPU.
-      requires: [KOKORO_MODEL]    # pip install -r requirements-voices.txt
+      requires: [KOKORO_MODEL]    # uv sync --extra voices
       concurrency: 2              # then: python scripts/get_kokoro.py
     - provider: elevenlabs
       requires: [ELEVENLABS_API_KEY]

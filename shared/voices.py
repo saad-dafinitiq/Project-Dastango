@@ -131,7 +131,7 @@ def unavailable_reason(engine: Engine) -> Optional[str]:
         try:
             import kokoro_onnx  # noqa: F401
         except ImportError:
-            return "pip install -r requirements-voices.txt"
+            return "uv sync --extra voices"
     missing = [v for v in engine.requires if not os.getenv(v)]
     if missing:
         return "missing " + ", ".join(missing)

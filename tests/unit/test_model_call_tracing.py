@@ -354,11 +354,11 @@ def test_keys_without_the_package_leave_tracing_off_and_say_how_to_fix_it(fresh_
     fresh_env.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
     fresh_env.setenv("LANGFUSE_BASE_URL", "http://localhost:3000")
     # None in sys.modules makes `import langfuse` raise ImportError, exactly as
-    # on a machine where requirements-tracing.txt was never installed.
+    # on a machine where the `tracing` extra was never installed.
     fresh_env.setitem(sys.modules, "langfuse", None)
     with caplog.at_level(logging.WARNING):
         assert isinstance(tracing.tracer(), tracing.NoopTracer)
-    assert "requirements-tracing.txt" in caplog.text
+    assert "uv sync --extra tracing" in caplog.text
 
 
 @pytest.mark.parametrize("make_error,expected", [

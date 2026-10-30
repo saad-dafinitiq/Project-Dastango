@@ -313,7 +313,7 @@ def test_a_total_image_outage_still_leaves_a_renderable_file(tmp_path, monkeypat
 
 def test_kokoro_explains_a_missing_package_instead_of_an_import_error(tmp_path,
                                                                       monkeypatch):
-    """CI found this: on a machine without requirements-voices.txt installed,
+    """CI found this: on a machine without the `voices` extra installed,
     choosing Kokoro raised `ModuleNotFoundError: No module named 'soundfile'`.
     The laptop it was written on has the packages, so it could not show up
     locally."""
@@ -335,5 +335,5 @@ def test_kokoro_explains_a_missing_package_instead_of_an_import_error(tmp_path,
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", missing)
-    with pytest.raises(RuntimeError, match="requirements-voices.txt"):
+    with pytest.raises(RuntimeError, match="uv sync --extra voices"):
         TtsTool()._kokoro("hello", tmp_path / "out.wav")
