@@ -16,9 +16,10 @@ from tests.unit.test_model_call_tracing import spans  # noqa: F401
 
 
 class FakeResponse:
-    def __init__(self, status_code: int, data: dict):
+    def __init__(self, status_code: int, data: dict, text: str = ""):
         self.status_code = status_code
         self._data = data
+        self.text = text
 
     def json(self):
         return self._data

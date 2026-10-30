@@ -8,7 +8,9 @@
 # `requires` lists the environment variables a provider needs (see .env.example);
 # "A|B" means either will do. A provider with no `requires` always works offline.
 # `concurrency` is how many calls that provider tolerates in parallel, and
-# `retries` how many attempts it gets before the next provider takes over.
+# `retries` how many attempts it gets before the next provider takes over. A
+# 429 that says the provider's daily quota is used up is not retried: the next
+# provider takes over at once (rule in shared/providers.py, DST-20).
 # `timeout_s` is the longest one call may wait for the provider; then it counts
 # as failed and the next provider takes over at once (a timeout is not retried).
 # Without it: story 180 s, edit_intent and translate 60 s, image 120 s, tts 60 s,

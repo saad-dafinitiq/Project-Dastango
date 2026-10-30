@@ -22,7 +22,7 @@ import requests
 from mcp.base_tool import BaseTool, ToolResult
 from shared import providers, tracing
 from shared.languages import canonical, mymemory_code
-from shared.providers import is_timeout
+from shared.providers import is_daily_quota, is_timeout
 from shared.utils.logging import get_logger
 
 from .llm_client import get_llm_client
@@ -130,7 +130,7 @@ class TranslateTool(BaseTool):
                     # Like every other provider: a timeout is not retried, so the
                     # worst case is one limit, not three plus back-off.
                     raise RuntimeError(f"no answer within {timeout:g} s") from e
-                if "MYMEMORY WARNING" in str(e).upper():
+                if "MYMEMORY WARNING" in str(e).upper() or is_daily_quota(e):
                     break  # daily quota used up — retrying won't help
                 time.sleep(1.5 * (i + 1))
         raise RuntimeError(str(last))
@@ -150,8 +150,10 @@ def _mymemory_request(text: str, target: str, timeout: float) -> str:
         params["de"] = os.environ["MYMEMORY_EMAIL"]
     response = requests.get(_MYMEMORY_URL, params=params, timeout=timeout)
     if response.status_code != 200:
-        # "HTTP 429: ..." is the form tracing.http_status reads the status from.
-        raise RuntimeError(f"HTTP {response.status_code}: MyMemory refused the request")
+        # "HTTP 429: ..." is the form providers.http_status reads the status from;
+        # the body says whether a 429 is today's quota (is_daily_quota).
+        raise RuntimeError(f"HTTP {response.status_code}: MyMemory refused the request: "
+                           f"{response.text[:200]}")
     data = response.json() or {}
     translation = (data.get("responseData") or {}).get("translatedText")
     if translation:

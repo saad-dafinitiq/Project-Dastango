@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from shared import providers, tracing
-from shared.providers import ProviderSpec, is_timeout
+from shared.providers import ProviderSpec, is_daily_quota, is_timeout
 from shared.utils.logging import get_logger
 
 log = get_logger("llm_client")
@@ -284,6 +284,8 @@ def _reason(error: Exception, spec: ProviderSpec) -> str:
     """Why a provider failed, for the log: a timeout says how long it waited."""
     if is_timeout(error):
         return f"no answer within {spec.timeout_s:g} s"
+    if is_daily_quota(error):
+        return f"daily quota used up: {str(error)[:160]}"
     return str(error)[:200]
 
 

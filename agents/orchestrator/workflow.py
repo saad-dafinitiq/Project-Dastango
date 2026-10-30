@@ -4,6 +4,7 @@ Composes Phase 1 -> 2 -> 3 with progress events suitable for SSE/WebSocket
 streaming, and snapshots the final state via StateManager.
 """
 from __future__ import annotations
+import functools
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
@@ -13,6 +14,7 @@ from agents.edit_agent import EditAgent
 from agents.edit_agent.describe import STEP_WORDS, describe
 from agents.story_agent import StoryAgent
 from agents.video_agent import VideoAgent
+from shared import providers
 from shared.assets import asset_url
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, film_length_tolerance
 
@@ -33,6 +35,16 @@ log = get_logger("orchestrator")
 
 class EditFailed(RuntimeError):
     """An edit that could not be applied; the film is left as it was."""
+
+
+def _noting_daily_quotas(method):
+    """Record every daily-quota refusal made while this job runs, for its
+    completion event (DST-20). Model calls note them as they happen."""
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        with providers.noting_daily_quotas():
+            return method(*args, **kwargs)
+    return wrapper
 
 
 # How a version that produced a film is described in the history. The film's
@@ -63,6 +75,7 @@ class PipelineOrchestrator:
 
     # ---- public ----------------------------------------------------------
 
+    @_noting_daily_quotas
     def run_full(
         self,
         prompt: str,
@@ -130,6 +143,7 @@ class PipelineOrchestrator:
 
     # ---- storyboard: plan cheaply, approve, then render ------------------
 
+    @_noting_daily_quotas
     def plan(
         self,
         prompt: str,
@@ -198,11 +212,12 @@ class PipelineOrchestrator:
 
         version = self.sm.snapshot(state, asset_paths=self._collect_assets(state),
                                    description="storyboard")
+        note, notes = self._completion_notes(state)
         emit(ProgressEvent(phase="storyboard", status="complete", project_id=project_id,
-                           message=f"Storyboard ready: {len(state.script.scenes)} scenes",
+                           message=f"Storyboard ready: {len(state.script.scenes)} scenes{note}",
                            progress=1.0,
                            payload={"version": version.version,
-                                    "scenes": len(state.script.scenes)}))
+                                    "scenes": len(state.script.scenes), **notes}))
         return state
 
     def update_storyboard(self, project_id: str, scene_id: str,
@@ -249,6 +264,7 @@ class PipelineOrchestrator:
                          description=f"storyboard edit: {scene_id}")
         return state
 
+    @_noting_daily_quotas
     def render(
         self,
         project_id: str,
@@ -309,6 +325,7 @@ class PipelineOrchestrator:
         for ev in events:
             yield ev
 
+    @_noting_daily_quotas
     def re_run_phase(self, project_id: str, phase: str,
                      on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
         state = self.sm.latest(project_id)
@@ -362,6 +379,7 @@ class PipelineOrchestrator:
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
 
+    @_noting_daily_quotas
     def edit(self, project_id: str, query: str,
              on_event: Optional[Callable[[ProgressEvent], None]] = None,
              user_id: Optional[str] = None) -> EditResult:
@@ -476,12 +494,18 @@ class PipelineOrchestrator:
     def _completion_notes(state: Optional[PipelineState]) -> Tuple[str, Dict[str, Any]]:
         """Notes for the completion message, and payload, when the film is finished
         but not as asked, so the job says so rather than report a plain success:
-        a subtitle language that could not be translated (DST-18), or a length far
-        from the target (DST-17, FILM_LENGTH_TOLERANCE)."""
+        a provider whose daily quota ran out (DST-20, read from the job's record,
+        see `_noting_daily_quotas`), a subtitle language that could not be
+        translated (DST-18), or a length far from the target (DST-17,
+        FILM_LENGTH_TOLERANCE)."""
+        note, payload = "", {}
+        used_up = providers.daily_quotas_used_up()
+        if used_up:
+            note += f" · daily quota used up, the next provider took over: {', '.join(used_up)}"
+            payload["daily_quota_used_up"] = used_up
         video = state.video if state else None
         if not video:
-            return "", {}
-        note, payload = "", {}
+            return note, payload
         if video.subtitles_skipped:
             note += f" · subtitles skipped, translation failed: {', '.join(video.subtitles_skipped)}"
             payload["subtitles_skipped"] = list(video.subtitles_skipped)

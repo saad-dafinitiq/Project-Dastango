@@ -44,7 +44,7 @@ session  <project id>                        one film: its plan, render and edit
 | Where | Contents |
 |---|---|
 | Generation attributes | `model`; token usage when the provider reports it (Gemini, the OpenAI-compatible APIs, Anthropic); level ERROR with the error's class name on failure |
-| Generation metadata | `provider`, `role`, `position` (place in the chain), `fallback`, `attempt`, `ok`, `error`, `timed_out`, `http_status` (the provider's HTTP answer on failure, e.g. 503 overloaded, 504, 429 quota), `latency_ms`, `job_id`, `job_kind`, `project_id`. A failed generation's status reads e.g. `ServerError (HTTP 503)` |
+| Generation metadata | `provider`, `role`, `position` (place in the chain), `fallback`, `attempt`, `ok`, `error`, `timed_out`, `http_status` (the provider's HTTP answer on failure, e.g. 503 overloaded, 504, 429 quota), `daily_quota` (true when that 429 meant the day's allowance is used up, so the call was not retried), `latency_ms`, `job_id`, `job_kind`, `project_id`. A failed generation's status reads e.g. `ServerError (HTTP 503)` or `RuntimeError (HTTP 429, daily quota used up)` |
 | Generation input / output | Sizes only: prompt and system lengths, `max_tokens`, schema name, answer length, image width and height, voice id and line length |
 | Job input | The job's settings: length, scene count, subtitle language, voice engine, music and subtitle switches. The creator's prompt or edit request becomes its **character count** |
 | Job output | Stage, version, scene count, film length |
