@@ -3,6 +3,9 @@
 How the product protects accounts, films and the server it runs on, what it
 deliberately does not do yet, and how to report a problem.
 
+The login, sign-up and session audit against OWASP ASVS (30 October 2026) is in
+[docs/SECURITY.md](docs/SECURITY.md).
+
 ## Reporting a vulnerability
 
 Please use **GitHub's private vulnerability reporting** (the repository's
@@ -15,7 +18,7 @@ follow as soon as it is confirmed.
 | Who | Could try to | Stopped by |
 |---|---|---|
 | Anyone on the internet | Read someone's films, guess project ids, drive the API | Every `/api/*` router requires a session; assets are an authorised route, not a static folder; another user's project answers `404` |
-| Anyone on the internet | Guess or enumerate passwords | argon2id; identical answers and timing for "wrong password" and "no such account"; 8 failures lock an account for 15 minutes |
+| Anyone on the internet | Guess or enumerate passwords | argon2id; identical answers and timing for "wrong password" and "no such account" while the account is active and unlocked (a locked or disabled account answers differently: see the [audit](docs/SECURITY.md)); 8 failures lock an account for 15 minutes; no per-IP limit yet |
 | A malicious site the user visits | Ride the user's session (CSRF), or log them into the attacker's account (login CSRF) | `SameSite=Lax` cookie; no cross-origin requests allowed by default; the GitHub OAuth `state` is bound to an HttpOnly cookie and checked before the code is spent |
 | Whoever registers an email first | Take over an account through "Sign in with GitHub" | GitHub identities never join an existing account by email |
 | A database leak | Replay sessions, crack passwords cheaply | Only the SHA-256 of each session token is stored; passwords are argon2id |
@@ -94,5 +97,6 @@ follow as soon as it is confirmed.
 | No email verification or reset | Sign-ups closed by default; admin CLI resets passwords |
 | No per-route rate limiting beyond login lockout | Accounts are invitation-only; provider quotas cap spend at $0 |
 | No Content-Security-Policy header | Same-origin app with no third-party scripts; fonts self-hosted |
-| Python dependencies are minimum versions, not a lock file | npm uses a lock file; pinning Python is on the [roadmap](docs/ROADMAP.md) |
+| Nothing updates the pinned dependencies | `uv.lock` pins every Python package and npm has a lock file, but there is no scheduled update or vulnerability check; upgrades are manual (`uv lock --upgrade`, see [DEVELOPMENT.md](docs/DEVELOPMENT.md#dependencies)) |
+| 14 of the 71 ASVS login and session requirements fail | Audited on 30 October 2026 and drafted as Sprint 2 tickets: see [docs/SECURITY.md](docs/SECURITY.md) |
 | Sessions can't yet be revoked per device from the UI | The API lists them; sign-out and password change revoke |
