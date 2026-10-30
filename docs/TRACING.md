@@ -83,7 +83,7 @@ one by one, without a job, session or root.
    against):
 
    ```bash
-   pip install -r requirements-tracing.txt
+   uv sync --extra tracing
    ```
 
 2. Pick a Langfuse server: a Langfuse Cloud project (what Dastango uses today,

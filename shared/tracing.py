@@ -6,7 +6,7 @@ worker wraps each job in `job_trace(...)`. Nothing else in the pipeline knows
 tracing exists.
 
 Off unless all of LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL
-are set and the optional package is installed (requirements-tracing.txt).
+are set and the optional package is installed (the `tracing` extra in pyproject.toml).
 LANGFUSE_BASE_URL is required on purpose: without it the Langfuse SDK silently
 defaults to Langfuse Cloud, and where traces go has to be a deliberate choice
 (Cloud or a self-hosted server), never a default.
@@ -225,7 +225,8 @@ def _from_env() -> Any:
         from langfuse import Langfuse, propagate_attributes
     except ImportError:
         log.warning("Langfuse keys are set but the package is missing, so tracing is off; "
-                    "run `pip install -r requirements-tracing.txt`")
+                    "run `uv sync --extra tracing` (name every extra you use: "
+                    "sync removes the others)")
         return NoopTracer()
     log.info("tracing model calls to %s", base_url)
     return LangfuseTracer(Langfuse(public_key=public, secret_key=secret, base_url=base_url),

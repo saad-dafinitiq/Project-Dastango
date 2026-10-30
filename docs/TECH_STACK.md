@@ -2,7 +2,7 @@
 
 Every framework, library, model and service the product uses: where it sits,
 what it does there, and why it was chosen over the obvious alternative.
-Versions are what the production image runs (October 2026); `requirements.txt` sets minimums, not pins.
+Versions are what the production image runs (October 2026); `pyproject.toml` sets minimums and `uv.lock` pins the exact versions.
 
 - [Software architecture, by framework](#software-architecture-by-framework)
 - [Agentic architecture, by framework](#agentic-architecture-by-framework)

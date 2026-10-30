@@ -188,7 +188,7 @@ class TtsTool(BaseTool):
                 rate: int = BASE_RATE_WPM) -> Path:
         """Kokoro (open-source, offline, CPU). Model files come from scripts/get_kokoro.py."""
         # Both checks come before the imports. Kokoro is optional, so on a
-        # machine that has not installed requirements-voices.txt the import
+        # machine that has not installed the `voices` extra the import
         # raises ModuleNotFoundError — which says nothing about what to do.
         model = os.getenv("KOKORO_MODEL", "")
         voices = os.getenv("KOKORO_VOICES", "")
@@ -204,7 +204,8 @@ class TtsTool(BaseTool):
         except ImportError as e:
             raise RuntimeError(
                 f"Kokoro needs a package that isn't installed ({e.name}); "
-                "run `pip install -r requirements-voices.txt`") from e
+                "run `uv sync --extra voices` (name every extra you use: "
+                "sync removes the others)") from e
 
         global _KOKORO
         if _KOKORO is None:

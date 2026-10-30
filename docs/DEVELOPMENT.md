@@ -5,6 +5,7 @@
 | Tool | Why | Install |
 |---|---|---|
 | Python 3.11 or 3.12 | Everything except the UI | python.org |
+| uv | Installs the exact locked Python packages | `pip install uv` · or [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
 | FFmpeg on `PATH` | All audio and video work | Windows `winget install Gyan.FFmpeg` · macOS `brew install ffmpeg` · Debian/Ubuntu `apt install ffmpeg` |
 | Node 22 | Only to build or develop the UI | nodejs.org |
 | Docker | Only for the container stack | docker.com |
@@ -12,12 +13,11 @@
 ## Setup
 
 ```bash
-git clone https://github.com/SaadAbdullaH3/Automated-Story-Generation.git
-cd Automated-Story-Generation
-python -m venv .venv
-source .venv/bin/activate                  # Windows: .venv\Scriptsctivate
-pip install -r requirements.txt
-pip install -r requirements-voices.txt     # optional: Kokoro voices
+git clone https://github.com/saad-dafinitiq/Project-Dastango.git
+cd Project-Dastango
+uv sync                                    # creates .venv with the exact locked versions
+source .venv/bin/activate                  # Windows: .venv\Scripts\activate
+uv sync --extra voices                     # optional: Kokoro voices
 python scripts/get_kokoro.py               # optional: the voice model (≈340 MB); prints two lines for .env
 cp .env.example .env                                        # every key is optional
 cd web && npm ci && npm run build && cd ..                  # optional: the creator UI
@@ -26,6 +26,41 @@ cd web && npm ci && npm run build && cd ..                  # optional: the crea
 With no keys at all, everything runs offline: a template script, keyword
 edits, placeholder images, and Kokoro or online voices. [PROVIDERS.md](PROVIDERS.md)
 lists the free keys worth adding.
+
+## Dependencies
+
+Python packages are declared once, in `pyproject.toml`, and pinned to exact
+versions in `uv.lock`. Both are committed. Your laptop, CI and the Docker image
+all install from the lock, so they run the same version of every package,
+including the ones nobody named (F11 in [REQUEST_TRACE.md](REQUEST_TRACE.md)).
+
+| To | Run |
+|---|---|
+| Install what the app and the tests need | `uv sync` |
+| Add an optional part: `postgres`, `s3`, `voices` or `tracing` | `uv sync --extra voices`, several together as `uv sync --extra voices --extra s3`, or everything with `uv sync --all-extras` |
+| Add a dependency | `uv add <package>` (`uv add --optional voices <package>` for an extra, `uv add --dev <package>` for the tests), then commit `pyproject.toml` and `uv.lock` together |
+| Upgrade one package | `uv lock --upgrade-package <package>`, then `uv sync` and run the suite |
+| Upgrade everything | `uv lock --upgrade`, read the diff in `uv.lock`, run the suite |
+| Check the lock is current | `uv lock --check` (CI and the image build fail when it is not) |
+
+`uv sync` makes `.venv` match the lock exactly, so it **removes** extras you do
+not name: list every one you use each time, or use `--all-extras`. A plain pip
+list of the pinned versions, if a tool needs one, is `uv export --no-hashes`.
+
+### Local Stable Diffusion (optional, NVIDIA GPU)
+
+Set `LOCAL_SD=1` to draw images in-process with diffusers. It pulls PyTorch, so
+it is **not** in `pyproject.toml` or `uv.lock`: the lock would pin PyPI's torch,
+not the CUDA build your GPU needs, and would add about 45 packages for everyone.
+Install CUDA torch first (for RTX 30/40-series), then the rest:
+
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install "diffusers>=0.27" "transformers>=4.40" "accelerate>=0.30" "safetensors>=0.4"
+```
+
+These packages are unpinned, and a later plain `uv sync` removes them: use
+`uv sync --inexact` to keep what is already installed.
 
 ## Running it
 

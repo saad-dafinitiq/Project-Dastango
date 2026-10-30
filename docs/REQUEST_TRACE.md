@@ -156,7 +156,7 @@ sequenceDiagram
 | **F8** | 12 | **CPU-bound rendering with a single worker** on the free ARM VM | About 4–5 min per film; the queue wait grows with every user | Per-clip timeout | Medium |
 | **F9** | 12 | **Voices:** Edge TTS is an online Microsoft service; Kokoro takes ~30 s to load its model on first use | Voices fail during an outage; the first render after a restart is slow | Falls back to gTTS, then silence | Medium |
 | **F10** | all | **Everything runs on one VM** (Postgres, API, worker, Caddy); Oracle may stop an idle free VM | Total outage | Nightly backups, tested restore | Medium |
-| **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | CI tests the image | Medium |
+| **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | **Yes, DST-16**: `uv.lock` pins every package; CI and the image install from it (see below) | ~~Medium~~ **Fixed**, with gaps |
 | **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation | Account security is incomplete | Sign-ups closed by default | Medium |
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
 | **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
@@ -318,6 +318,57 @@ run out.
 - Gemini's per-day quota id, and the OpenRouter and MyMemory messages, follow
   the providers' documented formats; only Cloudflare's and Groq's words were
   captured here.
+
+### F11 in detail (fixed in DST-16)
+
+**What was wrong.** Six `requirements*.txt` files declared 33 direct
+dependencies, 32 of them as ranges (`>=2.0`); only `langfuse==5.0.4` was exact,
+and nothing pinned the packages those pull in. Every build resolved afresh.
+Measured on 2026-10-30: a fresh resolution differed from the maintainer's
+laptop environment in 14 of the 98 packages both held (`numpy` 2.4.6 → 2.5.4,
+`openai` 3.40.0 → 3.41.0, `google-genai` 2.33.0 → 2.34.0, `pydantic` 2.14.1 →
+2.14.2, and others). The laptop, CI and the image were three different sets of
+versions, and the last two changed whenever a package published a release.
+
+**The fix.**
+- `pyproject.toml` lists the direct dependencies once: 20 core, 5 in four
+  extras (`postgres`, `s3`, `voices`, `tracing`) and 5 for the tests (`dev`,
+  which includes `moto`, until now named only on CI's install line).
+- `uv.lock` pins 277 packages, with 1,368 file hashes that uv checks on
+  install, for Windows, Linux and macOS, x86 and ARM, Python 3.11 and 3.12 at
+  once.
+- CI (`uv sync --locked`) and the image build (`uv sync --locked` with the
+  `postgres`, `voices` and `s3` extras and the test tools, as before) install
+  exactly that, and fail when `pyproject.toml` and `uv.lock` disagree. The
+  requirements files are deleted, so there is one source. How to install, add
+  and upgrade is in [DEVELOPMENT.md](DEVELOPMENT.md#dependencies).
+- uv itself is pinned (0.13.6 in the Dockerfile and the workflow, and
+  `astral-sh/setup-uv@v10.3.3`).
+
+**Checked on 2026-10-30:**
+- Two clean installs from the lock gave 112 packages each, with identical lists
+  (same checksum), and `uv sync --dry-run` on the result says "Would make no
+  changes".
+- Every locked package has a wheel for Debian 12 on aarch64 (the VM), Linux
+  x86_64 on Python 3.11 and 3.12, and Windows (`uv pip compile --only-binary
+  :all:` per platform). The same check fails for a package that ships no
+  wheels, shown with a control, so it can fail.
+- Changing `pyproject.toml` without the lock makes both `uv lock --check` and
+  `uv sync --locked` fail.
+
+**Gaps that remain:**
+- The lock is the newest versions on the day it was written, not what the VM
+  runs today: the VM's next deploy moves versions once (14 packages differed
+  from the laptop; the VM's own set was not measured).
+- A pinned lock does not update itself. Upgrades are manual (`uv lock
+  --upgrade`), and no scheduled update or vulnerability check exists yet.
+- Local Stable Diffusion (torch, diffusers) is outside the lock on purpose: it
+  would add 45 packages and a torch that is not the CUDA build GPU users need.
+  Its install commands are in DEVELOPMENT.md.
+- GitHub Actions are pinned by tag, not by commit. The base images
+  (`python:3.11-slim`, `node:22-slim`) and apt packages still float.
+- CI builds the image for x86 only. The aarch64 image was checked for wheels,
+  not built; the build on the VM is the check.
 
 ---
 

@@ -30,19 +30,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # the image stays small and a rebuild never downloads them again.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH" \
     DATA_DIR=/app/data \
     KOKORO_MODEL=/app/data/models/kokoro/kokoro-v1.0.onnx \
     KOKORO_VOICES=/app/data/models/kokoro/voices-v1.0.bin
+
+# uv installs from uv.lock: exact versions of every package, the same ones CI
+# tests. Its own version is pinned too (the one that wrote the lock).
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /bin/
 
 WORKDIR /app
 
 # Dependencies first: application edits then don't invalidate this layer.
 # Voices (Kokoro) and S3 are optional on a laptop but belong in the image: the
-# open-source voice is the default, and a bucket is a setting away.
-COPY requirements.txt requirements-postgres.txt requirements-voices.txt requirements-s3.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-postgres.txt \
-        -r requirements-voices.txt -r requirements-s3.txt
+# open-source voice is the default, and a bucket is a setting away. The test
+# tools (the `dev` group, installed by default) stay: CI runs the font,
+# boot-race and voice tests inside this image. --locked fails the build if
+# pyproject.toml and uv.lock disagree, rather than quietly re-resolving.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --extra postgres --extra voices --extra s3
 
 COPY . .
 # Without this the container would serve the old page: web/out is gitignored,
