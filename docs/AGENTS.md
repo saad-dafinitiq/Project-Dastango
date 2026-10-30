@@ -169,10 +169,14 @@ flowchart LR
 
 How a provider hands over:
 
-- **Permanent errors** (400, 401, 403) move to the next provider at once.
-- **Rate limits, 5xx and timeouts** retry with back-off where the provider has
-  `retries:`. The free image endpoints get three attempts. A language model
-  that is down is skipped immediately; the next one is faster than waiting.
+- **Permanent errors** (HTTP 400, 401, 403) move to the next provider at once.
+- **A used-up daily quota** (a 429 whose message names a daily window) moves to
+  the next provider at once too, and is named on the job's completion event
+  (`daily_quota_used_up`) and on its trace (DST-20).
+- **Short-term rate limits and 5xx** retry with back-off where the provider has
+  `retries:`. The free image endpoints get three attempts. A timeout is never
+  retried. A language model that is down is skipped immediately; the next one
+  is faster than waiting.
 - **A malformed structured answer** is retried once with the validation error
   added to the prompt.
 - **Nothing counts until it validates:** an image must decode, JSON must match

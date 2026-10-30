@@ -36,8 +36,16 @@ timeout is never retried, because a provider that hung once will likely hang
 again (see F1 in [REQUEST_TRACE.md](REQUEST_TRACE.md)). This covers MyMemory, the
 last step of the `translate` chain, too (since DST-18); when it is the last
 provider and runs out of time, that subtitle language is left out of the film
-and named on the job's completion event, never shipped untranslated. See what
-this machine would use, and why the rest are skipped:
+and named on the job's completion event, never shipped untranslated.
+
+`retries` covers short hiccups: a 500, or a 429 that asks to slow down. A 429
+that says the daily quota is used up (Cloudflare's "daily free allocation",
+Gemini's `PerDay` quota, Groq's `TPD`/`RPD`, OpenRouter's `free-models-per-day`,
+MyMemory's "for today") is not retried: the next provider takes over at once,
+the failed call's trace has `daily_quota: true`, and the job's completion event
+lists it under `daily_quota_used_up` (since DST-20; the rule is in
+`shared/providers.py`). See what this machine would use, and why the rest are
+skipped:
 
 ```bash
 python main.py providers           # the chain per role and what each needs

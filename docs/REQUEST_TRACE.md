@@ -149,7 +149,7 @@ sequenceDiagram
 | **F1** | 7, 12 | **Model calls had no explicit timeout.** The LLM clients (`genai.Client`, `OpenAI`, `Anthropic` in `llm_client.py`) were created with library defaults: OpenAI/Groq waited up to 600 s per attempt and retried twice; Gemini set none, which was verified to mean forever. The heartbeat thread keeps beating meanwhile, so `requeue_stale()` never fires. **Reproduced in the baseline run** (36 min hang, below) | A hung provider left the film "running" for many minutes, or indefinitely, instead of falling through to the next provider | **Yes, DST-12** (see below) | ~~High~~ **Fixed** |
 | **F2** | 4, 11 | **No per-account render quota and no rate limit on job endpoints** | One account can flood the queue and use up everyone's free image quota | Login lockout only | **High** |
 | **F3** | 9, 12 | **Every version copies every file** | Disk fills up: renders fail and Postgres is at risk on the same VM | Backups hard-link; the live store does not | **High** |
-| **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Every user gets weaker Pollinations images or placeholders until the daily reset | Falls through the chain, logged | **High** |
+| **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Every user gets weaker Pollinations images or placeholders until the daily reset | Falls through the chain at once with no retries, and is named on the job's completion event and trace (DST-20, F15) | **High** |
 | **F5** | 8, 12 | **Fallback breaks character consistency.** The seed reproduces a face only on the same model; if the chain moves from Cloudflare to Pollinations partway through a film, the same character can come out different *(verify)* | The film's characters change face, the core quality promise | No | Medium |
 | **F6** | 6 | **A retry reruns the whole job from the start** | The quota is spent twice for one film; a 5-minute render becomes 10 | By design | Medium |
 | **F7** | 7–8, 12 | **The whole chain is exhausted**, so the system falls back to the mock template or placeholder images | The film "succeeds" but looks broken, and the user may not know why | Logged, placeholder drawn | Medium |
@@ -160,6 +160,7 @@ sequenceDiagram
 | **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation | Account security is incomplete | Sign-ups closed by default | Medium |
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
 | **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
+| **F15** | 7–8 | **Retry decisions read the error text by substring.** A used-up daily quota was not told apart from a short rate limit; Cloudflare's daily-quota 429 skipped its retries only because its body contains "400", and the same match would end the retries of a short rate limit that quotes a number like 14400. Nothing recorded why a provider was skipped | Retries that cannot succeed, or a short limit that falls to a weaker provider; no way to see a quota ran out | **Yes, DST-20** (see below) | ~~Medium~~ **Fixed**, with gaps |
 
 ### F1 in detail (fixed in DST-12)
 
@@ -203,7 +204,7 @@ without it the role's default from `shared/providers.py` applies:
   goes straight to the next provider instead of being repeated three times.
 - **Images:** every HTTP call uses the provider's `timeout_s`. A timeout ends
   that provider's attempts at once; `retries` still covers quick 429 and 500
-  answers.
+  answers (but not a 429 for a used-up daily quota, since DST-20: F15 below).
 - **Voices:** edge-tts runs as a subprocess, which is killed after `timeout_s`;
   gTTS (which otherwise waits forever) and ElevenLabs get it as their request
   timeout. Then the next engine speaks.
@@ -272,6 +273,51 @@ recorded). The film was 150.8 s for a 30 s target on 2026-10-29 (210.0 s on
   clear message for them instead of switching to an English voice.
 - Subtitles assume English dialogue: translation always starts from English,
   so a film in Urdu gets an "English" track in Urdu.
+
+### F15 in detail (fixed in DST-20)
+
+**What the baseline logs show.** In the DST-10 renders (2026-10-28 and 29),
+Cloudflare refused 41 image calls with HTTP 429, "you have used up your daily
+free allocation of 10,000 neurons". Every one was logged as `attempt 1/3` with
+no retry. Not on purpose, though: the image tool's `_is_permanent` treated any
+error text containing "400" as a rejected request, and Cloudflare's body
+carries error code 4006. The same substring match ended the retries of a short
+429 that quotes such a number: on `main`, "HTTP 429: Limit 14400, Used 14390"
+got one attempt instead of three. Gemini's daily quota
+(`429 RESOURCE_EXHAUSTED`) and Groq's tokens-per-minute limit were already
+skipped at once, because the language-model chain never retries a provider
+that refuses. In none of these cases did the job or its trace say a quota had
+run out.
+
+**The fix.**
+- `shared/providers.py` `is_daily_quota`: HTTP 429 *and* a message that names a
+  daily window. The words each provider uses are listed beside the rule: the
+  Cloudflare and Groq ones are taken from the baseline logs, the rest from each
+  provider's documented errors. "Today" alone does not count, because Groq's
+  per-minute answer ends "Upgrade to Dev Tier today". Any other 429 keeps its
+  retries.
+- A daily-quota 429 ends that provider's attempts at once, for images and for
+  MyMemory (whose refusal now includes the body, so the rule can read it).
+- `_is_permanent` decides by the HTTP status (400, 401, 403), not by a
+  substring.
+- Every model call already passes through `tracing.model_call`. It now marks
+  the failed call `daily_quota: true` and notes `role:provider` for the job.
+  The completion event of a plan, render, re-run or edit lists them
+  (`daily_quota_used_up: ["image:cloudflare"]`) and says so in its message.
+- Tests: `tests/unit/test_daily_quota.py`, 30 tests. Run against `main`'s code
+  (with stand-in names so it imports), 16 fail. The 14 that pass are the cases
+  whose behaviour was meant to stay the same.
+
+**Gaps that remain:**
+- Once a daily quota runs out, each later image still asks that provider once
+  (and fails fast) before falling through. Skipping it for the rest of the job
+  or the day would save that call; it was left out of this ticket.
+- A MyMemory quota warning that arrives as the "translation" in a successful
+  answer was already not retried, but it is not counted on the event, because
+  there is no 429 to read.
+- Gemini's per-day quota id, and the OpenRouter and MyMemory messages, follow
+  the providers' documented formats; only Cloudflare's and Groq's words were
+  captured here.
 
 ---
 

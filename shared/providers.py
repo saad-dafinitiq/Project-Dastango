@@ -16,10 +16,13 @@ Environment overrides:
 from __future__ import annotations
 import math
 import os
+import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import yaml
 
@@ -203,6 +206,96 @@ def is_timeout(error: Optional[BaseException]) -> bool:
             return True
         error = error.__cause__ or error.__context__
     return False
+
+
+def http_status(error: Optional[BaseException]) -> Optional[int]:
+    """The HTTP status a provider answered with, if it answered at all.
+
+    The class name alone hides it: google-genai raises ServerError for every
+    5xx, so an overloaded Gemini (503) and one that ran out of time (504) look
+    the same. Each library keeps the number somewhere else, and Dastango's own
+    image adapters put it at the start of the message ("HTTP 429: ..."), so
+    this checks each in turn, along the chain of causes. Only the number is
+    kept, never the message.
+    """
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        for value in (getattr(error, "status_code", None),                 # openai, anthropic
+                      getattr(error, "code", None),                        # google-genai
+                      getattr(getattr(error, "response", None), "status_code", None)):  # requests
+            if isinstance(value, int) and not isinstance(value, bool) and 100 <= value <= 599:
+                return value
+        match = re.match(r"HTTP (\d{3})\b", str(error))
+        if match:
+            return int(match.group(1))
+        error = error.__cause__ or error.__context__
+    return None
+
+
+# ---- daily quotas (DST-20) --------------------------------------------------
+#
+# A 429 means either "slow down for a few seconds" or "today's allowance is
+# gone". Only the second is final until the daily reset, so only the second
+# skips the retries. The rule: HTTP 429 AND the provider's message names a
+# daily window. The words each provider uses:
+#   Cloudflare  "you have used up your daily free allocation of 10,000 neurons"
+#               (measured: 41 times in the DST-10 baseline renders, 2026-10-28/29)
+#   Gemini      a quotaId containing "PerDay" in the RESOURCE_EXHAUSTED details;
+#               its per-minute limit says "PerMinute" and the message is the same
+#   Groq        "tokens per day (TPD)", "requests per day (RPD)"; its per-minute
+#               answer (measured) says "tokens per minute (TPM)"
+#   OpenRouter  "free-models-per-day"
+#   MyMemory    "... ALL AVAILABLE FREE TRANSLATIONS FOR TODAY"
+# Not "today" on its own: Groq's measured per-minute answer ends "Upgrade to Dev
+# Tier today". Any other 429, including one with no message, keeps its retries:
+# one retry too many on a daily quota costs a second, but skipping the retries
+# on a short limit costs an image.
+_DAILY_QUOTA = re.compile(r"per[\s_-]?day|daily|for today|\b(?:TPD|RPD)\b", re.IGNORECASE)
+
+# Which providers ran out of daily quota during the current job ("role:provider").
+# Every model call goes through tracing.model_call, which notes it here; the
+# orchestrator puts the list on the job's completion event.
+_daily_quota_used_up: ContextVar[Optional[Set[str]]] = ContextVar("daily_quota_used_up",
+                                                                  default=None)
+
+
+def is_daily_quota(error: Optional[BaseException]) -> bool:
+    """True when a provider refused because today's allowance is used up (rule above)."""
+    if http_status(error) != 429:
+        return False
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if _DAILY_QUOTA.search(str(error)):
+            return True
+        error = error.__cause__ or error.__context__
+    return False
+
+
+@contextmanager
+def noting_daily_quotas() -> Iterator[Set[str]]:
+    """Collect the daily-quota refusals made inside the block, run_jobs threads included."""
+    used_up = _daily_quota_used_up.get()
+    if used_up is not None:       # already inside a job: share its record
+        yield used_up
+        return
+    used_up = set()
+    token = _daily_quota_used_up.set(used_up)
+    try:
+        yield used_up
+    finally:
+        _daily_quota_used_up.reset(token)
+
+
+def note_daily_quota(role: str, provider: str) -> None:
+    used_up = _daily_quota_used_up.get()
+    if used_up is not None:
+        used_up.add(f"{role}:{provider}")
+
+
+def daily_quotas_used_up() -> List[str]:
+    return sorted(_daily_quota_used_up.get() or ())
 
 
 def describe() -> Dict[str, List[Dict[str, Any]]]:

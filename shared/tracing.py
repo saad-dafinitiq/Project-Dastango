@@ -26,14 +26,14 @@ images, audio or keys.
 """
 from __future__ import annotations
 import os
-import re
 import threading
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Dict, Iterator, Optional, Tuple
 
-from shared.providers import is_timeout
+# http_status lives with the other error readers; it is re-exported from here.
+from shared.providers import http_status, is_daily_quota, is_timeout, note_daily_quota
 from shared.utils.logging import get_logger
 
 log = get_logger("tracing")
@@ -45,6 +45,7 @@ SPAN_FIELDS = (
     "attempt",      # try number with this provider (image retries, bad JSON)
     "ok", "error", "timed_out", "latency_ms",
     "http_status",  # the provider's HTTP answer on failure: 503 (overloaded), 504, 429...
+    "daily_quota",  # true when that 429 meant today's allowance is used up (not retried)
     "input_tokens", "output_tokens", "total_tokens",
     "job_id", "job_kind", "project_id",
 )
@@ -179,7 +180,8 @@ class LangfuseTracer:
         if not fields.get("ok"):
             status = fields.get("error")
             if fields.get("http_status"):
-                status = f"{status} (HTTP {fields['http_status']})"
+                status = f"{status} (HTTP {fields['http_status']}" + (
+                    ", daily quota used up)" if fields.get("daily_quota") else ")")
         observation.update(metadata=fields, output=output or None, usage_details=usage or None,
                            level="DEFAULT" if fields.get("ok") else "ERROR",
                            status_message=status)
@@ -294,39 +296,19 @@ def model_call(kind: str, role: str, provider: str, model: Optional[str] = None,
         yield call
         fields.update(ok=True, timed_out=False)
     except BaseException as e:
+        daily_quota = is_daily_quota(e)
         fields.update(ok=False, error=type(e).__name__, timed_out=is_timeout(e),
-                      http_status=http_status(e))
+                      http_status=http_status(e), daily_quota=daily_quota)
+        if daily_quota:
+            # Every model call passes through here, so this is the one place
+            # that sees them all for the job's completion event (DST-20).
+            note_daily_quota(role, provider)
         raise
     finally:
         _current.reset(token)
         fields["latency_ms"] = round((time.monotonic() - started) * 1000)
         _safely(tracer().end, handle, _clean(fields),
                 _clean(call.output_fields, IO_FIELDS))
-
-
-def http_status(error: Optional[BaseException]) -> Optional[int]:
-    """The HTTP status a provider answered with, if it answered at all.
-
-    The class name alone hides it: google-genai raises ServerError for every
-    5xx, so an overloaded Gemini (503) and one that ran out of time (504) look
-    the same. Each library keeps the number somewhere else, and Dastango's own
-    image adapters put it at the start of the message ("HTTP 429: ..."), so
-    this checks each in turn, along the chain of causes. Only the number is
-    kept, never the message.
-    """
-    seen = set()
-    while error is not None and id(error) not in seen:
-        seen.add(id(error))
-        for value in (getattr(error, "status_code", None),                 # openai, anthropic
-                      getattr(error, "code", None),                        # google-genai
-                      getattr(getattr(error, "response", None), "status_code", None)):  # requests
-            if isinstance(value, int) and not isinstance(value, bool) and 100 <= value <= 599:
-                return value
-        match = re.match(r"HTTP (\d{3})\b", str(error))
-        if match:
-            return int(match.group(1))
-        error = error.__cause__ or error.__context__
-    return None
 
 
 def record_tokens(input: Optional[int] = None, output: Optional[int] = None,

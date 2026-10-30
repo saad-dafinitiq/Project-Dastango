@@ -19,7 +19,7 @@ from typing import Dict, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
 from shared import providers, tracing
-from shared.providers import ProviderSpec, is_timeout
+from shared.providers import ProviderSpec, http_status, is_daily_quota, is_timeout
 from shared.utils.logging import get_logger
 
 log = get_logger("image_gen")
@@ -92,12 +92,16 @@ class ImageGenTool(BaseTool):
                     errors.append(f"{spec.provider}: {e}")
                     # Retries are for quick hiccups (429, 500). A provider that
                     # just hung for timeout_s will likely hang again, and three
-                    # tries would hold the image for three times as long.
+                    # tries would hold the image for three times as long. A
+                    # used-up daily quota won't come back before tomorrow.
                     timed_out = is_timeout(e)
-                    last = attempt == spec.retries - 1 or _is_permanent(e) or timed_out
+                    daily_quota = is_daily_quota(e)
+                    last = (attempt == spec.retries - 1 or _is_permanent(e) or timed_out
+                            or daily_quota)
                     log.warning("image provider %s failed (attempt %d/%d: %s)%s",
                                 spec.provider, attempt + 1, spec.retries,
                                 f"no answer within {spec.timeout_s:g} s" if timed_out
+                                else f"daily quota used up: {str(e)[:160]}" if daily_quota
                                 else str(e)[:200],
                                 "" if last else " — retrying")
                     if last:
@@ -429,10 +433,17 @@ def _rejected_field(body: str) -> Optional[str]:
 
 
 def _is_permanent(error: Exception) -> bool:
-    """Bad credentials or a rejected request won't succeed on a retry."""
+    """Bad credentials or a rejected request won't succeed on a retry.
+
+    Decided by the HTTP status, not by "400" appearing anywhere in the text: a
+    substring match made Cloudflare's daily-quota 429 (error code 4006) final by
+    accident, and would end the retries of any rate limit that quotes a number
+    like 14400 (DST-20).
+    """
+    if http_status(error) in (400, 401, 403):
+        return True
     text = str(error).lower()
-    return any(code in text for code in ("401", "403", "unauthorized", "forbidden",
-                                         "invalid api key", "400"))
+    return any(phrase in text for phrase in ("unauthorized", "forbidden", "invalid api key"))
 
 
 def _pollen_balance(headers) -> Optional[str]:
