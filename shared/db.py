@@ -96,6 +96,20 @@ identities = Table(
     Index("idx_identities_user", "user_id"),
 )
 
+# One row per sign-in or sign-up attempt, so a limit per network address holds
+# across restarts and across several API processes (auth/ratelimit.py, DST-23).
+# `key` is the address (an IPv6 one is cut to its /64). Rows are short-lived:
+# every attempt also deletes the ones older than the longest window.
+auth_attempts = Table(
+    "auth_attempts", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("scope", String(16), nullable=False),       # login | signup
+    Column("key", String(64), nullable=False),
+    Column("at", DateTime, nullable=False),
+    Index("idx_auth_attempts_lookup", "scope", "key", "at"),
+    Index("idx_auth_attempts_at", "at"),
+)
+
 projects = Table(
     "projects", metadata,
     Column("project_id", String(64), primary_key=True),

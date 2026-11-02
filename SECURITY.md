@@ -18,7 +18,7 @@ follow as soon as it is confirmed.
 | Who | Could try to | Stopped by |
 |---|---|---|
 | Anyone on the internet | Read someone's films, guess project ids, drive the API | Every `/api/*` router requires a session; assets are an authorised route, not a static folder; another user's project answers `404` |
-| Anyone on the internet | Guess or enumerate passwords | argon2id; identical answers and timing for "wrong password" and "no such account" while the account is active and unlocked (a locked or disabled account answers differently: see the [audit](docs/SECURITY.md)); 8 failures lock an account for 15 minutes; no per-IP limit yet |
+| Anyone on the internet | Guess or enumerate passwords | argon2id; identical answers and timing for a wrong password, an unknown account, a locked one and a disabled one (DST-23; sign-up still says an address is taken: see the [audit](docs/SECURITY.md)); 8 failures lock an account for 15 minutes; 20 failed sign-ins per address per 15 minutes, and 10 sign-up attempts per address per hour, then `429` |
 | A malicious site the user visits | Ride the user's session (CSRF), or log them into the attacker's account (login CSRF) | `SameSite=Lax` cookie; no cross-origin requests allowed by default; the GitHub OAuth `state` is bound to an HttpOnly cookie and checked before the code is spent |
 | Whoever registers an email first | Take over an account through "Sign in with GitHub" | GitHub identities never join an existing account by email |
 | A database leak | Replay sessions, crack passwords cheaply | Only the SHA-256 of each session token is stored; passwords are argon2id |
@@ -32,8 +32,9 @@ follow as soon as it is confirmed.
   other session.
 - **Cookie flags.** `HttpOnly`, `SameSite=Lax`, and `Secure` whenever the
   request arrived over HTTPS (forced on in production with `COOKIE_SECURE=1`).
-- **Passwords.** argon2id via argon2-cffi, 10 to 1,024 characters. Unknown
-  accounts get a dummy verify so response time does not reveal who is
+- **Passwords.** argon2id via argon2-cffi, 10 to 1,024 characters. Unknown,
+  locked and disabled accounts get a dummy verify and the ordinary
+  wrong-password answer, so neither the response nor its time reveals who is
   registered.
 - **Sign-ups.** The first account becomes the administrator; after that
   sign-ups are closed unless `ALLOW_SIGNUPS=1`. `python main.py users` is the
@@ -95,7 +96,7 @@ follow as soon as it is confirmed.
 |---|---|
 | No two-factor authentication | Strong hashing, lockout, GitHub sign-in available |
 | No email verification or reset | Sign-ups closed by default; admin CLI resets passwords |
-| No per-route rate limiting beyond login lockout | Accounts are invitation-only; provider quotas cap spend at $0 |
+| No rate limiting on routes other than sign-in and sign-up (those are limited per address since DST-23) | Accounts are invitation-only; provider quotas cap spend at $0 |
 | No Content-Security-Policy header | Same-origin app with no third-party scripts; fonts self-hosted |
 | Nothing updates the pinned dependencies | `uv.lock` pins every Python package and npm has a lock file, but there is no scheduled update or vulnerability check; upgrades are manual (`uv lock --upgrade`, see [DEVELOPMENT.md](docs/DEVELOPMENT.md#dependencies)) |
 | 14 of the 71 ASVS login and session requirements fail | Audited on 30 October 2026 and drafted as Sprint 2 tickets: see [docs/SECURITY.md](docs/SECURITY.md) |

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from auth import accounts, github, sessions
+from auth import accounts, github, ratelimit, sessions
 from auth.accounts import AuthError, User
 from auth.deps import current_user, require_admin, require_user
 from auth.passwords import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
@@ -36,11 +36,31 @@ class NewUser(BaseModel):
     role: str = "user"
 
 
+def _client_ip(request: Request) -> str:
+    """The caller's address. Read only from `request.client`, never from a header here.
+
+    Behind Caddy, uvicorn replaces `request.client` with the `X-Forwarded-For`
+    address, but only when the connection comes from a host in
+    FORWARDED_ALLOW_IPS; from anyone else the header is ignored. Parsing the
+    header again in the app would let a caller choose the address a limit is
+    counted against.
+    """
+    return request.client.host if request.client else ""
+
+
+def _too_many(attempt: "ratelimit.Attempt") -> HTTPException:
+    """429 for an address over its limit. Nothing here depends on the account."""
+    minutes = max(1, -(-attempt.retry_after // 60))
+    return HTTPException(429, f"too many attempts from this address, try again in "
+                              f"{minutes} minute(s)",
+                         headers={"Retry-After": str(attempt.retry_after)})
+
+
 def _start_session(response: Response, user: User, request: Request) -> None:
     token = sessions.create(
         user.id,
         user_agent=request.headers.get("user-agent", ""),
-        ip=request.client.host if request.client else "",
+        ip=_client_ip(request),
     )
     response.set_cookie(sessions.COOKIE_NAME, token,
                         **sessions.cookie_kwargs(request.url.scheme))
@@ -67,6 +87,10 @@ def status(user: Optional[User] = Depends(current_user)):
 def register(body: Credentials, request: Request, response: Response):
     """Create an account. The first one is the admin; after that it depends
     on ALLOW_SIGNUPS, so a private deployment doesn't quietly accept strangers."""
+    # Counted before anything else, whether or not sign-ups are open.
+    attempt = ratelimit.begin(ratelimit.SIGNUP, _client_ip(request))
+    if not attempt.allowed:
+        raise _too_many(attempt)
     if not accounts.signups_allowed():
         raise HTTPException(403, "sign-ups are closed on this deployment")
     try:
@@ -79,12 +103,18 @@ def register(body: Credentials, request: Request, response: Response):
 
 @router.post("/login")
 def login(body: Credentials, request: Request, response: Response):
+    # Counted, and refused if over the limit, before any password is checked.
+    attempt = ratelimit.begin(ratelimit.LOGIN, _client_ip(request))
+    if not attempt.allowed:
+        raise _too_many(attempt)
     try:
         user = accounts.authenticate(body.email, body.password)
     except AuthError as e:
         # 401 with one message for every kind of failure, so the endpoint
-        # can't be used to find out which addresses are registered.
+        # can't be used to find out which addresses are registered. The attempt
+        # stays counted.
         raise HTTPException(401, str(e))
+    attempt.forgive()       # a success is not a failure
     _start_session(response, user, request)
     log.info("signed in: %s", user.email)
     return {"user": user.as_dict()}

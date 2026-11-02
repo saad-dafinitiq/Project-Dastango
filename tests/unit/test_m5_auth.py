@@ -110,10 +110,15 @@ def test_an_account_locks_itself_after_repeated_failures(client):
     for _ in range(accounts.MAX_FAILED_ATTEMPTS):
         assert sign_in(client, "saad@example.com", "wrong-password").status_code == 401
 
+    # A locked account answers exactly like a wrong password (DST-23): saying
+    # "locked" would tell a stranger the address is a real account.
     locked = sign_in(client, "saad@example.com", "wrong-password")
-    assert "too many failed attempts" in locked.json()["detail"]
+    assert locked.status_code == 401
+    assert locked.json()["detail"] == "email or password is incorrect"
     # Even the right password is refused while the lock holds.
-    assert sign_in(client, "saad@example.com").status_code == 401
+    refused = sign_in(client, "saad@example.com")
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == "email or password is incorrect"
 
 
 def test_signing_out_makes_the_cookie_useless(client):
