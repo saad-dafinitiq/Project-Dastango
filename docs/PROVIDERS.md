@@ -22,9 +22,13 @@ roles:
       concurrency: 4                    # calls it tolerates at once
       retries: 3                        # attempts before the next provider
       timeout_s: 180                    # longest one call may wait
-    - provider: pollinations
-      concurrency: 1
+    - provider: agnes                   # second choice, dev/test only (see "Agnes AI" below)
+      model: agnes-image-2.1-flash
+      params: {tier: 1K}                # 1K at 16:9 is 1312x736
+      requires: [AGNES_API_KEY]
+      concurrency: 2
       retries: 3
+      timeout_s: 120
     - provider: placeholder             # offline, always works
 ```
 
@@ -44,8 +48,8 @@ Gemini's `PerDay` quota, Groq's `TPD`/`RPD`, OpenRouter's `free-models-per-day`,
 MyMemory's "for today") is not retried: the next provider takes over at once,
 the failed call's trace has `daily_quota: true`, and the job's completion event
 lists it under `daily_quota_used_up` (since DST-20; the rule is in
-`shared/providers.py`). See what this machine would use, and why the rest are
-skipped:
+`shared/providers.py`). A 402 (no balance left) is not retried either (DST-22).
+See what this machine would use, and why the rest are skipped:
 
 ```bash
 python main.py providers           # the chain per role and what each needs
@@ -69,7 +73,7 @@ online voices.
 | `GEMINI_API_KEY` | Gemini Flash reads edits and translates subtitles first, and is the last cloud fallback for scripts | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
 | `OPENROUTER_API_KEY` | Second for scripts, third for edits and translation (`openrouter/free`) | [openrouter.ai](https://openrouter.ai/keys) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | FLUX images, four at a time; 10,000 neurons a day ≈ 170 images | [dash.cloudflare.com](https://dash.cloudflare.com), a Workers AI token |
-| `POLLINATIONS_API_KEY` | Pollinations' real models at full size instead of the keyless endpoint | [enter.pollinations.ai](https://enter.pollinations.ai) |
+| `AGNES_API_KEY` | Agnes images behind Cloudflare, so a render is not left with placeholders when Cloudflare's daily allowance is gone. **Dev/test only, read the data terms below first** | [agnes-ai.com](https://agnes-ai.com) |
 | `MYMEMORY_EMAIL` | Raises the free translation fallback from ~5,000 to ~50,000 characters a day | any address |
 | `OLLAMA_HOST` | Local models through Ollama, fully offline | `ollama serve` |
 
@@ -78,12 +82,45 @@ What running it live taught, now handled in the adapters:
 - Reasoning models (Gemini Flash, gpt-oss) spend small token budgets thinking
   and return nothing, so every call asks for at least 600 tokens.
 - Cloudflare's FLUX rejects a `seed`; the provider drops it and retries once.
-- A Pollinations key with no budget left answers 402; the keyless endpoint
-  takes over for the rest of the run.
-- The keyless Pollinations endpoint answers one request per IP, which is why
-  each provider has its own concurrency limit.
+- Pollinations is switched off since DST-22 (its entry is commented out in
+  `config/providers.yaml`, the adapter is still in `image_gen_tool.py`). A key
+  with no budget left answers 402 and the keyless endpoint it falls back to
+  serves a weaker model, one request per IP, which is why each provider has its
+  own concurrency limit. To use it again, restore its entry above `openai`.
 - Cloudflare's safety filter occasionally refuses an innocent prompt; the next
   provider draws that image.
+
+## Agnes AI (image backstop, dev/test only)
+
+Added in DST-22 so that when Cloudflare's daily allowance runs out, images
+come from a real model instead of placeholders. It sits after Cloudflare and
+the local options and before OpenAI. The adapter is `_provider_agnes`.
+
+- **API** (official docs, read 2026-11-02): `POST https://apihub.agnes-ai.com/v1/images/generations`
+  with `agnes-image-2.1-flash` (high detail) or `agnes-image-2.0-flash` (faster).
+  Size is a tier (`1K` to `4K`) plus a ratio; at 1K, 16:9 is 1312x736. The
+  adapter asks for Base64 so there is no second download, and cover-fits the
+  result like every other provider. Seed and negative prompt are not
+  documented, so neither is sent. Plain HTTP rather than the OpenAI client,
+  because `response_format` has to sit inside a field called `extra_body`.
+- **Limits:** the free tier is limited per minute (20 requests a minute at 1K,
+  10 at 2K), with no daily cap stated for it. So a 429 here is a short rate
+  limit and keeps its retries; DST-20's rule only fires on a message that names
+  a daily window. A 402 means no balance and is not retried. The free output
+  is described as a trial, and the terms let Agnes change or end it.
+- **Data terms: read before adding the key.** Agnes's privacy policy says that
+  on the free API tier, inputs and outputs may be used to train and improve its
+  models by default, unless you opt out "where available" (by emailing
+  `support@agnes-ai.com`; no steps are given). Paid Token Plan and Enterprise
+  are excluded by default. Data may be processed in Singapore, the US and other
+  places, with no fixed retention period; the terms are governed by Singapore
+  law. Both pages still contain unfilled placeholders. The project treats
+  confidentiality as a pass/fail gate, so **Agnes is for development and
+  testing with synthetic prompts only**: put `AGNES_API_KEY` in a developer's
+  `.env`, never on the server that renders other people's films. Without the
+  key the provider is skipped, which is how the server behaves today.
+- **Long term:** not decided here; the production image provider depends on the
+  Bedrock decision.
 
 ## Voices
 

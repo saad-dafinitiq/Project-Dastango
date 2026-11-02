@@ -1,10 +1,11 @@
 """Image generation, driven by the `image` role in config/providers.yaml.
 
 Providers are tried in the order the config lists them (Cloudflare FLUX, local
-Stable Diffusion, an SD WebUI, Pollinations, OpenAI, and finally an offline PIL
-placeholder). Whatever a provider returns is validated, cover-fitted to the
-requested size and saved in the requested format, so a provider error page can
-never end up on screen as a picture.
+Stable Diffusion, an SD WebUI, Agnes, OpenAI, and finally an offline PIL
+placeholder; Pollinations is still here but switched off in the config).
+Whatever a provider returns is validated, cover-fitted to the requested size
+and saved in the requested format, so a provider error page can never end up
+on screen as a picture.
 """
 from __future__ import annotations
 import base64
@@ -320,6 +321,42 @@ class ImageGenTool(BaseTool):
         native = _save_image_bytes(r.content, out, w, h)
         return {"native_size": list(native)}
 
+    def _provider_agnes(self, spec: ProviderSpec, prompt: str, negative: str, out: Path,
+                        w: int, h: int, seed: int) -> dict:
+        """Agnes AI (apihub.agnes-ai.com), the free-tier backstop behind Cloudflare (DST-22).
+
+        Plain HTTP rather than the OpenAI client: the API wants a tier ("1K") plus
+        a ratio instead of pixel sizes, and `response_format` as a key *inside* a
+        body field named `extra_body` (top-level it is an error). The OpenAI SDK's
+        own `extra_body` argument flattens into the top level, so it cannot send
+        that shape. Seed and negative prompt are not documented, so neither is sent.
+        The free tier's inputs may be used for training: see docs/PROVIDERS.md.
+        """
+        import requests
+        base = str(spec.params.get("base_url") or AGNES_BASE_URL).rstrip("/")
+        body = {"model": spec.model or "agnes-image-2.1-flash", "prompt": prompt,
+                "size": str(spec.params.get("tier", "1K")), "ratio": _agnes_ratio(w, h),
+                "extra_body": {"response_format": "b64_json"}}
+        r = requests.post(f"{base}/images/generations", json=body, timeout=spec.timeout_s,
+                          headers={"Authorization": f"Bearer {os.environ['AGNES_API_KEY']}"})
+        if r.status_code >= 400:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+        try:
+            item = (r.json().get("data") or [{}])[0]
+        except (ValueError, AttributeError) as e:
+            raise RuntimeError(f"agnes answered something that is not JSON: {r.text[:200]!r}") from e
+        if item.get("b64_json"):
+            data = base64.b64decode(item["b64_json"])
+        elif item.get("url"):
+            # Not what we asked for, but the documented alternative; take it.
+            got = requests.get(item["url"], timeout=spec.timeout_s)
+            got.raise_for_status()
+            data = got.content
+        else:
+            raise RuntimeError(f"no image in response: {r.text[:200]}")
+        native = _save_image_bytes(data, out, w, h)
+        return {"native_size": list(native)}
+
     def _provider_sd_webui(self, spec: ProviderSpec, prompt: str, negative: str, out: Path,
                            w: int, h: int, seed: int) -> dict:
         """Stable Diffusion WebUI (Automatic1111) HTTP API.
@@ -424,6 +461,18 @@ _WARNED: set = set()
 # Set once a keyed Pollinations call is refused, so we stop retrying with the key.
 _KEYLESS_POLLINATIONS: set = set()
 
+AGNES_BASE_URL = "https://apihub.agnes-ai.com/v1"
+# The ratios Agnes documents (docs for agnes-image-2.1-flash, read 2026-11-02).
+_AGNES_RATIOS = {"1:1": 1.0, "3:4": 3 / 4, "4:3": 4 / 3, "16:9": 16 / 9, "9:16": 9 / 16,
+                 "2:3": 2 / 3, "3:2": 3 / 2, "21:9": 21 / 9}
+
+
+def _agnes_ratio(w: int, h: int) -> str:
+    """The documented ratio closest to w:h, compared on a log scale so 2:1 and 1:2 are mirrors."""
+    import math
+    target = math.log(max(w, 1) / max(h, 1))
+    return min(_AGNES_RATIOS, key=lambda name: abs(math.log(_AGNES_RATIOS[name]) - target))
+
 
 def _rejected_field(body: str) -> Optional[str]:
     """Pull the offending property name out of a Cloudflare schema error."""
@@ -438,9 +487,10 @@ def _is_permanent(error: Exception) -> bool:
     Decided by the HTTP status, not by "400" appearing anywhere in the text: a
     substring match made Cloudflare's daily-quota 429 (error code 4006) final by
     accident, and would end the retries of any rate limit that quotes a number
-    like 14400 (DST-20).
+    like 14400 (DST-20). 402 is "insufficient balance": a spent credit does not
+    come back within a retry's wait, so it falls through at once (DST-22).
     """
-    if http_status(error) in (400, 401, 403):
+    if http_status(error) in (400, 401, 402, 403):
         return True
     text = str(error).lower()
     return any(phrase in text for phrase in ("unauthorized", "forbidden", "invalid api key"))

@@ -37,7 +37,7 @@ flowchart LR
     app -- "live storyboard, progress,<br/>the finished film" --> creator
 
     app -- "script · edit intent · translation" --> llm["LLM APIs<br/>Gemini · Groq · OpenRouter"]
-    app -- "storyboard and shot images" --> img["Image APIs<br/>Cloudflare Workers AI FLUX · Pollinations"]
+    app -- "storyboard and shot images" --> img["Image APIs<br/>Cloudflare Workers AI FLUX · Agnes (dev/test)"]
     app -- "online voice fallbacks" --> tts["Edge TTS · gTTS"]
     app -- "subtitle fallback" --> mm["MyMemory"]
     app -- "sign in" --> gh["GitHub OAuth"]
@@ -53,7 +53,7 @@ flowchart LR
 | External system | Used for | If it is down |
 |---|---|---|
 | Gemini, Groq, OpenRouter | Writing the script, reading an edit, translating subtitles | The next model in the chain answers; with none, a deterministic template writes the script and a keyword classifier reads edits |
-| Cloudflare Workers AI, Pollinations | Storyboard and shot images | The next provider draws it; a local placeholder guarantees a file exists |
+| Cloudflare Workers AI, Agnes AI (dev/test key only) | Storyboard and shot images | The next provider draws it; a local placeholder guarantees a file exists |
 | Edge TTS, gTTS | Voices when Kokoro is not installed | Kokoro runs offline; silence of the right length keeps timing intact |
 | MyMemory | Subtitle translation when no LLM can | That language is skipped; an English track is never shipped under a foreign label |
 | GitHub | Optional sign-in | Email and password still work |
@@ -203,7 +203,7 @@ sequenceDiagram
     Note over A,DB: The socket reads new job_events rows every 0.4 s
     A-->>W: the script appears, every scene readable
     loop one preview per scene
-        O->>P: image (Cloudflare FLUX, else Pollinations, else placeholder)
+        O->>P: image (Cloudflare FLUX, else Agnes if a key is set, else placeholder)
         O->>DB: event storyboard/frame
         A-->>W: that frame develops in
     end

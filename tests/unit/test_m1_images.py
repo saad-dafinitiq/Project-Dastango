@@ -30,13 +30,25 @@ def _jpeg(w: int, h: int, comment: bytes = b"") -> bytes:
 
 
 @pytest.fixture
-def pollinations(monkeypatch):
-    """Chain starting at Pollinations, with the placeholder still behind it."""
+def pollinations(monkeypatch, tmp_path):
+    """A test chain starting at Pollinations, with the placeholder still behind it.
+
+    Pollinations is switched off in the shipped config (DST-22) but its adapter is
+    kept, so these tests give it a chain of its own instead of using that one.
+    """
     import requests
+    from shared import providers
     monkeypatch.delenv("PROVIDER_IMAGE", raising=False)
     for name in ("POLLINATIONS_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN",
                  "LOCAL_SD", "SD_API_URL", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+    chain_file = tmp_path / "providers.yaml"
+    chain_file.write_text(
+        "roles:\n  image:\n"
+        "    - provider: pollinations\n      model: tongyi-mai/z-image-turbo\n      retries: 3\n"
+        "    - provider: placeholder\n", encoding="utf-8")
+    monkeypatch.setenv("PROVIDERS_FILE", str(chain_file))
+    providers.load(force=True)
     calls = []
 
     def install(resp):
@@ -45,7 +57,9 @@ def pollinations(monkeypatch):
             return resp
         monkeypatch.setattr(requests, "get", fake_get)
         return calls
-    return install
+    yield install
+    monkeypatch.delenv("PROVIDERS_FILE", raising=False)
+    providers.load(force=True)
 
 
 def test_legacy_jpeg_is_saved_as_png_at_requested_size(tmp_path, pollinations):
