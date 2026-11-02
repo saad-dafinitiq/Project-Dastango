@@ -148,7 +148,7 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
     cards = {c["scene_id"]: c for c in scene_cards(state.script, engine)}
     for frame in board["frames"]:
         if frame.get("preview_path"):
-            frame["preview_url"] = asset_url(frame["preview_path"])
+            frame["preview_url"] = asset_url(frame["preview_path"], versioned=True)
         card = cards.get(frame["scene_id"], {})
         frame["tone"] = card.get("tone", "")
         frame["move"] = card.get("move", "")
@@ -160,18 +160,41 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
     return board
 
 
+# What the creator is told when the words were saved but the picture could not be
+# redrawn. It names no provider: the reason is in the server log.
+REDRAW_FAILED = ("Your changes are saved, but the picture could not be redrawn just now; "
+                 "the image services may be at their limit. The previous picture is kept, "
+                 "and the film will draw this scene fresh when you render.")
+
+
 @router.patch("/storyboard/{project_id}/{scene_id}",
               dependencies=[Depends(require_project)])
 def edit_storyboard(project_id: str, scene_id: str, edit: SceneEdit):
-    """Edit one scene before rendering; redraws its preview if the visuals changed."""
+    """Edit one scene before rendering; redraws its preview if the visuals changed.
+
+    The words are always saved, as a new version. The answer is the storyboard,
+    plus a `redraw` field when a new picture was asked for: `ok` false means it
+    could not be drawn and the previous picture was kept.
+    """
+    # A plan, render or edit writes versions through the queue, one job per film at
+    # a time. This edit writes one directly, so two could overwrite each other.
+    busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done]
+    if busy:
+        raise HTTPException(409, f"This film is being worked on right now ({busy[0].kind}); "
+                                 "try the edit again when it has finished.")
+    outcome: dict = {}
     try:
         pipeline_service.orchestrator().update_storyboard(
             project_id, scene_id, title=edit.title, setting=edit.setting,
-            visual_prompt=edit.visual_prompt, dialogue=edit.dialogue,
+            visual_prompt=edit.visual_prompt, dialogue=edit.dialogue, outcome=outcome,
         )
     except ValueError as e:
         raise HTTPException(404, str(e))
-    return get_storyboard(project_id)
+    board = get_storyboard(project_id)
+    redraw = outcome.get("redraw")
+    if redraw:
+        board["redraw"] = {**redraw, **({} if redraw["ok"] else {"message": REDRAW_FAILED})}
+    return board
 
 
 @router.post("/render/{project_id}", response_model=RunResponse)

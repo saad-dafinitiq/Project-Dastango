@@ -199,7 +199,7 @@ class PipelineOrchestrator:
                         message=f"Scene {position[scene.scene_id]} drawn: {scene.title}",
                         progress=0.5 + 0.45 * len(drawn) / max(1, total),
                         payload={"scene_id": scene.scene_id,
-                                 "preview_url": asset_url(path)}))
+                                 "preview_url": asset_url(path, versioned=True)}))
 
                 self.video.generate_storyboard(state, width=preview_width,
                                                height=preview_height,
@@ -224,8 +224,16 @@ class PipelineOrchestrator:
                           title: Optional[str] = None, setting: Optional[str] = None,
                           visual_prompt: Optional[str] = None,
                           dialogue: Optional[Dict[str, str]] = None,
-                          regenerate_preview: bool = True) -> PipelineState:
-        """Edit one storyboard scene (and redraw its preview if the visuals changed)."""
+                          regenerate_preview: bool = True,
+                          outcome: Optional[Dict[str, Any]] = None) -> PipelineState:
+        """Edit one storyboard scene (and redraw its preview if the visuals changed).
+
+        The text is always saved, as a new version. If the picture could not be
+        redrawn (every image provider failed, or only the offline placeholder
+        answered), the previous picture and its signature are kept and the render
+        will draw the scene from the new text. A caller that passes `outcome` gets
+        {"redraw": {"scene_id": ..., "ok": bool}} when a redraw was asked for.
+        """
         state = self.sm.latest(project_id)
         if not state or not state.script:
             raise ValueError(f"no storyboard for {project_id}")
@@ -254,14 +262,22 @@ class PipelineOrchestrator:
 
         self.story.serialize(state)
         board = state.storyboard
+        redraw = visual_changed and regenerate_preview
+        failed: List[str] = []
         self.video.generate_storyboard(
             state,
             width=board.preview_width if board else DEFAULT_WIDTH,
             height=board.preview_height if board else DEFAULT_HEIGHT,
-            scene_ids=[scene_id] if (visual_changed and regenerate_preview) else [],
+            scene_ids=[scene_id] if redraw else [],
+            failed=failed,
         )
-        self.sm.snapshot(state, asset_paths=self._collect_assets(state),
-                         description=f"storyboard edit: {scene_id}")
+        redrawn = redraw and scene_id not in failed
+        if redraw and outcome is not None:
+            outcome["redraw"] = {"scene_id": scene_id, "ok": redrawn}
+        self.sm.snapshot(
+            state, asset_paths=self._collect_assets(state),
+            description=f"storyboard edit: {scene_id}"
+                        + (" (picture not redrawn)" if redraw and not redrawn else ""))
         return state
 
     @_noting_daily_quotas

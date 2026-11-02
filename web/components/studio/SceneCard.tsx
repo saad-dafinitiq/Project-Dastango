@@ -30,6 +30,8 @@ export function SceneCard({ card, number, active, editable, delay = 0, onSave }:
 
   const drawn = Boolean(card.preview_url);
   const visualChanged = visual.trim() !== (card.visual_prompt ?? "").trim();
+  // Saving a new description redraws the picture, which takes a few seconds.
+  const redrawing = saving && visualChanged;
 
   async function save() {
     if (!onSave) return;
@@ -63,6 +65,11 @@ export function SceneCard({ card, number, active, editable, delay = 0, onSave }:
           <img src={card.preview_url!} alt={card.setting || card.title} />
         ) : (
           <span className={`label ${styles.drawing}`}>drawing</span>
+        )}
+        {redrawing && (
+          <div className={styles.redrawing} role="status">
+            <span className="label">Redrawing this frame</span>
+          </div>
         )}
         <div className={styles.shade} />
         <span className={styles.num}>{String(number).padStart(2, "0")}</span>
@@ -107,7 +114,7 @@ export function SceneCard({ card, number, active, editable, delay = 0, onSave }:
           </p>
           <div className={styles.editActions}>
             <button className="btn primary small" onClick={save} disabled={saving}>
-              {saving ? "Saving" : "Save scene"}
+              {saving ? (visualChanged ? "Redrawing" : "Saving") : "Save scene"}
             </button>
             <button className="btn quiet small" onClick={() => setEditing(false)} disabled={saving}>
               Cancel

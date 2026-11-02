@@ -107,6 +107,28 @@
   position: relative;
   z-index: 1;
 }
+/* Over the old picture while a new one is drawn, so the edit is seen to be
+   working and the old frame is still there if it fails. */
+.redrawing {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.redrawing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.08) 50%, transparent 80%);
+  background-size: 220% 100%;
+  animation: sweep 2.1s linear infinite;
+}
+.redrawing span {
+  position: relative;
+  z-index: 1;
+}
 .shade {
   position: absolute;
   inset: auto 0 0 0;

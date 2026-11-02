@@ -119,7 +119,7 @@ sequenceDiagram
 
 | # | Step | Where in the code |
 |---|---|---|
-| 10 | The creator reads the storyboard (`GET /storyboard/{pid}`) and may edit a scene (`PATCH /storyboard/{pid}/{scene}`) | `backend/routes/pipeline.py` `get_storyboard` / `edit_storyboard` |
+| 10 | The creator reads the storyboard (`GET /storyboard/{pid}`) and may edit a scene (`PATCH /storyboard/{pid}/{scene}`); a new description redraws only that scene's picture, keeps the old one if it cannot be drawn, and is refused while a job runs (F16, DST-25) | `backend/routes/pipeline.py` `get_storyboard` / `edit_storyboard` |
 | 11 | `POST /render/{pid}` checks that a script exists, then **writes a `render` job row** | `backend/routes/pipeline.py` `start_render` → `_accepted()` |
 | 12 | A worker claims the job and runs `render()`: the **audio agent** voices each line (TTS chain: Kokoro → Edge TTS → gTTS → silent, in parallel), places the lines on the **shared timeline**, and mixes music (ducked under speech, −16 LUFS); the **video agent** draws portraits and shots (image chain), renders the clips with ffmpeg, crossfades, muxes and adds subtitles; then **snapshot** | `agents/orchestrator/workflow.py` `render()` → `agents/audio_agent/` → `shared/timeline.py` → `agents/video_agent/` → `mcp/tools/video_tools/ffmpeg_tool.py` → `state_manager/` |
 | 13 | The browser calls `GET /film/{pid}` to get the URLs, then `GET /assets/{pid}/…`, which checks ownership, blocks path traversal and supports Range requests so the player can seek | `backend/routes/pipeline.py` `film()` → `backend/app.py` `serve_asset()` |
@@ -161,6 +161,7 @@ sequenceDiagram
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
 | **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
 | **F15** | 7–8 | **Retry decisions read the error text by substring.** A used-up daily quota was not told apart from a short rate limit; Cloudflare's daily-quota 429 skipped its retries only because its body contains "400", and the same match would end the retries of a short rate limit that quotes a number like 14400. Nothing recorded why a provider was skipped | Retries that cannot succeed, or a short limit that falls to a weaker provider; no way to see a quota ran out | **Yes, DST-20** (see below) | ~~Medium~~ **Fixed**, with gaps |
+| **F16** | 10 | **A storyboard picture edit looked ignored, and could go stale.** The picture's address never changed after a redraw, so the page kept showing the old one; if every image provider failed the edit still answered 200, kept the old picture and marked it as matching the new text, so the render reused it (a fallback placeholder could also overwrite a good picture) | The creator's edit appears to do nothing, or the film shows a picture that does not match its description | **Yes, DST-25** (see below) | ~~High~~ **Fixed**, with gaps |
 
 ### F1 in detail (fixed in DST-12)
 
@@ -318,6 +319,85 @@ run out.
 - Gemini's per-day quota id, and the OpenRouter and MyMemory messages, follow
   the providers' documented formats; only Cloudflare's and Groq's words were
   captured here.
+
+### F16 in detail (fixed in DST-25)
+
+**What was wrong.** Found by reproducing the ticket on a throwaway instance on
+2026-11-02 (code `43c456d`; placeholder images and the offline script, so no
+quota was spent):
+- Editing "what the camera sees" *did* redraw the picture on the server: its
+  bytes and signature changed, the other scenes were untouched and a new version
+  was saved. But the picture's address was the same before and after
+  (`/assets/<project>/video/storyboard/scene_1.png`). The page re-renders the same
+  `<img src>`, so the browser has no reason to fetch the new file, and the asset
+  response has `ETag` and `Last-Modified` but no `Cache-Control`. I did not watch
+  this in a browser; the evidence is the identical address, the missing header and
+  how the page renders an image.
+- With every image provider failing, the same edit answered `200` with no error
+  (5.7 s), kept the old picture, saved the new text, and stamped the picture's
+  signature as matching it (`agents/video_agent/agent.py`, the `preview_signature`
+  lines). The render's reuse check, `reusable_preview`, compares only that
+  signature, so it copied the old picture in as the wide shot of the new
+  description. A placeholder drawn at plan time was stamped the same way.
+- With the shipped chain, which ends in the placeholder, the placeholder counts as
+  a success, so a failed redraw would have replaced the good picture with a
+  gradient (read from the code; not measured before the fix).
+- The edit runs inside the web request, outside the job queue, so it could write a
+  version while a render did.
+
+**The fix.**
+- `shared/assets.py` `asset_url(..., versioned=True)` adds `?v=<last change>` to
+  storyboard preview addresses (`GET /storyboard` and the live `frame` events). It
+  changes when the file is rewritten and not otherwise; bucket URLs are untouched.
+- `agents/video_agent/agent.py` `_draw_preview` draws beside the old picture and
+  moves it over only if it is a real image. A placeholder that arrives after a real
+  provider failed (`fallback` in the image result, new in `image_gen_tool.py`)
+  does not count. On failure the old picture and its signature stay, and the
+  scene is reported. A scene that never had a picture gets a placeholder to show
+  and no signature, so the render draws it properly. With no keys at all the
+  placeholder is the chosen provider and still counts.
+- `update_storyboard` always saves the words as a new version (labelled "picture
+  not redrawn" when the redraw failed) and reports `redraw: ok`. The route adds a
+  message a creator can read, without naming a provider.
+- `PATCH /storyboard` answers `409` while a plan, render or edit is running for
+  the film.
+- The web card shows "Redrawing this frame" over the old picture while the request
+  runs, and the creator sees the failure message.
+
+**Evidence.** 2026-11-02, throwaway instances, code `43c456d` plus the DST-25
+changes (uncommitted at run time).
+
+| Case | Before the fix | After the fix |
+|---|---|---|
+| The edit works (offline placeholder chosen) | picture and signature changed; address identical | same, and the address changes (`?v=` differs); `redraw: ok` true |
+| Every provider fails, no placeholder in the chain | `200`, no error, old picture, signature stamped as current | `200` with `redraw: ok` false and a message; old picture and signature kept; new text saved |
+| Providers fail, chain ends in the placeholder | not measured (read from the code) | old picture byte for byte the same, `ok` false, no half-drawn file left |
+| Real Agnes images, 2 scenes planned then one edited | not run | plan 14 s; edit 13.7 s and one image; `scene_1` changed, `scene_2` identical with the same address |
+
+**Tests.** `tests/unit/test_storyboard_redraw.py` (17 tests): one edit draws exactly
+one picture and leaves the others alone; words-only edits draw nothing; every
+edit is a new version; the render's reuse check returns the new picture; a failed
+redraw keeps the old picture and signature but saves the words (with and without a
+placeholder in the chain) and the render then redraws it; a scene that never had a
+picture is not marked as having one; the chosen offline placeholder still counts;
+a scene can be redrawn once providers return; the address changes only when the
+picture does; the answer reports the redraw and its message; an edit is refused
+while a job runs. Five behaviours were broken on purpose and a test failed each
+time. The whole suite passes on SQLite (632 passed, 7 skipped) and on a real Postgres 16
+(637 passed, 5 skipped), both on 2 Nov 2026, Python 3.11.
+
+**Known limits.**
+- Not watched in a browser (my browser tool was unavailable). After the fix, an
+  edit should fetch a new `scene_N.png?v=...` in the browser's Network tab; please
+  confirm it.
+- The edit still runs inside the web request: it takes the time of one image
+  (13.7 s on Agnes), longer if a provider hangs up to its timeout. A queued job with
+  live progress is a larger follow-up.
+- Scene pictures are not made consistent with the characters. Appearance locks
+  and seeds are used for portraits only; a scene picture comes from the scene text
+  and the film's style. The new picture follows the same path as the original
+  preview and the render's wide shot.
+- An edit that changes nothing still saves a version, as before.
 
 ### F11 in detail (fixed in DST-16)
 

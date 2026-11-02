@@ -116,12 +116,26 @@ def reset() -> None:
 
 # ---- the API the rest of the code uses --------------------------------------
 
-def asset_url(path: str | Path | None) -> Optional[str]:
-    """A URL the browser can fetch for a file under data/outputs."""
+def asset_url(path: str | Path | None, versioned: bool = False) -> Optional[str]:
+    """A URL the browser can fetch for a file under data/outputs.
+
+    `versioned` adds `?v=<when the file last changed>` for a file that is
+    redrawn in place, like a storyboard preview. Its address is otherwise the same
+    before and after, so the page has no reason to ask for the new picture and keeps
+    showing the old one (DST-25). The version changes when the file is rewritten and
+    not otherwise, so an untouched picture stays cached. A bucket URL already carries
+    a signature that changes, so it is left alone.
+    """
     if not path:
         return None
     key = key_for(path)
-    return store().url(key) if key else None
+    url = store().url(key) if key else None
+    if url and versioned and "?" not in url:
+        try:
+            url += f"?v={Path(str(path)).stat().st_mtime_ns:x}"
+        except OSError:
+            pass                      # no file, nothing to version
+    return url
 
 
 def publish(paths: Iterable[str | Path]) -> Dict[str, str]:
