@@ -179,9 +179,12 @@ export function Studio() {
 
   async function saveScene(sceneId: string, edit: SceneEdit) {
     if (!pid) return;
+    setProblem(null);
     try {
-      await api.editScene(pid, sceneId, edit);
+      const saved = await api.editScene(pid, sceneId, edit);
       await refresh();
+      // The words are saved even when the picture could not be redrawn; say so.
+      if (saved.redraw && !saved.redraw.ok) setProblem(saved.redraw.message ?? null);
     } catch (err) {
       setProblem(err instanceof ApiError ? err.message : "That edit didn't save.");
       throw err;

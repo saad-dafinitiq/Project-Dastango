@@ -86,9 +86,13 @@ class ImageGenTool(BaseTool):
                                            width, height, seed) or {}
                             native = meta.get("native_size") or [None, None]
                             call.output(native_width=native[0], native_height=native[1])
+                    # `fallback`: an earlier provider in the chain was tried and failed. A
+                    # placeholder that arrives this way is not the picture that was asked
+                    # for, and callers must not treat it as one (DST-25).
                     return ToolResult(success=True, data=str(out),
                                       metadata={"provider": spec.provider, "model": spec.model,
-                                                "seed": seed, "attempt": attempt + 1, **meta})
+                                                "seed": seed, "attempt": attempt + 1,
+                                                "fallback": position > 1, **meta})
                 except Exception as e:  # noqa: BLE001
                     errors.append(f"{spec.provider}: {e}")
                     # Retries are for quick hiccups (429, 500). A provider that

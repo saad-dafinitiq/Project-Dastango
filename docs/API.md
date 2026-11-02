@@ -48,7 +48,7 @@ the OpenAPI schema at `/api/openapi.json` (`/docs` is the product's own guide).
 |---|---|---|---|
 | POST | `/plan` | `{prompt, target_duration_s=45, scene_count=4, with_preview=true}` | Queue a storyboard: script + one preview per scene |
 | GET | `/storyboard/{project_id}?engine=` | none | Scene cards (tone, camera move, lines and the voice that will speak each), cast, image budget |
-| PATCH | `/storyboard/{project_id}/{scene_id}` | `{title?, setting?, visual_prompt?, dialogue?: {line_id: text}}` | Edit one scene; a new `visual_prompt` redraws its preview. Saved as a version |
+| PATCH | `/storyboard/{project_id}/{scene_id}` | `{title?, setting?, visual_prompt?, dialogue?: {line_id: text}}` | Edit one scene; a new `visual_prompt` redraws only that scene's preview (one image). The words are saved as a version even if the picture could not be drawn: the answer then has `redraw: {ok: false, message}` and the previous picture is kept (`redraw: {ok: true}` otherwise, absent for a words-only edit). `409` while a plan, render or edit is running for the film. Preview addresses end in `?v=` and change only when the picture does |
 | POST | `/render/{project_id}` | `{with_bgm, with_subtitles, subtitle_language, burn_subtitles, tts_engine?}` | Queue the render of an approved storyboard |
 | POST | `/run` | `{prompt, target_duration_s, scene_count, with_bgm, with_subtitles, subtitle_language, tts_engine?}` | Plan and render in one job |
 | POST | `/rerun` | `{project_id, phase: story\|audio\|video}` | Re-run a phase and everything after it, keeping the film's settings |

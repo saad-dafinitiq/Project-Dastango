@@ -25,6 +25,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -289,11 +290,18 @@ class VideoAgent:
     def generate_storyboard(self, state: PipelineState, width: int = DEFAULT_WIDTH,
                             height: int = DEFAULT_HEIGHT,
                             scene_ids: Optional[List[str]] = None,
-                            on_frame: Optional[Any] = None) -> Storyboard:
+                            on_frame: Optional[Any] = None,
+                            failed: Optional[List[str]] = None) -> Storyboard:
         """One small preview image per scene, for approval before the real render.
 
         A preview costs a single image; a full render costs three per scene plus
         portraits, every voice line and all the video work.
+
+        A scene whose picture could not be drawn (every provider failed, or only
+        the placeholder answered after the real ones failed) keeps the picture it
+        had, and its id is added to `failed` if a list is passed. It is never
+        stamped as matching its text: the render must redraw it, not reuse a
+        stale or placeholder image under a signature that says it is current.
         """
         script = state.script
         board = state.storyboard or Storyboard(
@@ -306,9 +314,14 @@ class VideoAgent:
         # (a text-only edit shouldn't spend images).
         targets = [s for s in script.scenes
                    if scene_ids is None or s.scene_id in scene_ids]
+        drawn: Dict[str, bool] = {}
+
         def draw(scene: Scene) -> str:
-            path = self._generate_preview(state.project_id, scene, width, height,
+            path, ok = self._draw_preview(state.project_id, scene, width, height,
                                           script.story)
+            drawn[scene.scene_id] = ok
+            if not ok and failed is not None:
+                failed.append(scene.scene_id)
             # Each frame is reported the moment it exists, so the interface can
             # fill the storyboard in scene by scene rather than all at the end.
             if on_frame is not None:
@@ -331,7 +344,7 @@ class VideoAgent:
                     scene.scene_id, existing.preview_path if existing else None),
                 preview_signature=(
                     self.preview_signature(scene, script.story, width, height)
-                    if scene.scene_id in preview_by_scene
+                    if drawn.get(scene.scene_id)
                     else (existing.preview_signature if existing else None)),
                 dialogue=[StoryboardLine(line_id=ln.line_id, character_id=ln.character_id,
                                          character_name=names.get(ln.character_id, ""),
@@ -359,22 +372,47 @@ class VideoAgent:
         return hashlib.md5(
             f"{prompt}|{style}|{negative}|{width}x{height}".encode()).hexdigest()
 
-    def _generate_preview(self, project_id: str, scene: Scene,
-                          width: int, height: int, story: StoryOutput) -> str:
+    def _draw_preview(self, project_id: str, scene: Scene, width: int, height: int,
+                      story: StoryOutput) -> Tuple[str, bool]:
+        """Draw one scene's preview. Returns (path, drawn).
+
+        `drawn` is False when no real image came back: every provider failed, or
+        only the offline placeholder answered after the real ones had failed
+        (quota used up). The picture is drawn beside the old one and moved over it
+        only when it is real, so a failed redraw leaves the previous picture
+        exactly as it was; before this, the offline fallback overwrote a good
+        preview with a gradient (DST-25). If there never was a picture, a
+        placeholder is written so the card has something to show, and `drawn` is
+        still False so the render draws the scene properly.
+        """
         out = project_dir(project_id) / "video" / "storyboard" / f"{scene.scene_id}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
+        staging = out.with_name(f"{out.stem}.new{out.suffix}")
         style, negative = scene_style(story, scene.tone)
         prompt = f"{scene.visual_prompt}, {BANK_FRAMINGS[0][1]}"
         res = self.tools.execute(
-            "vision.generate_image", prompt=prompt, out_path=str(out),
+            "vision.generate_image", prompt=prompt, out_path=str(staging),
             width=width, height=height, style=style,
             negative_prompt=negative,
             # A new prompt gives a new preview; the same prompt reuses the look.
             seed=_seed(prompt, ""),
         )
+        meta = res.metadata or {}
+        real = bool(res.success and res.data and Path(res.data).exists()
+                    and not (meta.get("provider") == "placeholder" and meta.get("fallback")))
         log.info("  storyboard %s -> %s (%s)", scene.scene_id, out.name,
-                 res.metadata.get("provider") if res.success else res.error)
-        return _ensure_image(res, out, prompt, width, height)
+                 meta.get("provider") if res.success else res.error)
+        if real:
+            _replace_file(Path(res.data), out)
+            return str(out), True
+        for leftover in {staging, Path(res.data)} if res.data else {staging}:
+            leftover.unlink(missing_ok=True)
+        log.warning("  storyboard %s: no real image was produced, keeping %s", scene.scene_id,
+                    "the previous picture" if out.exists() else "a placeholder")
+        if not out.exists():
+            from mcp.tools.vision_tools.image_gen_tool import write_placeholder
+            write_placeholder(prompt, out, width, height)
+        return str(out), False
 
     def generate_shot_bank(self, project_id: str, scene: Scene, width: int, height: int,
                            seed_salt: str = "", story: Optional[StoryOutput] = None,
@@ -804,6 +842,19 @@ class VideoAgent:
             elif lang not in out:
                 out.append(lang)
         return out
+
+
+def _replace_file(src: Path, dst: Path) -> None:
+    """Move `src` over `dst` in one step. Windows refuses while a reader has `dst`
+    open (a browser fetching that very picture), so try again briefly."""
+    for attempt in range(5):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.2)
 
 
 def _ensure_image(res, out, prompt: str, width: int, height: int) -> str:

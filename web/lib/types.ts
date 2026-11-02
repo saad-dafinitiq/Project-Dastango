@@ -56,6 +56,9 @@ export type Storyboard = {
   images: ImageBudget;
   stage: "draft" | "storyboard" | "rendered";
   version: number;
+  /** Present on the answer to a scene edit that asked for a new picture. When `ok`
+   *  is false the words are saved but the picture could not be redrawn. */
+  redraw?: { scene_id: string; ok: boolean; message?: string };
 };
 
 export type Film = {
