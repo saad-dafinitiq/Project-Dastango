@@ -30,6 +30,10 @@ Requirement 3.3.2 sets a different limit at each level. It passes at level 1
 minutes idle). It is counted as a pass in the level 1 row and as one of the 14
 failures overall.
 
+**After DST-23 (2 November 2026):** 2.2.1 moves from fail to pass. Level 1 is
+22 pass, 9 fail, 8 N/A; both levels are 26 pass, 13 fail, 28 N/A, 4 not
+assessed. The table above is the audit as run on 30 October.
+
 **What is solid:** passwords are stored with argon2id and a unique salt;
 session tokens are 256-bit random values, stored only as a SHA-256 digest, in
 an `HttpOnly`, `SameSite=Lax` cookie that is `Secure` in production; a new
@@ -40,6 +44,9 @@ account end sessions at once; nothing puts a token in a URL.
 
 1. Nothing limits sign-in or sign-up attempts per IP address, and anyone who
    knows an address can lock that account for 15 minutes (2.2.1).
+   **Update, 2 November 2026 (DST-23): a limit per address now exists. The lock
+   can still be caused, but only a couple of accounts per address per 15
+   minutes (section 8).**
 2. The password rules are weaker than the standard: 10 characters where it asks
    for 12, up to 1,024 where it asks for at most 128, and no check against
    breached passwords (2.1.1, 2.1.2, 2.1.7). The sign-in page has no strength
@@ -48,6 +55,8 @@ account end sessions at once; nothing puts a token in a URL.
    sign-up says when an address is taken. The root `SECURITY.md` claimed
    identical answers; that was true only for active, unlocked accounts and has
    been corrected (finding F-a).
+   **Update (DST-23): sign-in now answers identically for all four cases;
+   sign-up still says an address is taken (section 8).**
 4. The product sends no email at all, so there is no password reset, no
    notification of a password change, and no email verification (2.2.3, 2.5.5,
    2.5.6).
@@ -111,13 +120,13 @@ All on 30 October 2026, Windows, Python 3.11, locked dependencies.
 | Guardrail | Before the audit | Result | ASVS | Where |
 |---|---|---|---|---|
 | Passwords hashed with argon2 | in place | **Pass** | 2.4.1, 2.4.2 | `auth/passwords.py`; P13. (2.4.5, a server-side secret, fails at level 2.) |
-| Lockout after repeated failures | in place | **Pass, with a flaw** | 2.2.1 | `auth/accounts.py` `authenticate`; lets anyone lock a known account (P3). Covered by the rate-limit failure below. |
+| Lockout after repeated failures | in place | **Pass, with a flaw** | 2.2.1 | `auth/accounts.py` `authenticate`; lets anyone lock a known account (P3). Since DST-23 one address can do that to a couple of accounts per 15 minutes, not more (section 8); it is bounded, not removed (F-d). |
 | Logout and password change end sessions | in place, tested | **Pass** | 3.3.1, 3.3.3 | `sessions.revoke`, `revoke_all`; tests `test_signing_out_makes_the_cookie_useless`, `test_changing_a_password_ends_every_other_session`; P7, P8 |
 | Sign-ups closed by default | in place | **N/A** | none in V2 or V3 | `accounts.signups_allowed`; test `test_signups_close_after_the_first_account_unless_opened`. A deployment choice, not an ASVS requirement. See F-b. |
 | Owner checks on films and assets | in place | **Pass** (other chapter) | 4.2.1 | `auth/deps.py` `require_project`, `/assets` route; tests `test_another_account_cannot_*` |
 | CORS closed unless origins are named | in place | **Pass** (other chapter) | 14.5.3 | `backend/app.py` adds CORS only when `CORS_ORIGINS` is set; P10 |
-| Rate limit on login and sign-up by IP | to check | **Fail** | 2.2.1 | P6 |
-| Same error for wrong password and unknown user | to check | **Pass for active, unlocked accounts; fail otherwise** | none in V2 or V3 | P3, P4. Fails the project's own claim. See F-a. |
+| Rate limit on login and sign-up by IP | to check | **Pass since DST-23** (was Fail) | 2.2.1 | `auth/ratelimit.py`; `tests/unit/test_login_rate_limit.py`; P6 repeated on 2 Nov 2026 (section 8) |
+| Same error for wrong password and unknown user | to check | **Pass for sign-in since DST-23** (was: fail for locked and disabled accounts) | none in V2 or V3 | P3 repeated on 2 Nov 2026 (section 8). Sign-up still says "already registered" (P4), accepted until email verification (T7). See F-a. |
 | Password rules: length, breached passwords | to check | **Fail** | 2.1.1, 2.1.2, 2.1.7 | `auth/passwords.py`; P5 |
 | Cookie flags; session renewed at login | to check | **Pass**, except the `__Host-` prefix | 3.4.1 to 3.4.3, 3.2.1, **3.4.4 fails** | `auth/sessions.py` `cookie_kwargs`; P1, P2, P-HTTPS |
 | CSRF protection on state-changing requests | to check | **Fail** (other chapter) | 4.2.2, 13.2.3 | P10; compensating controls named in section 5 |
@@ -148,7 +157,7 @@ function, test or probe.
 | 2.1.10 | 1 | No forced rotation or password history | **Pass** | Neither exists |
 | 2.1.11 | 1 | Paste, browser helpers and password managers work | **Pass** | No paste handler; `autoComplete` is `new-password` or `current-password` (`AuthGate.tsx`) |
 | 2.1.12 | 1 | The typed password can be revealed temporarily | **Fail** | The field is always masked |
-| 2.2.1 | 1 | Anti-automation stops credential stuffing and brute force | **Fail** | Per-account lock only (8 failures, 15 minutes). 40 failed logins and 15 sign-ups from one IP unthrottled (P6); anyone can lock a known account (P3) |
+| 2.2.1 | 1 | Anti-automation stops credential stuffing and brute force | **Pass since DST-23** (was Fail) | Per-account lock (8 failures, 15 minutes) plus, since DST-23, a per-address limit on sign-in (20 failures in 15 minutes) and sign-up (10 attempts an hour), stored in the database. On 30 Oct, 40 failed logins and 15 sign-ups from one IP were unthrottled (P6); on 2 Nov the same probe got 20 answers then 429 (section 8). One address can still lock a known account, but only a couple per window (F-d) |
 | 2.2.2 | 1 | Weak authenticators (SMS, email) only as a secondary check | **N/A** | None offered |
 | 2.2.3 | 1 | Users are notified of changes to their sign-in details | **Fail** | The product sends no email or message |
 | 2.3.1 | 1 | System-generated initial secrets are random, short-lived, not permanent | **N/A** | The system generates none. An admin-created account gets an admin-chosen password with no forced change (P18) |
@@ -218,6 +227,11 @@ These are not failures of a V2 or V3 requirement, but the audit found them.
   standard has no V2 or V3 requirement on this, but the project had promised
   identical answers and timing, and that held only for active, unlocked
   accounts. The root `SECURITY.md` is corrected.
+  **Update (DST-23): fixed for sign-in. A locked or disabled account now gets
+  the wrong-password answer after the same work. Still open: sign-up's
+  "already registered", and the GitHub sign-in path, which says "that account
+  is disabled" (it is shown only after GitHub has shown the visitor owns the
+  linked identity).**
 - **F-b: the first visitor to a new deployment becomes its admin.**
   `/api/auth/status` is public and says `needs_setup` until an account exists
   (`accounts._insert` makes the first account an admin). That is the intended
@@ -227,6 +241,11 @@ These are not failures of a V2 or V3 requirement, but the audit found them.
   earlier session (P2), and until 3.3.4 is fixed none can be ended one by one.
 - **F-d: lockout can be turned against its owner.** 8 wrong guesses lock any
   known address for 15 minutes, even against the correct password (P3).
+  **Update (DST-23): bounded, not removed.** One address gets 20 failed
+  logins per 15 minutes, so it can lock at most two accounts per window; many
+  addresses can still lock more. The owner now sees the ordinary wrong-password
+  message and has to wait 15 minutes or have an admin run
+  `python main.py users passwd <email>`, which also clears the lock.
 - **F-e: admin actions need only the session.** Promoting a user or creating an
   account with a chosen password asks for no password (P18). This passes 3.7.1
   as written; asking again is worth considering.
@@ -241,8 +260,8 @@ requirement above; "Finding" means section 6. Points are estimates.
 
 | # | Ticket | From | Priority | Pts | Depends on |
 |---|---|---|---|---:|---|
-| T1 | Rate-limit sign-in and sign-up per IP address, and stop a stranger locking an account | 2.2.1, F-d | High | 3 | |
-| T2 | Make locked and disabled accounts answer like any wrong password | F-a | High | 2 | |
+| T1 | Rate-limit sign-in and sign-up per IP address, and stop a stranger locking an account **(DST-23: the limit is done; the lock is bounded, not removed)** | 2.2.1, F-d | High | 3 | |
+| T2 | Make locked and disabled accounts answer like any wrong password **(DST-23, done; sign-up's answer accepted until T7)** | F-a | High | 2 | |
 | T3 | Bring password rules up to the standard: 12 characters, at most 128, no breached passwords | 2.1.1, 2.1.2, 2.1.7 | High | 2 | |
 | T4 | Strength meter and show/hide on the sign-in page | 2.1.8, 2.1.12 | Medium | 1 | T3 |
 | T5 | Send email through a free provider, and notify on password change | 2.2.3, 2.5.5 | Medium | 3 | |
@@ -259,6 +278,7 @@ requirement above; "Finding" means section 6. Points are estimates.
 Total: 30 points. T1 to T3 close the level 1 failures that matter most.
 
 ### T1: Rate-limit sign-in and sign-up per IP address, and stop a stranger locking an account (High, 3)
+**Status: done in DST-23 (2 November 2026), except the second box, which is only bounded.** See section 8.
 **Why:** 2.2.1. 40 failed logins for 40 emails and 15 sign-ups from one IP were
 all answered at full speed (P6), and 8 wrong guesses lock any known account for
 15 minutes (P3).
@@ -269,6 +289,7 @@ all answered at full speed (P6), and 8 wrong guesses lock any known account for
 - [ ] Tests for the limit, the reset, the proxy header and the legitimate user; limits written in `docs/SECURITY.md`
 
 ### T2: Make locked and disabled accounts answer like any wrong password (High, 2)
+**Status: done in DST-23 (2 November 2026).** Sign-up's "already registered" is recorded as accepted until T7. See section 8.
 **Why:** F-a. They answer differently and 5 times faster (P3), against the promise in `SECURITY.md`.
 **Acceptance criteria**
 - [ ] A locked or disabled account returns the same status and message as a wrong password, after the same amount of work
@@ -364,3 +385,111 @@ all answered at full speed (P6), and 8 wrong guesses lock any known account for
 - [ ] The decision is recorded: implement a keyed pre-hash from an environment secret, or accept the risk
 - [ ] If implemented: existing hashes keep working and are upgraded at next sign-in; rotating the secret is documented
 - [ ] Tests for both hash generations
+
+## 8. Changes since the audit
+
+### DST-23: a limit per address, and one answer for every failed sign-in (2 November 2026)
+
+**What changed.** Sign-in and sign-up are counted per network address in a new
+table (`auth_attempts`, created automatically on an existing database), by
+`auth/ratelimit.py`. Over the limit, the answer is `429` with `Retry-After`,
+sent before any password is checked and saying nothing about any account. A
+locked or disabled account now runs the same password check as an unknown
+one and answers `401 "email or password is incorrect"`; the reason goes to the
+server log (`sign-in refused: account <id> is locked`).
+
+| Setting (`.env`, names only in `.env.example`) | Default | Meaning |
+|---|---|---|
+| `LOGIN_IP_MAX_FAILURES` | 20 | failed sign-ins one address may make in the window |
+| `LOGIN_IP_WINDOW_MINUTES` | 15 | |
+| `SIGNUP_IP_MAX_ATTEMPTS` | 10 | sign-up attempts, successful or not, per address in the window |
+| `SIGNUP_IP_WINDOW_MINUTES` | 60 | |
+
+A value that is not a positive whole number falls back to the default with a
+warning; a typo never switches the limit off.
+
+**How it works, and why.**
+- The attempt is recorded and counted before the password is checked, in one
+  transaction. Checking first would let forty parallel requests all see "no
+  failures yet". On Postgres each address takes an advisory lock for that
+  moment, because Postgres transactions cannot see each other's uncommitted
+  rows. Measured on a real Postgres 16, 2 Nov 2026: a test firing 12 parallel
+  wrong logins at a limit of 3 failed in 4 of 5 runs without the lock (more
+  than 3 got through) and passed in 5 of 5 runs with it.
+- A successful sign-in removes its own row, so people behind one shared address
+  are not penalised for each other's successes. It removes nothing else, so an
+  attacker cannot reset the counter by signing in to an account of their own.
+  A refused attempt removes its own row too, so hammering a blocked address
+  does not extend the block.
+- IPv6 addresses count as their /64; `::ffff:a.b.c.d` counts as IPv4.
+- Rows older than an hour are deleted by the next attempt; no cleanup job.
+  The table holds IP addresses, like `sessions.ip` already does.
+
+**Which address is counted.** `request.client`, and nothing else in the app.
+Behind Caddy, uvicorn replaces it with the `X-Forwarded-For` address, but only
+for a peer in `FORWARDED_ALLOW_IPS`. Production sets `*`, which is safe only
+because (1) the API publishes no port, so only Caddy reaches it, and (2) Caddy
+replaces the header with the real address. (2) was measured on 2 November 2026:
+a throwaway `caddy:2-alpine` container (the production image) with the same
+`reverse_proxy` line and no other settings, on plain HTTP on a laptop, was sent
+`X-Forwarded-For: 1.2.3.4` and `1.2.3.4, 5.6.7.8`; the upstream received only
+the real connecting address (`172.17.0.1`, Docker's gateway) every time. Not
+tested against the live HTTPS site. The test
+`test_production_trusts_forwarded_headers_only_because_the_api_has_no_public_port`
+fails if the compose file loosens (1).
+
+**Evidence.** Probes against a throwaway local instance (port 8095, fresh
+`DATA_DIR`, no `.env`, no keys), Windows, Python 3.11, code `f2f90a5` plus the
+DST-23 changes (uncommitted at run time). "Before" is the DST-21 audit of 30
+October. Times differ between days on a laptop, so compare within a column.
+
+| Probe | Before (30 Oct) | After (2 Nov) |
+|---|---|---|
+| P3 unknown email | `401` generic, median 74 ms | `401` generic, median 93 ms |
+| P3 wrong password | `401` generic, 70 ms | `401` generic, 91 ms |
+| P3 locked account, correct password | `401 "too many failed attempts, try again in 15 minute(s)"`, 14 ms | `401` generic, 87 ms |
+| P3 disabled account, correct password | `401 "that account is disabled"`, 15 ms | `401` generic, 85 ms |
+| P6 40 failed logins, 40 different emails | 40 answered `401` in 3.0 s | 20 `401` then 20 `429` in 2.1 s; first `429` at attempt 21; `Retry-After: 899` |
+| P6 sign-ups from one address | 15 of 15 succeeded in 1.2 s | 16 attempts (the first account's plus 15): 10 accepted, 6 `429`, in 0.9 s |
+
+Each After time is the median of 7 requests. After the limit, the correct
+password for a real account and any password for an unknown one got the same
+`429` body (compared: identical), and a forged `X-Forwarded-For` from a peer
+that is not a trusted proxy did not help.
+
+**Tests.** `tests/unit/test_login_rate_limit.py` (32 tests): under the limit
+passes and a success is not counted; over it gets `429` with `Retry-After` and
+costs no password check; the refusal is identical for a real and an unknown
+account; `Retry-After` counts down and the limit resets after the window;
+sign-up is limited whether or not it is open; one address failing does not
+lock out another; the four failure cases give one status, one body and exactly
+one password hash each; a forged header from an untrusted peer is ignored and
+one from the trusted proxy is used; IPv6 grouping; the limit survives a
+restart and is shared with a second process; 12 parallel attempts let exactly
+3 through; old rows are swept; settings and defaults. Each of four behaviours
+(the dummy hash, forgiving a success, trusting the header, removing a refused
+attempt) was broken on purpose and a test failed each time. The whole suite
+passes on SQLite (573 passed, 7 skipped) and on a real Postgres 16 (578 passed,
+5 skipped), both on 2 Nov 2026, Python 3.11, code `f2f90a5` plus the DST-23
+changes. The skips are environmental (no S3 server, Windows).
+
+**Decisions recorded.**
+- A locked or disabled account answers like a wrong password. A locked-out
+  owner is not told why: they wait 15 minutes or an admin runs
+  `python main.py users passwd <email>`. (Not done: a static line on the
+  sign-in page saying that too many wrong tries lock an account.)
+- Sign-up still says "that email address is already registered". Sign-ups are
+  closed by default and now limited per address; email verification (T7) is the
+  real fix.
+- The GitHub sign-in path still says "that account is disabled", after GitHub
+  has shown the visitor owns the linked identity.
+
+**Known limits.**
+- People behind one shared address share one budget of 20 failures per 15
+  minutes.
+- A stranger can still lock a known account (F-d): bounded to about two per
+  address per window, not removed.
+- Only `/login` and `/register` are limited per address. Changing a password
+  needs a session, and the GitHub callback needs GitHub; neither is limited
+  here.
+- Each sign-in attempt adds a few small database statements.

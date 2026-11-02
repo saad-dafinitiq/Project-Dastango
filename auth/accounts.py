@@ -156,11 +156,18 @@ def authenticate(email: str, password: str) -> User:
         raise generic
 
     now = utcnow()
-    if row["locked_until"] and row["locked_until"] > now:
-        wait = int((row["locked_until"] - now).total_seconds() // 60) + 1
-        raise AuthError(f"too many failed attempts, try again in {wait} minute(s)")
-    if not row["is_active"]:
-        raise AuthError("that account is disabled")
+    locked = bool(row["locked_until"] and row["locked_until"] > now)
+    if locked or not row["is_active"]:
+        # Refused even for the right password, but it must look like any other
+        # wrong password: the same message, after the same amount of work. A
+        # different message, or an answer five times faster because the hash was
+        # skipped, would tell a stranger that this address is a real account and
+        # that it is locked or disabled (DST-23). The reason goes in the log for
+        # whoever has to explain it to the owner.
+        passwords.dummy_verify()
+        log.info("sign-in refused: account %s is %s", row["id"],
+                 "locked" if locked else "disabled")
+        raise generic
 
     if not passwords.verify(row["password_hash"], password):
         _record_failure(row["id"], int(row["failed_attempts"] or 0))
