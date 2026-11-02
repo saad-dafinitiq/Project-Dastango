@@ -9,30 +9,45 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from auth import accounts, github, ratelimit, sessions
+from auth import accounts, github, passwords, ratelimit, sessions
 from auth.accounts import AuthError, User
 from auth.deps import current_user, require_admin, require_user
-from auth.passwords import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
+from auth.passwords import MAX_SIGNIN_LENGTH, MIN_PASSWORD_LENGTH
 from shared.utils.logging import get_logger
 
 router = APIRouter()
 log = get_logger("api.auth")
 
 
+# A password that will be *hashed* is capped at the old limit, so a silly payload
+# cannot keep the hasher busy; accounts made before the rules tightened may have
+# a password up to that long and must still sign in. A password being *chosen* is
+# refused by auth.passwords.check_strength (12 to 128, not on the breach list)
+# before anything is hashed, and that answers 400 with a message the UI shows. A
+# length rule on the model would answer 422, which the UI cannot show, so those
+# fields only get a looser cap against absurd payloads.
+CHOSEN_PASSWORD_PAYLOAD_CAP = 4096
+
+
 class Credentials(BaseModel):
+    """Sign in."""
     email: str = Field(..., max_length=320)
-    password: str = Field(..., max_length=MAX_PASSWORD_LENGTH)
+    password: str = Field(..., max_length=MAX_SIGNIN_LENGTH)
+
+
+class Registration(BaseModel):
+    email: str = Field(..., max_length=320)
+    password: str = Field(..., max_length=CHOSEN_PASSWORD_PAYLOAD_CAP)
 
 
 class PasswordChange(BaseModel):
-    current_password: str = Field(..., max_length=MAX_PASSWORD_LENGTH)
-    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH,
-                              max_length=MAX_PASSWORD_LENGTH)
+    current_password: str = Field(..., max_length=MAX_SIGNIN_LENGTH)   # this one is hashed
+    new_password: str = Field(..., max_length=CHOSEN_PASSWORD_PAYLOAD_CAP)
 
 
 class NewUser(BaseModel):
     email: str = Field(..., max_length=320)
-    password: str = Field(..., max_length=MAX_PASSWORD_LENGTH)
+    password: str = Field(..., max_length=CHOSEN_PASSWORD_PAYLOAD_CAP)
     role: str = "user"
 
 
@@ -84,7 +99,7 @@ def status(user: Optional[User] = Depends(current_user)):
 
 
 @router.post("/register")
-def register(body: Credentials, request: Request, response: Response):
+def register(body: Registration, request: Request, response: Response):
     """Create an account. The first one is the admin; after that it depends
     on ALLOW_SIGNUPS, so a private deployment doesn't quietly accept strangers."""
     # Counted before anything else, whether or not sign-ups are open.
@@ -117,7 +132,12 @@ def login(body: Credentials, request: Request, response: Response):
     attempt.forgive()       # a success is not a failure
     _start_session(response, user, request)
     log.info("signed in: %s", user.email)
-    return {"user": user.as_dict()}
+    # Only now that the password is known to be right. A notice, never a refusal:
+    # accounts made under the older rules keep working (DST-24).
+    notice = passwords.sign_in_notice(body.password)
+    if notice:
+        log.info("account %s signed in with a password that is %s", user.id, notice["code"])
+    return {"user": user.as_dict(), "password_notice": notice}
 
 
 @router.post("/logout")

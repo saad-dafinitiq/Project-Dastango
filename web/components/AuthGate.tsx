@@ -61,7 +61,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           user: null,
           needs_setup: false,
           signups_allowed: false,
-          min_password_length: 10,
+          min_password_length: 12,
         }),
       );
   }, []);

@@ -102,6 +102,7 @@ def list_users() -> List[User]:
 def create(email: str, password: str, role: str = "user") -> User:
     """Create an account. The very first one is an admin, whatever is asked for."""
     try:
+        passwords.check_strength(password)
         password_hash = passwords.hash_password(password)
     except passwords.WeakPassword as e:
         raise AuthError(str(e)) from e
@@ -284,6 +285,7 @@ def sign_in_external(provider: str, subject: str, login: str,
 
 def set_password(user_id: str, password: str) -> None:
     try:
+        passwords.check_strength(password)
         password_hash = passwords.hash_password(password)
     except passwords.WeakPassword as e:
         raise AuthError(str(e)) from e

@@ -157,7 +157,7 @@ sequenceDiagram
 | **F9** | 12 | **Voices:** Edge TTS is an online Microsoft service; Kokoro takes ~30 s to load its model on first use | Voices fail during an outage; the first render after a restart is slow | Falls back to gTTS, then silence | Medium |
 | **F10** | all | **Everything runs on one VM** (Postgres, API, worker, Caddy); Oracle may stop an idle free VM | Total outage | Nightly backups, tested restore | Medium |
 | **F11** | build | **Unpinned Python dependencies** | A rebuild can break or behave differently | **Yes, DST-16**: `uv.lock` pins every package; CI and the image install from it (see below) | ~~Medium~~ **Fixed**, with gaps |
-| **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation, password rules weaker than the standard (the per-IP rate limit and uniform sign-in answers were added in DST-23) | Account security is incomplete: 13 of the 71 ASVS login and session requirements fail, 9 of them at level 1 (14 and 10 when audited) | **Audited in DST-21** ([SECURITY.md](SECURITY.md)); each failure is a drafted Sprint 2 ticket. Sign-ups closed by default | **High** (was Medium) until the three High tickets land |
+| **F12** | 3 | **Account gaps:** no password reset, no 2FA, no per-device session revocation, no breached-password check at sign-in, no strength meter (the per-IP rate limit and uniform sign-in answers were added in DST-23; the 12 to 128 character rules and the breached-password check at sign-up and change in DST-24) | Account security is incomplete: 11 of the 71 ASVS login and session requirements fail, 7 of them at level 1 (14 and 10 when audited) | **Audited in DST-21** ([SECURITY.md](SECURITY.md)); each failure is a drafted Sprint 2 ticket. Sign-ups closed by default | **High** (was Medium) until the three High tickets land |
 | **F13** | 5 | **Progress comes from polling job-event rows** | Database load and lag grow with users | Fine at current scale | Low |
 | **F14** | 12 | **Dialogue Kokoro cannot read.** Kokoro reads every line as English (`lang="en-us"`); the story model writes dialogue in the prompt's language, and nothing checked a film's length. **Reproduced in the baseline** (dst-05, below) | A broken film reported as a plain success | **Yes, DST-17** for non-Latin scripts and over-long films (see below) | ~~High~~ **Fixed**, with gaps |
 | **F15** | 7–8 | **Retry decisions read the error text by substring.** A used-up daily quota was not told apart from a short rate limit; Cloudflare's daily-quota 429 skipped its retries only because its body contains "400", and the same match would end the retries of a short rate limit that quotes a number like 14400. Nothing recorded why a provider was skipped | Retries that cannot succeed, or a short limit that falls to a weaker provider; no way to see a quota ran out | **Yes, DST-20** (see below) | ~~Medium~~ **Fixed**, with gaps |
@@ -381,7 +381,8 @@ behind every verdict, is in [SECURITY.md](SECURITY.md).
 **Result:** 25 pass, 14 fail, 28 not applicable, 4 not assessed (service
 authentication). At level 1 alone: 21 pass, 10 fail, 8 not applicable.
 After DST-23 (2026-11-02), which fixed 2.2.1: 26 pass, 13 fail; level 1: 22
-pass, 9 fail.
+pass, 9 fail. After DST-24 (2026-11-02), which fixed 2.1.1 and 2.1.2: 28 pass,
+11 fail; level 1: 24 pass, 7 fail.
 
 **What is solid:** argon2id with a unique salt; 256-bit random session tokens
 stored only as a digest; an `HttpOnly`, `SameSite=Lax` cookie that is `Secure`
@@ -394,9 +395,11 @@ disabling an account end sessions at once.
   failed logins were all answered in 3.0 s before, 20 then `429` after). Anyone
   can still lock a known account for 15 minutes, now at most a couple per
   address per window (2.2.1, F-d).
-- Password rules below the standard: 10 characters where it asks for 12,
+- ~~Password rules below the standard: 10 characters where it asks for 12,
   1,024 where it asks for at most 128, no breached-password check (2.1.1,
-  2.1.2, 2.1.7).
+  2.1.2, 2.1.7)~~ (fixed in DST-24 for new and changed passwords: 12 to 128
+  characters, a bundled breach list of 29,954). Still open: the check at
+  sign-in for existing accounts (2.1.7).
 - A locked or disabled account answers differently from a wrong password, and
   5 times faster (14 and 15 ms against 70 ms), so the earlier claim of identical
   answers held only for active, unlocked accounts. Corrected in the root
