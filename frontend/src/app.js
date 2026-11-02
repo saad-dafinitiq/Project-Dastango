@@ -633,7 +633,7 @@ function paintGate(status) {
   $("gateHint").textContent = gate.needsSetup
     ? "Nobody has signed up yet, so this account becomes the administrator."
     : registering
-      ? `At least ${status.min_password_length || 10} characters.`
+      ? `At least ${status.min_password_length || 12} characters.`
       : "";
   $("gateSubmit").textContent = registering ? "Create account" : "Sign in";
   $("gatePassword").setAttribute(

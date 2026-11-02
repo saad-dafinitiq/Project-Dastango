@@ -32,7 +32,12 @@ failures overall.
 
 **After DST-23 (2 November 2026):** 2.2.1 moves from fail to pass. Level 1 is
 22 pass, 9 fail, 8 N/A; both levels are 26 pass, 13 fail, 28 N/A, 4 not
-assessed. The table above is the audit as run on 30 October.
+assessed.
+
+**After DST-24 (2 November 2026):** 2.1.1 and 2.1.2 move from fail to pass.
+2.1.7 is fixed at sign-up and password change but not at sign-in, so it stays a
+fail. Level 1 is 24 pass, 7 fail, 8 N/A; both levels are 28 pass, 11 fail, 28
+N/A, 4 not assessed. The table above is the audit as run on 30 October.
 
 **What is solid:** passwords are stored with argon2id and a unique salt;
 session tokens are 256-bit random values, stored only as a SHA-256 digest, in
@@ -51,6 +56,9 @@ account end sessions at once; nothing puts a token in a URL.
    for 12, up to 1,024 where it asks for at most 128, and no check against
    breached passwords (2.1.1, 2.1.2, 2.1.7). The sign-in page has no strength
    meter and no way to reveal the typed password (2.1.8, 2.1.12).
+   **Update (DST-24): the length rules and the breached-password check are
+   done at sign-up and password change (section 8). Not done: the check at
+   sign-in, the strength meter and the reveal control.**
 3. A locked or disabled account answers differently from a wrong password, and
    sign-up says when an address is taken. The root `SECURITY.md` claimed
    identical answers; that was true only for active, unlocked accounts and has
@@ -127,7 +135,7 @@ All on 30 October 2026, Windows, Python 3.11, locked dependencies.
 | CORS closed unless origins are named | in place | **Pass** (other chapter) | 14.5.3 | `backend/app.py` adds CORS only when `CORS_ORIGINS` is set; P10 |
 | Rate limit on login and sign-up by IP | to check | **Pass since DST-23** (was Fail) | 2.2.1 | `auth/ratelimit.py`; `tests/unit/test_login_rate_limit.py`; P6 repeated on 2 Nov 2026 (section 8) |
 | Same error for wrong password and unknown user | to check | **Pass for sign-in since DST-23** (was: fail for locked and disabled accounts) | none in V2 or V3 | P3 repeated on 2 Nov 2026 (section 8). Sign-up still says "already registered" (P4), accepted until email verification (T7). See F-a. |
-| Password rules: length, breached passwords | to check | **Fail** | 2.1.1, 2.1.2, 2.1.7 | `auth/passwords.py`; P5 |
+| Password rules: length, breached passwords | to check | **Pass for length since DST-24; breached passwords fixed at sign-up and change, not at sign-in** (was Fail) | 2.1.1, 2.1.2, 2.1.7 | `auth/passwords.py`; P5 repeated on 2 Nov 2026 (section 8) |
 | Cookie flags; session renewed at login | to check | **Pass**, except the `__Host-` prefix | 3.4.1 to 3.4.3, 3.2.1, **3.4.4 fails** | `auth/sessions.py` `cookie_kwargs`; P1, P2, P-HTTPS |
 | CSRF protection on state-changing requests | to check | **Fail** (other chapter) | 4.2.2, 13.2.3 | P10; compensating controls named in section 5 |
 | Email verification on sign-up | to check | **Fail** (not an ASVS V2 or V3 requirement) | related: 2.2.3, 2.5.5 | Not built; the product has no email. See F-a. |
@@ -145,15 +153,15 @@ function, test or probe.
 
 | ASVS | Lvl | Requirement (paraphrased) | Verdict | Evidence |
 |---|---|---|---|---|
-| 2.1.1 | 1 | Passwords are at least 12 characters, with runs of spaces counted once | **Fail** | Minimum is 10 (`MIN_PASSWORD_LENGTH`); 10 and 11 accepted; spaces counted as typed (P5) |
-| 2.1.2 | 1 | 64-character passwords are allowed; more than 128 are refused | **Fail** | 64 accepted, but so are 129 and 1,024: the cap is 1,024 (`MAX_PASSWORD_LENGTH`) (P5) |
+| 2.1.1 | 1 | Passwords are at least 12 characters, with runs of spaces counted once | **Pass since DST-24** (was Fail) | Minimum 12 with each run of spaces counted once (`MIN_PASSWORD_LENGTH`, `effective_length` in `auth/passwords.py`). P5 repeated on 2 Nov 2026: 9, 10 and 11 characters and `a   b   c   d` refused, 12 accepted (section 8) |
+| 2.1.2 | 1 | 64-character passwords are allowed; more than 128 are refused | **Pass since DST-24** (was Fail) | 64 and 128 accepted; 129, 1,024 and 1,025 refused with a message (`MAX_PASSWORD_LENGTH` 128 applies when a password is chosen; sign-in still accepts up to 1,024 so older accounts work) (P5 repeated, section 8) |
 | 2.1.3 | 1 | Passwords are not truncated | **Pass** | Different tail after character 72 refused (P5) |
 | 2.1.4 | 1 | Any printable Unicode is allowed | **Pass** | Emoji password accepted (P5) |
 | 2.1.5 | 1 | Users can change their password | **Pass** | `change_password` in `backend/routes/auth.py` |
 | 2.1.6 | 1 | Changing it needs the current and the new password | **Pass** | `PasswordChange`; P8; test `test_the_wrong_current_password_cannot_change_the_password` |
-| 2.1.7 | 1 | Passwords are checked against a breached list at sign-up, sign-in and change | **Fail** | `check_strength` checks length and whitespace only; four common passwords accepted (P5) |
+| 2.1.7 | 1 | Passwords are checked against a breached list at sign-up, sign-in and change | **Fail, partly fixed (DST-24)** | Sign-up, password change, admin-created accounts and the command line refuse a password on the bundled list of 29,954 (`auth/common_passwords.txt`, no outside service). Sign-in does not check, so an existing account with a listed password still signs in until it changes it (section 8) |
 | 2.1.8 | 1 | A password strength meter is shown | **Fail** | `AuthGate.tsx` shows only the minimum length |
-| 2.1.9 | 1 | No composition rules | **Pass** | Only length and not-all-whitespace (`check_strength`) |
+| 2.1.9 | 1 | No composition rules | **Pass** | Only length, not-all-whitespace and the breach list (`check_strength`); no capitals, digits or symbols are demanded |
 | 2.1.10 | 1 | No forced rotation or password history | **Pass** | Neither exists |
 | 2.1.11 | 1 | Paste, browser helpers and password managers work | **Pass** | No paste handler; `autoComplete` is `new-password` or `current-password` (`AuthGate.tsx`) |
 | 2.1.12 | 1 | The typed password can be revealed temporarily | **Fail** | The field is always masked |
@@ -262,7 +270,7 @@ requirement above; "Finding" means section 6. Points are estimates.
 |---|---|---|---|---:|---|
 | T1 | Rate-limit sign-in and sign-up per IP address, and stop a stranger locking an account **(DST-23: the limit is done; the lock is bounded, not removed)** | 2.2.1, F-d | High | 3 | |
 | T2 | Make locked and disabled accounts answer like any wrong password **(DST-23, done; sign-up's answer accepted until T7)** | F-a | High | 2 | |
-| T3 | Bring password rules up to the standard: 12 characters, at most 128, no breached passwords | 2.1.1, 2.1.2, 2.1.7 | High | 2 | |
+| T3 | Bring password rules up to the standard: 12 characters, at most 128, no breached passwords **(DST-24, done; 2.1.7 stays open at sign-in)** | 2.1.1, 2.1.2, 2.1.7 | High | 2 | |
 | T4 | Strength meter and show/hide on the sign-in page | 2.1.8, 2.1.12 | Medium | 1 | T3 |
 | T5 | Send email through a free provider, and notify on password change | 2.2.3, 2.5.5 | Medium | 3 | |
 | T6 | Reset a forgotten password by email | 2.5.6 | Medium | 3 | T5 |
@@ -298,6 +306,7 @@ all answered at full speed (P6), and 8 wrong guesses lock any known account for
 - [ ] Tests compare status, message and timing across unknown, wrong, locked and disabled
 
 ### T3: Bring password rules up to the standard (High, 2)
+**Status: done in DST-24 (2 November 2026).** The local list was chosen over a lookup, existing accounts are not asked to change at sign-in, and the check at sign-in is left open. See section 8.
 **Why:** 2.1.1, 2.1.2, 2.1.7. Minimum 10, maximum 1,024, and `1234567890` is accepted (P5).
 **Acceptance criteria**
 - [ ] At least 12 characters, with runs of spaces counted once; more than 128 refused; 64 allowed
@@ -493,3 +502,94 @@ changes. The skips are environmental (no S3 server, Windows).
   needs a session, and the GitHub callback needs GitHub; neither is limited
   here.
 - Each sign-in attempt adds a few small database statements.
+
+### DST-24: password rules at the ASVS level (2 November 2026)
+
+**What changed.** A password someone is *choosing* must now be 12 to 128
+characters, may be anything printable (spaces, Unicode, emoji), has no
+composition rules, is never truncated, and must not be on a bundled list of
+breached passwords. For the 12-character minimum a run of spaces counts as one
+character, so twelve spaces are not a password; the 128 maximum counts
+characters as typed. This applies to sign-up, password change, accounts an
+admin creates, and `python main.py users create` and `passwd`: all of them end
+in `accounts.create` or `accounts.set_password`. Each refusal is a `400` with a
+message that says what to fix and never repeats the password.
+
+**People who already have an account keep signing in.** Sign-in, and the
+"current password" field of a change, still accept up to 1,024 characters and
+apply none of the new rules, so an account made under the old ones (10
+characters, or 1,000) works as before and meets the new rules at its next
+password change. This needed one structural change: `hash_password` used to apply
+the rules itself, and signing in calls it again to upgrade an old hash, so a
+10-character password would have failed to sign in whenever argon2's settings
+moved on. The rules now run only where a password is chosen. A test reproduces
+that upgrade and fails if the rules go back into `hash_password`.
+
+**The list.** `auth/common_passwords.txt` holds 29,954 passwords (426,955
+bytes), built by `scripts/build_common_passwords.py` from SecLists
+`Passwords/Common-Credentials/Pwdb_top-1000000.txt`: commit `12274c9`, dated 22
+March 2025, repository licence MIT (Copyright (c) 2018 Daniel Miessler), 8,755,171
+bytes, 1,000,000 lines, SHA-256 `e9a88f67aafe6549...a18c9fc8`, downloaded on 2
+November 2026. The script keeps an entry only if it could otherwise pass the
+length rules (12 to 128 characters, spaces collapsed), since shorter ones are
+refused anyway, folds it (NFKC, lower case) and removes duplicates. Where it
+came from and its hashes are in `auth/common_passwords.meta.json`, and a test
+checks the file against that record. A password is compared as typed and with
+its spaces collapsed, after the same folding, so capitals and a full-width
+spelling of a listed password are refused too. No password is sent anywhere.
+To rebuild: download the file at that commit and run the script (its docstring
+has the command). A missing or cut-short list is an error that stops sign-up,
+never an empty list that lets everything through.
+
+**Evidence.** The DST-21 probe P5 (sign-up with many passwords) repeated on a
+throwaway local instance (port 8095, fresh `DATA_DIR`, no `.env`, no keys),
+Windows, Python 3.11, code `99f6790` plus the DST-24 changes (uncommitted at run
+time).
+
+| Password | Before (30 Oct) | After (2 Nov) |
+|---|---|---|
+| 9 characters; 10 spaces | refused | refused |
+| 10 and 11 characters | accepted | refused: "at least 12 characters" |
+| 12, 64 and 128 characters | accepted | accepted |
+| 129, 1,024 characters | accepted | refused: "at most 128 characters" |
+| 1,025 characters | refused (422, no message) | refused with the same readable message |
+| `1234567890`, `password12`, `qwertyuiop`, `iloveyou123` | accepted | refused (all under 12 characters) |
+| `password1234`, `iloveyou1234`, `q1w2e3r4t5y6`, `PASSWORD1234` (12 or more, common) | not probed | refused: "has appeared in data breaches" |
+| `a   b   c   d` (13 as typed, 7 with spaces counted once) | accepted | refused |
+| 12 emoji, a passphrase with spaces, a Cyrillic passphrase | emoji accepted | all accepted |
+| 96 characters, a different tail after character 72 | not truncated | not truncated: wrong tail `401`, right password `200` |
+
+The command-line tool refused a 10-character and a listed password and
+accepted a passphrase.
+
+**Tests.** `tests/unit/test_password_rules.py` (42 tests): every rule, the two
+limits exactly (12 and 128 accepted, 11 and 129 refused), spaces counted once,
+the list (case, full-width, never echoed), sign-up, password change, admin
+create and the command line, no truncation, accounts made under the old rules
+(including the hash upgrade and the next change), the integrity of the bundled
+list against its record, a missing or cut-short list, and the build script. Six
+behaviours were broken on purpose and a test failed each time: the rules back
+inside `hash_password`, the list ignored, the minimum back to 10, the maximum
+back to 1,024, spaces counted as typed, a length rule on the request model. The
+whole suite passes on SQLite (615 passed, 7 skipped) and on a real Postgres 16 (620 passed, 5 skipped),
+both on 2 Nov 2026, Python 3.11, code `99f6790` plus the DST-24 changes. The
+skips are environmental.
+
+**Decisions recorded.**
+- The list is local (no k-anonymity lookup), so no password leaves the server in
+  any form.
+- An existing account is not asked to change its password at its next sign-in;
+  the ticket says the rules apply at its next change.
+- Accounts an admin or the command line creates meet the same rules.
+- Requirement 2.1.7 also wants the check at sign-in. It is **not** done there,
+  so 2.1.7 stays open (partly fixed): an existing account whose password is on
+  the list still signs in until it changes it. A notice at sign-in would close
+  it; that, the strength meter (2.1.8) and the reveal toggle (2.1.12) are
+  follow-up work (T4).
+
+**Known limits.**
+- The list is a floor, not a guarantee: a password that is not itself on it
+  (`password1234!`, say) is accepted if it meets the length rules.
+- The sign-in page still has no strength meter and no show/hide control.
+- An old password of 129 to 1,024 characters works at sign-in but cannot be
+  chosen again.

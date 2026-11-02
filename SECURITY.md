@@ -32,7 +32,12 @@ follow as soon as it is confirmed.
   other session.
 - **Cookie flags.** `HttpOnly`, `SameSite=Lax`, and `Secure` whenever the
   request arrived over HTTPS (forced on in production with `COOKIE_SECURE=1`).
-- **Passwords.** argon2id via argon2-cffi, 10 to 1,024 characters. Unknown,
+- **Passwords.** argon2id via argon2-cffi. A new password must be 12 to 128
+  characters (a run of spaces counts as one), may be anything printable, has no
+  composition rules, is never truncated, and must not be on a bundled list of
+  breached passwords (nothing is sent to an outside service; DST-24). Accounts
+  made under the older rules still sign in and meet the new ones at their next
+  change. Unknown,
   locked and disabled accounts get a dummy verify and the ordinary
   wrong-password answer, so neither the response nor its time reveals who is
   registered.
@@ -95,6 +100,7 @@ follow as soon as it is confirmed.
 | Gap | Mitigation today |
 |---|---|
 | No two-factor authentication | Strong hashing, lockout, GitHub sign-in available |
+| Existing passwords are not checked against the breach list at sign-in, and the sign-in page has no strength meter or show/hide control | New and changed passwords are checked; the rules meet each older account at its next change |
 | No email verification or reset | Sign-ups closed by default; admin CLI resets passwords |
 | No rate limiting on routes other than sign-in and sign-up (those are limited per address since DST-23) | Accounts are invitation-only; provider quotas cap spend at $0 |
 | No Content-Security-Policy header | Same-origin app with no third-party scripts; fonts self-hosted |
