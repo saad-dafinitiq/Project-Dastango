@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from auth import accounts, github, passwords, ratelimit, sessions
+from auth import accounts, github, ratelimit, sessions
 from auth.accounts import AuthError, User
 from auth.deps import current_user, require_admin, require_user
 from auth.passwords import MAX_SIGNIN_LENGTH, MIN_PASSWORD_LENGTH
@@ -132,12 +132,7 @@ def login(body: Credentials, request: Request, response: Response):
     attempt.forgive()       # a success is not a failure
     _start_session(response, user, request)
     log.info("signed in: %s", user.email)
-    # Only now that the password is known to be right. A notice, never a refusal:
-    # accounts made under the older rules keep working (DST-24).
-    notice = passwords.sign_in_notice(body.password)
-    if notice:
-        log.info("account %s signed in with a password that is %s", user.id, notice["code"])
-    return {"user": user.as_dict(), "password_notice": notice}
+    return {"user": user.as_dict()}
 
 
 @router.post("/logout")

@@ -15,7 +15,6 @@ import functools
 import re
 import unicodedata
 from pathlib import Path
-from typing import Optional
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -95,27 +94,6 @@ def check_strength(password: str) -> None:
         raise WeakPassword(
             "that password has appeared in data breaches or is very common; "
             "choose another, for example a few unrelated words")
-
-
-def sign_in_notice(password: str) -> Optional[dict]:
-    """After a *successful* sign-in: say so if this password would not be accepted
-    as a new one because it is too short or on the breach list, else None.
-
-    The checking side of requirement 2.1.7. It only warns: an account made under
-    the older rules must keep working, and its owner meets the new rules at the
-    next password change. A password over 128 characters is not flagged, since
-    length is not weakness. It runs only after the right password was given, so it
-    reveals nothing about anyone else's account, and the password is never logged.
-    """
-    if effective_length(password) < MIN_PASSWORD_LENGTH:
-        return {"code": "too_short",
-                "message": f"your password is shorter than the {MIN_PASSWORD_LENGTH} "
-                           "characters now required; please change it"}
-    if is_common(password):
-        return {"code": "breached",
-                "message": "your password has appeared in data breaches or is very "
-                           "common; please change it"}
-    return None
 
 
 def hash_password(password: str) -> str:
