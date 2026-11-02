@@ -94,7 +94,7 @@ def test_image_concurrency_follows_the_active_provider(monkeypatch):
     monkeypatch.delenv("PROVIDER_IMAGE", raising=False)
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     providers.load(force=True)
-    assert providers.concurrency("image") == 1          # pollinations: one at a time
+    assert providers.concurrency("image") == 1          # placeholder: nothing else is available
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a")
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "t")
     providers.load(force=True)

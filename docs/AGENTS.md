@@ -53,7 +53,7 @@ flowchart TB
         direction LR
         cStory["story<br/>Groq → OpenRouter → Gemini → Ollama → template"]
         cLLM["edit_intent · translate<br/>Gemini → Groq → OpenRouter → Ollama → offline"]
-        cImg["image<br/>Cloudflare FLUX → local SD → Pollinations → placeholder"]
+        cImg["image<br/>Cloudflare FLUX → local SD → Agnes → placeholder"]
         cTts["tts<br/>Kokoro → ElevenLabs → Edge → gTTS → pyttsx3 → silent"]
         cMot["video · lipsync<br/>fal → HF → Veo (opt-in) → Replicate → ffmpeg"]
     end
@@ -157,7 +157,7 @@ flowchart LR
 
     subgraph imageR["image role: every picture"]
         direction LR
-        c["Cloudflare FLUX<br/>4 at once · 3 attempts"] -- "quota · refusal ·<br/>3 failures" --> pol["Pollinations<br/>1 at once · 3 attempts"]
+        c["Cloudflare FLUX<br/>4 at once · 3 attempts"] -- "quota · refusal ·<br/>3 failures" --> pol["Agnes (key set)<br/>2 at once · 3 attempts"]
         pol -- "fails" --> ph(["Placeholder<br/>offline"])
     end
 
@@ -189,7 +189,7 @@ How a provider hands over:
 | `story` | Groq gpt-oss-120b → OpenRouter → Gemini Flash → Ollama (Groq first since DST-15; see [EVAL.md](EVAL.md)) | deterministic template |
 | `edit_intent` | Gemini → Groq gpt-oss-20b → OpenRouter → Ollama | regex + keyword classifier |
 | `translate` | Gemini → Groq → OpenRouter → Ollama → MyMemory | skip that language |
-| `image` | Cloudflare Workers AI FLUX.1-schnell → local Stable Diffusion → SD WebUI → Pollinations → OpenAI | placeholder image |
+| `image` | Cloudflare Workers AI FLUX.1-schnell → local Stable Diffusion → SD WebUI → Agnes → OpenAI | placeholder image |
 | `tts` | Kokoro (local, onnxruntime) → ElevenLabs → Edge TTS → gTTS → pyttsx3 | silence of the right length |
 | `video` | fal → Hugging Face → Veo 3.1 (needs `VIDEO_BUDGET_OK`) → Replicate | ffmpeg camera moves |
 | `lipsync` | fal → Replicate | a heuristic mouth animation on the portrait |
@@ -199,7 +199,7 @@ Details that came from running it, not from theory:
 
 - **Reasoning models answer nothing at small token caps** (they spend the
   budget thinking), so every call has a 600-token floor.
-- **Free endpoints rate-limit per IP.** Measured: keyless Pollinations answers
+- **Free endpoints rate-limit per IP.** Measured (when Pollinations was still in the chain): keyless Pollinations answers
   one request at a time and returns 429 to the rest. The pool was once sized
   from the first provider's limit, so a fall-back from Cloudflare sent four
   requests at once and the run came back full of placeholders, hence a

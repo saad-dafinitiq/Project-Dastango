@@ -19,6 +19,9 @@ are reported separately and never averaged together.
 | **B** | `20261028_120715_testset.json` | 2026-10-28 12:07 | pipeline code `9cedcf7` | full render, dst-07 and dst-08 | forced placeholder | Gemini first | Kokoro |
 | **H** | `20261028_dst07_gemini_hang.json` | 2026-10-28 11:29 | pipeline code `9cedcf7` | the dst-07 hang (inside run A) | | | |
 | **G** | `20261029_124621_testset.json` … `20261029_132100_testset.json` (one per prompt), logs `DST-15_dst-NN.log` | 2026-10-29 12:46 to 13:21 | `2acce54` + DST-15's story chain change (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart, 10 min cap each | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (DST-15) | none |
+| **Q** | `20261102_111026_testset.json`, log `DST-22_agnes_films.log` | 2026-11-02 11:10 to 11:17 | `f7c7bab` + DST-22's Agnes provider (uncommitted at run time) | full render, dst-01 and dst-04, one after the other | **Agnes only** (`PROVIDER_IMAGE=agnes`) | Groq; translation Groq after one Gemini 504 | Kokoro |
+| **Q3** | `20261102_112818_testset.json` (plan), render logs `DST-22_agnes_safety_render_<project>.log` | 2026-11-02 11:28 to 11:33 | same | dst-19 and dst-25 planned (`--ids`), then each rendered with `main.py render <project>` | Agnes only | Groq | Kokoro |
+| **Q2** | six images, drawn by a script in the session scratch folder | 2026-11-02 11:04 to 11:06 | same | the DST-10 wide-shot prompts of dst-01 and dst-04, 3 scenes each | Agnes only | none | none |
 
 Runs P1 to P3, R, S, A and B are on the **Gemini-first** story chain (Gemini →
 Groq → OpenRouter → OpenAI → Anthropic → Ollama → mock); only run G is
@@ -274,6 +277,77 @@ itself stays about 10 MB; each new version adds 6.5 to 6.8 MB to
 | **Groq** (scripts, translation) | Wrote 16 of the plan-pass scripts and all 8 render scripts, plus the render translations; 4 tokens-per-minute `429`s in run P3 |
 | **OpenRouter** | 1 script (dst-17); 3 answers cut short (`finish_reason=length`) |
 | **Kokoro** (voices) | Local, no quota |
+
+## DST-22: Agnes AI as the image backstop (runs Q, Q2)
+
+Agnes replaces Pollinations behind Cloudflare, for development and testing only
+(data terms in [PROVIDERS.md](PROVIDERS.md)). Measured on 2026-11-02, code
+`f7c7bab` plus the DST-22 changes; images forced to Agnes, so Cloudflare's quota
+was not used. Agnes calls made today: **56** (1 probe, 6 in Q2, 25 in Q, 24 in Q3).
+Every image the benchmark recorded was served on attempt 1, and no run's log has a
+single "image provider agnes failed" line: no 429, no 402, no refusal, no timeout.
+
+**Probe.** One call with the documented request shape (a tier plus a ratio,
+`response_format: b64_json` inside `extra_body`): HTTP 200 in 13.9 s, a
+1312x736 PNG (731 KB), Base64 in `data[0].b64_json`. Response headers carried no
+rate-limit information.
+
+**Q2: same prompts as DST-10.** The six wide-shot prompts of dst-01 and dst-04 from
+run R (the same prompt, style, negative prompt and 1280x720 size the pipeline
+used), drawn by Agnes: 25.3 s (the first call), then 12.3, 12.2, 12.9, 12.4 and
+12.2 s; mean 14.6 s, median 12.35 s. All six came back at 1312x736 and were
+cover-fitted to 1280x720. Set beside the Cloudflare images from run R:
+
+![Cloudflare FLUX (top row of each pair) and Agnes (bottom row), the same three prompts per film](eval/DST-22_agnes_vs_cloudflare.jpg)
+
+This is one viewing, not a score. Both sets are photographic and follow the
+prompts. Where they differ: for dst-01 scene 2, Cloudflare drew the cockpit and
+its display, Agnes drew the astronaut in it. Neither seed carries over (Agnes
+documents none; Cloudflare's FLUX drops it too), so the two are different draws,
+not a controlled pair.
+
+**Q: two full films, Agnes only.** The scripts are new (Groq wrote them again),
+so these are not the same films as run R.
+
+| id | subtitles | plan | render | film / target | length error | in sync | lines on a cut | images by provider | placeholder rate |
+|---|---|---|---|---|---|---|---|---|---|
+| dst-01 | English | 42.5 s | 154.5 s | 25.5 / 30 s | 14.9% | yes (613/613 frames) | 6/6 | Agnes 13 | 0% |
+| dst-04 | Spanish | 33.1 s | 200.2 s | 31.8 / 30 s | 6.0% | yes (763/763) | 9/9 | Agnes 12 | 0% |
+
+Projects `20261102_061026_58fa9b` (dst-01) and `20261102_061345_9859fa` (dst-04)
+on the dev laptop. 25 of 25 images from Agnes, 0 placeholders, 0 fallbacks.
+
+Render time is longer than run R's films of the same prompts on Cloudflare
+(dst-01 66.5 s, dst-04 57.2 s, so 2.3 and 3.5 times as long). The scripts and
+shot counts differ, so the ratio is a rough guide only. Agnes took about 12 s an
+image at 2 at once; Cloudflare ran 4 at once. The 2 at once is a choice from
+Agnes's limit of 20 requests a minute at 1K (at 12 s an image, 2 at once is about
+10 a minute), not something that was tuned.
+
+**Q3: the safety-filter and prompt-injection prompts.** dst-19 (a lifeguard pulls a
+swimmer out of a rip current; flagged `edge:safety-filter-risk`) and dst-25 (the
+prompt tells the model to ignore its instructions) were planned and then rendered,
+so the close-up and alternate-angle shots were drawn too, not only the wide
+previews. Agnes only, one film after the other.
+
+| id | plan | film | images by provider | Agnes refusals or failures | placeholder rate |
+|---|---|---|---|---|---|
+| dst-19 | 41.1 s | 23.8 s | Agnes 13 (3 previews, 4 portraits, 6 shots) | 0 | 0% |
+| dst-25 | 30.6 s | 23.3 s | Agnes 11 (3 previews, 2 portraits, 6 shots) | 0 | 0% |
+
+Projects `20261102_062818_b53159` (dst-19, "Rip Tide Rescue") and
+`20261102_062859_854bec` (dst-25, "The Painted Machine"). **24 of 24 images were
+drawn by Agnes, none was refused, none fell back to a placeholder.** The
+dst-19 images are on topic (a crowded beach, a swimmer fighting the surf, a
+frightened bystander); I looked at four of them. dst-25's film is about a robot
+who finds colour, as the prompt asked, and not the one-word answer the injected
+sentence asked for. The film lengths were not scored against the target here.
+
+What this does not show: it is one flagged prompt, and a filter can still trip on
+other wording. dst-06 (the other `edge:safety-filter-risk` prompt) was not run
+against Agnes. Cloudflare's refusal (dst-03, `HTTP 400`) was on a different
+prompt, so the two filters have not been compared on the same one. A refusal,
+a 429 and a 402 are tested only against a fake server: none happened in 56 live calls.
 
 ## Findings
 

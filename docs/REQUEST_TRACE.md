@@ -112,7 +112,7 @@ sequenceDiagram
 | 5 | The browser opens `/ws/progress/{project_id}`, which authenticates by cookie, checks ownership (`may_access`), sends a snapshot, then polls job events | `backend/websocket/progress.py` → `backend/services/progress.py` `stream()` |
 | 6 | A worker **claims the job atomically** (`UPDATE … SKIP LOCKED`) and starts a heartbeat thread (every 15 s) | `jobs/worker.py` `run_forever()` → `queue.claim()` → `run_job()` / `_Heartbeat` |
 | 7 | The orchestrator runs the story agent, which makes one LLM call through the `story` provider chain (Groq → OpenRouter → Gemini → Ollama → mock template; Groq first since DST-15) and gets back a structured script. Each character gets an appearance lock and a seed | `agents/orchestrator/workflow.py` `plan()` → `agents/story_agent/` → `mcp/tools/llm_tools/llm_client.py` |
-| 8 | One storyboard preview per scene is drawn through the `image` chain (Cloudflare FLUX → Pollinations.ai → placeholder) | `mcp/tools/vision_tools/image_gen_tool.py` |
+| 8 | One storyboard preview per scene is drawn through the `image` chain (Cloudflare FLUX → Agnes, if a key is set → placeholder) | `mcp/tools/vision_tools/image_gen_tool.py` |
 | 9 | The state is **snapshotted** (every referenced file is copied into a new version), a progress event is written, and the job is marked complete | `state_manager/` `snapshot()` → `jobs/queue.py` `complete()` |
 
 ### Part B: review, render, playback (job `render`)
@@ -149,8 +149,8 @@ sequenceDiagram
 | **F1** | 7, 12 | **Model calls had no explicit timeout.** The LLM clients (`genai.Client`, `OpenAI`, `Anthropic` in `llm_client.py`) were created with library defaults: OpenAI/Groq waited up to 600 s per attempt and retried twice; Gemini set none, which was verified to mean forever. The heartbeat thread keeps beating meanwhile, so `requeue_stale()` never fires. **Reproduced in the baseline run** (36 min hang, below) | A hung provider left the film "running" for many minutes, or indefinitely, instead of falling through to the next provider | **Yes, DST-12** (see below) | ~~High~~ **Fixed** |
 | **F2** | 4, 11 | **No per-account render quota and no rate limit on job endpoints** | One account can flood the queue and use up everyone's free image quota | Login lockout only | **High** |
 | **F3** | 9, 12 | **Every version copies every file** | Disk fills up: renders fail and Postgres is at risk on the same VM | Backups hard-link; the live store does not | **High** |
-| **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Every user gets weaker Pollinations images or placeholders until the daily reset | Falls through the chain at once with no retries, and is named on the job's completion event and trace (DST-20, F15) | **High** |
-| **F5** | 8, 12 | **Fallback breaks character consistency.** The seed reproduces a face only on the same model; if the chain moves from Cloudflare to Pollinations partway through a film, the same character can come out different *(verify)* | The film's characters change face, the core quality promise | No | Medium |
+| **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Every user gets placeholders until the daily reset (Agnes would draw them, but its free tier may train on prompts, so the server has no key by design: docs/PROVIDERS.md) | Falls through the chain at once with no retries, and is named on the job's completion event and trace (DST-20, F15) | **High** |
+| **F5** | 8, 12 | **Fallback breaks character consistency.** The seed reproduces a face only on the same model; if the chain moves from Cloudflare to Agnes partway through a film, the same character can come out different *(verify)* | The film's characters change face, the core quality promise | No | Medium |
 | **F6** | 6 | **A retry reruns the whole job from the start** | The quota is spent twice for one film; a 5-minute render becomes 10 | By design | Medium |
 | **F7** | 7–8, 12 | **The whole chain is exhausted**, so the system falls back to the mock template or placeholder images | The film "succeeds" but looks broken, and the user may not know why | Logged, placeholder drawn | Medium |
 | **F8** | 12 | **CPU-bound rendering with a single worker** on the free ARM VM | About 4–5 min per film; the queue wait grows with every user | Per-clip timeout | Medium |
@@ -213,7 +213,7 @@ without it the role's default from `shared/providers.py` applies:
 
 **Worst case now**, if every provider in a chain hangs: a script waits at most
 3 × 180 s (Groq, OpenRouter, Gemini) and then uses the template; an image waits
-180 s (Cloudflare) plus 120 s (Pollinations) and then gets a placeholder.
+180 s (Cloudflare) plus 120 s (Agnes, only where a key is set) and then gets a placeholder.
 
 **Tests** (`tests/unit/test_model_call_timeouts.py`) use a real local server
 that accepts the connection and never answers. The real Gemini adapter, aimed at

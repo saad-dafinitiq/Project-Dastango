@@ -19,7 +19,8 @@ os.environ.setdefault("PROVIDER_IMAGE", "placeholder")
 os.environ["PIPELINE_SKIP_DOTENV"] = "1"      # main.py skips loading .env
 for _credential in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
                     "ANTHROPIC_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN",
-                    "POLLINATIONS_API_KEY", "ELEVENLABS_API_KEY", "FAL_KEY", "FAL_API_KEY",
+                    "POLLINATIONS_API_KEY", "AGNES_API_KEY", "ELEVENLABS_API_KEY", "FAL_KEY",
+                    "FAL_API_KEY",
                     "REPLICATE_API_TOKEN", "HF_TOKEN", "HUGGINGFACE_API_KEY",
                     "OLLAMA_HOST", "SD_API_URL", "LOCAL_SD", "MYMEMORY_EMAIL",
                     # Tracing: a test run must not send traces anywhere.

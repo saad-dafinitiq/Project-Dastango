@@ -10,7 +10,8 @@
 # `concurrency` is how many calls that provider tolerates in parallel, and
 # `retries` how many attempts it gets before the next provider takes over. A
 # 429 that says the provider's daily quota is used up is not retried: the next
-# provider takes over at once (rule in shared/providers.py, DST-20).
+# provider takes over at once (rule in shared/providers.py, DST-20). A 402 (no
+# balance left) is not retried either.
 # `timeout_s` is the longest one call may wait for the provider; then it counts
 # as failed and the next provider takes over at once (a timeout is not retried).
 # Without it: story 180 s, edit_intent and translate 60 s, image 120 s, tts 60 s,
@@ -92,10 +93,25 @@ roles:
       requires: [SD_API_URL]
       concurrency: 1
       timeout_s: 300              # a local GPU at 20 steps is slow; the limit it already had
-    - provider: pollinations      # free; without a key: weaker model, reduced size, 1 at a time
-      model: tongyi-mai/z-image-turbo
-      concurrency: 1
-      retries: 3
+    # Agnes AI (DST-22) takes Pollinations' place: after Cloudflare, so a render
+    # is not left with placeholders when Cloudflare's daily allowance is gone.
+    # DEV/TEST ONLY: on its free tier Agnes may train on the prompts it is sent
+    # (docs/PROVIDERS.md), so the key belongs in a developer's .env, not on a
+    # server that renders other people's films. Without the key it is skipped.
+    - provider: agnes
+      model: agnes-image-2.1-flash
+      params: {tier: 1K}          # 1K is 1312x736 at 16:9; free limit is per minute (20 at 1K)
+      requires: [AGNES_API_KEY]
+      concurrency: 2              # ~14 s an image (measured 2026-11-02): 2 at once stays well under 20/min
+      retries: 3                  # a 429 here is the per-minute limit, so a short wait is right
+      timeout_s: 120              # Agnes advises 60-360 s; one image took 14 s
+    # Pollinations is switched off (DST-22): the keyless endpoint 402s and serves a
+    # weaker model, and the keyed one has no pollen left. The adapter is still in
+    # image_gen_tool.py; to bring it back, restore this entry above `openai`:
+    #   - provider: pollinations
+    #     model: tongyi-mai/z-image-turbo
+    #     concurrency: 1
+    #     retries: 3
     - provider: openai            # paid: only reached if the free ones above fail
       model: dall-e-3
       requires: [OPENAI_API_KEY]
