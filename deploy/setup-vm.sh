@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup of a fresh Ubuntu server for the app, run from the cloned repo:
 #
-#   git clone https://github.com/SaadAbdullaH3/Automated-Story-Generation.git storygen
+#   git clone git@github.com:saad-dafinitiq/Project-Dastango.git storygen   (private: see deploy/README.md for the deploy key)
 #   cd storygen && bash deploy/setup-vm.sh
 #
 # Safe to run again: every step checks before it changes anything.

@@ -53,10 +53,32 @@ Paste `~/.ssh/storygen_vm.pub` into the console, then connect with
 
 ## 2. On the VM
 
+The repository is private, so the VM needs a way to read it. Give it a
+**read-only deploy key**, not your own login: if the VM is ever compromised, that
+key can read the code and nothing else.
+
 ```bash
-git clone https://github.com/SaadAbdullaH3/Automated-Story-Generation.git storygen
+ssh-keygen -t ed25519 -f ~/.ssh/storygen_deploy -N "" -C storygen-vm-deploy
+cat ~/.ssh/storygen_deploy.pub
+```
+
+Paste that public key into GitHub: the repository, Settings, Deploy keys, Add
+deploy key, and leave "Allow write access" unticked. Then tell the VM to use it:
+
+```bash
+printf 'Host github.com\n  IdentityFile ~/.ssh/storygen_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+chmod 600 ~/.ssh/config
+git clone git@github.com:saad-dafinitiq/Project-Dastango.git storygen
 cd storygen && bash deploy/setup-vm.sh
 ```
+
+The first connection asks whether to trust github.com's host key: say yes.
+
+**A VM cloned before the repository moved** (from `SaadAbdullaH3/Automated-Story-Generation`)
+still points at the old repository, which gets no new commits. Check with
+`git remote -v`, and if it names the old one, repoint it after adding the deploy
+key above: `git remote set-url origin git@github.com:saad-dafinitiq/Project-Dastango.git`
+and then `git fetch`.
 
 The script (safe to run again) installs Docker, opens ports 80/443 in the
 VM's iptables (Oracle's Ubuntu image rejects everything but SSH), gives the
@@ -105,8 +127,9 @@ and with sign-ups closed it won't make a new one.
 P="-f docker-compose.yml -f deploy/docker-compose.prod.yml"
 docker compose $P ps                     # health of each service
 docker compose $P logs -f worker         # what a render is doing
-git pull && docker compose $P up -d --build   # update
 ```
+
+To update, follow "Updating" below: it backs up first and records what was running.
 
 Both `api` and `worker` report health: the API through `/health`, the worker
 by having reached the job queue in the last two minutes. A worker that can't
@@ -117,6 +140,90 @@ An update that changes `deploy/Caddyfile` needs one more step:
 replaces the file instead of editing it, and the running container keeps
 reading the old one through its bind mount, so `caddy reload` on its own
 serves the old configuration.
+
+## Updating
+
+In order; each step says what to check before the next. `P` is the same
+shorthand as above.
+
+```bash
+cd ~/storygen
+P="-f docker-compose.yml -f deploy/docker-compose.prod.yml"
+
+# 1. Nothing should be rendering: an update restarts the worker.
+docker compose $P exec -T api python main.py jobs --status running
+docker compose $P exec -T api python main.py jobs --status queued
+
+# 2. Back up first (the database and the films, on the VM and in the bucket).
+bash deploy/backup.sh
+
+# 3. Write down what is running now. This is the rollback target.
+PREVIOUS=$(git rev-parse --short HEAD)
+echo "$(date -u +%FT%TZ) before update: $PREVIOUS" | tee -a ~/deploy-history.txt
+#    Keep the running image under its own name too, so going back is instant
+#    and needs no rebuild.
+docker tag storygen:local "storygen:before-$PREVIOUS"
+
+# 4. See what is coming, then take it. --ff-only refuses anything but a plain
+#    fast-forward, so the VM never ends up with a merge nobody reviewed.
+git fetch
+git log --oneline HEAD..origin/main
+git pull --ff-only
+
+# 5. New settings? The names added to .env.example since the running version.
+#    Most are optional with defaults; add a value to .env only on purpose.
+git diff "$PREVIOUS" HEAD -- .env.example | grep -oE '^\+#? ?[A-Z_][A-Z0-9_]*' | tr -d '+# '
+
+# 6. Rebuild and restart. The build runs first, so if it fails the old version
+#    keeps running. Dependencies install from uv.lock, so rebuild; do not only restart.
+docker compose $P up -d --build
+
+# 7. Check, and write down the version that is now running.
+docker compose $P ps
+curl -fsS "https://$(grep '^DOMAIN=' .env | cut -d= -f2)/health"
+echo "$(date -u +%FT%TZ) now running: $(git rev-parse --short HEAD)" | tee -a ~/deploy-history.txt
+```
+
+Values for new settings go in the VM's `.env` only: never copy them from a
+laptop's `.env`, and never commit one.
+
+## Rolling back
+
+Go back to the commit from step 3 of "Updating". The quickest way uses the image
+tagged there, so nothing is rebuilt:
+
+```bash
+git switch --detach "$PREVIOUS"          # or the hash from ~/deploy-history.txt
+docker tag "storygen:before-$PREVIOUS" storygen:local
+docker compose $P up -d --no-build
+```
+
+If that image is gone, rebuild from the old commit instead: the same
+`git switch --detach` and then `docker compose $P up -d --build`.
+
+That leaves the VM on a detached commit. When the problem is fixed on `main`,
+return with `git switch main && git pull --ff-only` and update as usual.
+
+The database: a release that only adds a table (the sign-in limit's
+`auth_attempts` table, in November 2026) needs no database rollback, because the
+older code ignores a table it does not know. A release that changed existing
+tables needs the backup from step 2 put back after the code is rolled back:
+`bash deploy/restore.sh latest`. That replaces the database and the films with
+that backup, so anything made since is lost.
+
+## Giving someone an account
+
+Sign-ups are closed. Create the account from the VM. The command asks for the
+password, so it never ends up in the shell history:
+
+```bash
+docker compose $P exec api python main.py users create someone@example.com
+```
+
+The password must be 12 to 128 characters and not on the bundled list of
+breached passwords. Hand it over in person or on a call, never by chat or email.
+There is no change-password screen yet, so an admin changes one with
+`docker compose $P exec api python main.py users passwd someone@example.com`.
 
 ## Backups
 

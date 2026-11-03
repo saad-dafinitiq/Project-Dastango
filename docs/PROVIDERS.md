@@ -22,7 +22,7 @@ roles:
       concurrency: 4                    # calls it tolerates at once
       retries: 3                        # attempts before the next provider
       timeout_s: 180                    # longest one call may wait
-    - provider: agnes                   # second choice, dev/test only (see "Agnes AI" below)
+    - provider: agnes                   # second choice, a temporary fallback (see "Agnes AI" below)
       model: agnes-image-2.1-flash
       params: {tier: 1K}                # 1K at 16:9 is 1312x736
       requires: [AGNES_API_KEY]
@@ -73,7 +73,7 @@ online voices.
 | `GEMINI_API_KEY` | Gemini Flash reads edits and translates subtitles first, and is the last cloud fallback for scripts | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
 | `OPENROUTER_API_KEY` | Second for scripts, third for edits and translation (`openrouter/free`) | [openrouter.ai](https://openrouter.ai/keys) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | FLUX images, four at a time; 10,000 neurons a day ≈ 170 images | [dash.cloudflare.com](https://dash.cloudflare.com), a Workers AI token |
-| `AGNES_API_KEY` | Agnes images behind Cloudflare, so a render is not left with placeholders when Cloudflare's daily allowance is gone. **Dev/test only, read the data terms below first** | [agnes-ai.com](https://agnes-ai.com) |
+| `AGNES_API_KEY` | Agnes images behind Cloudflare, so a render is not left with placeholders when Cloudflare's daily allowance is gone. **A temporary fallback; read the data terms below first** | [agnes-ai.com](https://agnes-ai.com) |
 | `MYMEMORY_EMAIL` | Raises the free translation fallback from ~5,000 to ~50,000 characters a day | any address |
 | `OLLAMA_HOST` | Local models through Ollama, fully offline | `ollama serve` |
 
@@ -90,7 +90,7 @@ What running it live taught, now handled in the adapters:
 - Cloudflare's safety filter occasionally refuses an innocent prompt; the next
   provider draws that image.
 
-## Agnes AI (image backstop, dev/test only)
+## Agnes AI (temporary image fallback)
 
 Added in DST-22 so that when Cloudflare's daily allowance runs out, images
 come from a real model instead of placeholders. It sits after Cloudflare and
@@ -114,13 +114,14 @@ the local options and before OpenAI. The adapter is `_provider_agnes`.
   `support@agnes-ai.com`; no steps are given). Paid Token Plan and Enterprise
   are excluded by default. Data may be processed in Singapore, the US and other
   places, with no fixed retention period; the terms are governed by Singapore
-  law. Both pages still contain unfilled placeholders. The project treats
-  confidentiality as a pass/fail gate, so **Agnes is for development and
-  testing with synthetic prompts only**: put `AGNES_API_KEY` in a developer's
-  `.env`, never on the server that renders other people's films. Without the
-  key the provider is skipped, which is how the server behaves today.
-- **Long term:** not decided here; the production image provider depends on the
-  Bedrock decision.
+  law. Both pages still contain unfilled placeholders. Anything sent through
+  this provider should be treated as shared with Agnes. **Decision, 3 November
+  2026 (the owner, DST-27):** `AGNES_API_KEY` is on the production server as a
+  temporary fallback, so that a render is not left with placeholders when
+  Cloudflare's allowance is used up, until the production image model replaces
+  it. Without the key the provider is skipped.
+- **Long term:** Agnes goes away when the production image model arrives
+  (Stable Diffusion 3.5 Large on AWS Bedrock is the plan).
 
 ## Voices
 
