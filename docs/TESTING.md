@@ -96,8 +96,9 @@ kept:
 - Camera smoothness by phase correlation on real shot clips (worst
   frame-to-frame jump 0.19 px).
 - Audio ducking measured per frequency band (~6 dB under speech).
-- Speaking rate calibrated against real voices (2.2 words/second), after the
-  first benchmark found films 17% long.
+- Speaking rate calibrated against real voices: 2.2 words/second for edge-tts
+  (M3, after the first benchmark found films 17% long), 2.6 for Kokoro, the
+  shipped voice (DST-28, from 39 lines of DST-10 run R).
 - Render speed on the production VM, sampled for CPU every 2 s, before and
   after shots ran in parallel (188 s → 136 s).
 

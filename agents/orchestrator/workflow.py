@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from agents.audio_agent import AudioAgent
 from agents.edit_agent import EditAgent
 from agents.edit_agent.describe import STEP_WORDS, describe
-from agents.story_agent import StoryAgent
+from agents.story_agent import StoryAgent, current_length_check
 from agents.video_agent import VideoAgent
 from shared import providers
 from shared.assets import asset_url
@@ -512,8 +512,9 @@ class PipelineOrchestrator:
         but not as asked, so the job says so rather than report a plain success:
         a provider whose daily quota ran out (DST-20, read from the job's record,
         see `_noting_daily_quotas`), a subtitle language that could not be
-        translated (DST-18), or a length far from the target (DST-17,
-        FILM_LENGTH_TOLERANCE)."""
+        translated (DST-18), or a length off the target (DST-17 and DST-28,
+        FILM_LENGTH_TOLERANCE): a finished film's, or a storyboard script's
+        that the repairs could not bring inside it."""
         note, payload = "", {}
         used_up = providers.daily_quotas_used_up()
         if used_up:
@@ -521,6 +522,15 @@ class PipelineOrchestrator:
             payload["daily_quota_used_up"] = used_up
         video = state.video if state else None
         if not video:
+            # A storyboard has no film yet, so what it can say is the script's
+            # planned length (DST-28), once the repairs have had their turn. After
+            # a render the finished film's own length is the one that counts.
+            check = current_length_check(state) if state else None
+            if check and not check["within"]:
+                note += (f" · the script plans {check['planned_s']:.1f} s for a "
+                         f"{check['target_s']} s target")
+                payload["script_length_warning"] = {
+                    k: check[k] for k in ("planned_s", "target_s", "tolerance", "repairs")}
             return note, payload
         if video.subtitles_skipped:
             note += f" · subtitles skipped, translation failed: {', '.join(video.subtitles_skipped)}"

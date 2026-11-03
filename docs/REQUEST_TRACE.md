@@ -258,9 +258,10 @@ recorded). The film was 150.8 s for a 30 s target on 2026-10-29 (210.0 s on
   with gTTS in that language as its fallback (`AudioAgent.voice_plan`). The
   storyboard names the same voice. Who actually spoke each line is kept on the
   line (`AudioSegment.engine`, `voice`) and in the trace.
-- A film more than `FILM_LENGTH_TOLERANCE` (0.5) from its target is flagged on
+- A film more than `FILM_LENGTH_TOLERANCE` from its target is flagged on
   the job's completion event (`length_warning`) and in the creator interface
-  ("Your film is ready, but it came out 151 s for a 30 s target").
+  ("Your film is ready, but it came out 151 s for a 30 s target"). The
+  tolerance was 0.5 here; DST-28 made it 0.15, the ±15% the product promises.
 - **Re-run of dst-05 after the fix** (2026-10-29, placeholder images): 21.4 s
   for the 30 s target, all 4 lines by Edge's `ur-PK-AsadNeural`, each within
   its estimate.
@@ -268,7 +269,8 @@ recorded). The film was 150.8 s for a 30 s target on 2026-10-29 (210.0 s on
 **Gaps that remain:**
 - Latin-script languages (Spanish, French, Roman Urdu) cannot be told from
   English by their letters, so they stay with Kokoro's English voice. Their
-  length stays close to normal, and the length check would catch a bad one.
+  length was thought to stay close to normal; DST-28's run V found one
+  Spanish film 43% longer than planned (docs/EVAL.md), so it does not always.
 - Edge has one voice per gender in these languages, so every male speaker of
   a film in Urdu has the same voice; "switch to another voice" fails with a
   clear message for them instead of switching to an English voice.

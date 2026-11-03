@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
-import type { ImageBudget, VoiceCatalogue } from "@/lib/types";
+import type { ImageBudget, LengthCheck, VoiceCatalogue } from "@/lib/types";
 
 import styles from "./studio.module.css";
 
@@ -11,13 +11,14 @@ export type RenderChoice = { engine: string | null; subtitles: string | null };
 
 type Props = {
   images: ImageBudget | undefined;
+  length?: LengthCheck | null;
   busy: boolean;
   onEngineChange: (engine: string | null) => void;
   onRender: (choice: RenderChoice) => void;
 };
 
 /** Everything that is decided at render time, next to the button that spends it. */
-export function RenderBar({ images, busy, onEngineChange, onRender }: Props) {
+export function RenderBar({ images, length, busy, onEngineChange, onRender }: Props) {
   const [catalogue, setCatalogue] = useState<VoiceCatalogue | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
   const [engine, setEngine] = useState<string>("");
@@ -101,6 +102,12 @@ export function RenderBar({ images, busy, onEngineChange, onRender }: Props) {
         ) : current ? (
           <p className={styles.sampleNote}>{current.summary}</p>
         ) : null}
+        {length && !length.within && (
+          <p className={styles.sampleNote}>
+            This script plans about {Math.round(length.planned_s)} s for the {length.target_s} s you asked for. You can
+            lengthen or shorten lines before rendering.
+          </p>
+        )}
         <div className={styles.renderRow}>
           {images && (
             <span className="meta">

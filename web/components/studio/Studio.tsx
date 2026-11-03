@@ -319,6 +319,7 @@ export function Studio() {
           {mode === "storyboard" && board && (
             <RenderBar
               images={images}
+              length={board?.length}
               busy={starting}
               onEngineChange={(e) => {
                 setEngine(e);

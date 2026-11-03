@@ -16,8 +16,13 @@ export function describe(ev: ProgressEvent | undefined): string {
       return "Drawing the storyboard";
     case "storyboard:frame":
       return ev.message;
-    case "storyboard:complete":
-      return "Storyboard ready";
+    case "storyboard:complete": {
+      // The script could not be brought to the length asked for (DST-28): say so.
+      const off = ev.payload?.script_length_warning as { planned_s: number; target_s: number } | undefined;
+      return off
+        ? `Storyboard ready, but the script plans ${Math.round(off.planned_s)} s for a ${off.target_s} s film`
+        : "Storyboard ready";
+    }
     case "audio:started":
       return "Recording the voices";
     case "audio:complete":

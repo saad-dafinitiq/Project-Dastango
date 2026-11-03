@@ -87,8 +87,12 @@ def test_a_character_edit_keeps_that_characters_scene_only_voice(small_project):
     r = _edit(agent, state, "change aria's voice tone to whispered")
     assert r.intent.scope == "character:char_protagonist"
     recorded = _recorded(state, calls)
-    assert {(scene, char) for scene, char, _ in recorded} == {
-        ("scene_2", "char_protagonist"), ("scene_3", "char_protagonist")}
+    # Every scene where Aria speaks, whichever lines the template (which budgets
+    # by the speaking rate) gave her; scene 2 is one of them, which the test needs.
+    arias_scenes = {(s.scene_id, "char_protagonist") for s in state.script.scenes
+                    for ln in s.dialogue if ln.character_id == "char_protagonist"}
+    assert ("scene_2", "char_protagonist") in arias_scenes
+    assert {(scene, char) for scene, char, _ in recorded} == arias_scenes
     for scene, _, call in recorded:
         # Whispering everywhere, in the voice each scene had.
         assert call["rate"] == WHISPER["rate"]

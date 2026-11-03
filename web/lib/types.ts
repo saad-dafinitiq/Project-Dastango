@@ -46,6 +46,14 @@ export type CastMember = {
 
 export type ImageBudget = { plan: number; render: number };
 
+/** What the script's length check found: planned length against the target. */
+export type LengthCheck = {
+  planned_s: number;
+  target_s: number;
+  within: boolean;
+  repairs: number;
+};
+
 export type Storyboard = {
   project_id: string;
   prompt: string;
@@ -54,6 +62,7 @@ export type Storyboard = {
   frames: Card[];
   cast: CastMember[];
   images: ImageBudget;
+  length: LengthCheck | null;
   stage: "draft" | "storyboard" | "rendered";
   version: number;
   /** Present on the answer to a scene edit that asked for a new picture. When `ok`
