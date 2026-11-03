@@ -95,9 +95,9 @@ roles:
       timeout_s: 300              # a local GPU at 20 steps is slow; the limit it already had
     # Agnes AI (DST-22) takes Pollinations' place: after Cloudflare, so a render
     # is not left with placeholders when Cloudflare's daily allowance is gone.
-    # DEV/TEST ONLY: on its free tier Agnes may train on the prompts it is sent
-    # (docs/PROVIDERS.md), so the key belongs in a developer's .env, not on a
-    # server that renders other people's films. Without the key it is skipped.
+    # A temporary fallback until the production image model replaces it (decided
+    # 3 Nov 2026, DST-27). On its free tier Agnes may train on the prompts it is
+    # sent (docs/PROVIDERS.md). Without the key it is skipped.
     - provider: agnes
       model: agnes-image-2.1-flash
       params: {tier: 1K}          # 1K is 1312x736 at 16:9; free limit is per minute (20 at 1K)

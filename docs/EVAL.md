@@ -280,7 +280,7 @@ itself stays about 10 MB; each new version adds 6.5 to 6.8 MB to
 
 ## DST-22: Agnes AI as the image backstop (runs Q, Q2)
 
-Agnes replaces Pollinations behind Cloudflare, for development and testing only
+Agnes replaces Pollinations behind Cloudflare, as a temporary fallback
 (data terms in [PROVIDERS.md](PROVIDERS.md)). Measured on 2026-11-02, code
 `f7c7bab` plus the DST-22 changes; images forced to Agnes, so Cloudflare's quota
 was not used. Agnes calls made today: **56** (1 probe, 6 in Q2, 25 in Q, 24 in Q3).
