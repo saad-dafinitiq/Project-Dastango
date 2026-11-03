@@ -16,13 +16,23 @@ DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_SAMPLE_RATE = 22050
 
-# A finished film further than this from its target length, as a fraction of the
-# target, is flagged to the creator rather than reported as a plain success
-# (DST-17). Why 0.5: in the DST-10 baseline (2026-10-29) normal films came out
-# 0.4% to 42% short and none was long, while a broken one (dst-05, dialogue the
-# voice engine could not read) was 5x its target. 0.5 flags the broken film and
-# none of the normal ones. FILM_LENGTH_TOLERANCE in .env overrides it.
-FILM_LENGTH_TOLERANCE = 0.5
+# How far a film may be from the length asked for, as a fraction of the target,
+# before it is flagged to the creator instead of reported as a plain success. It
+# is the product's promise (you describe the film, you get that film), proposed
+# to Hashim on 29 Oct as +/-15%, and DST-28 holds scripts and finished films to
+# it: a script outside it is repaired (below), a film outside it is flagged.
+# History: DST-17 set 0.5, because the DST-10 baseline (2026-10-29) had normal
+# films 0.4% to 42% short (so 0.15 would have flagged 6 of 7) and one broken
+# film (dst-05, dialogue the voice engine could not read) 5x its target; 0.5 was
+# the line that caught only the broken one. FILM_LENGTH_TOLERANCE in .env overrides it.
+FILM_LENGTH_TOLERANCE = 0.15
+
+# How many times a script outside the tolerance is sent back to the model with
+# "add or cut N words". Each repair is a full extra script call on a free tier
+# (Groq's tokens-per-minute limit refused a plain retry in 3 of the DST-10
+# plans), so it is capped; two lets a second try correct the first one's
+# overshoot. SCRIPT_LENGTH_REPAIRS in .env overrides it (0 turns repairs off).
+SCRIPT_LENGTH_REPAIRS = 2
 
 
 def film_length_tolerance() -> float:
@@ -38,6 +48,22 @@ def film_length_tolerance() -> float:
             "FILM_LENGTH_TOLERANCE=%r is not a fraction above 0; using %s",
             raw, FILM_LENGTH_TOLERANCE)
         return FILM_LENGTH_TOLERANCE
+    return value
+
+
+def script_length_repairs() -> int:
+    """SCRIPT_LENGTH_REPAIRS from the environment, read when a script is written."""
+    raw = os.getenv("SCRIPT_LENGTH_REPAIRS", "").strip()
+    try:
+        value = int(raw) if raw else SCRIPT_LENGTH_REPAIRS
+    except ValueError:
+        value = -1
+    if not 0 <= value <= 5:
+        from shared.utils.logging import get_logger
+        get_logger("constants").warning(
+            "SCRIPT_LENGTH_REPAIRS=%r is not a whole number from 0 to 5; using %s",
+            raw, SCRIPT_LENGTH_REPAIRS)
+        return SCRIPT_LENGTH_REPAIRS
     return value
 
 # Phase names

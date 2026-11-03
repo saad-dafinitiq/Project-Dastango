@@ -22,6 +22,8 @@ are reported separately and never averaged together.
 | **Q** | `20261102_111026_testset.json`, log `DST-22_agnes_films.log` | 2026-11-02 11:10 to 11:17 | `f7c7bab` + DST-22's Agnes provider (uncommitted at run time) | full render, dst-01 and dst-04, one after the other | **Agnes only** (`PROVIDER_IMAGE=agnes`) | Groq; translation Groq after one Gemini 504 | Kokoro |
 | **Q3** | `20261102_112818_testset.json` (plan), render logs `DST-22_agnes_safety_render_<project>.log` | 2026-11-02 11:28 to 11:33 | same | dst-19 and dst-25 planned (`--ids`), then each rendered with `main.py render <project>` | Agnes only | Groq | Kokoro |
 | **Q2** | six images, drawn by a script in the session scratch folder | 2026-11-02 11:04 to 11:06 | same | the DST-10 wide-shot prompts of dst-01 and dst-04, 3 scenes each | Agnes only | none | none |
+| **L** | `20261103_122339_testset.json` … `20261103_124828_testset.json` (one per prompt), logs `DST-28_dst-NN.log` | 2026-11-03 12:23 to 12:49 | `6fe7842` + DST-28's length check (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run G) | none |
+| **V** | two scripts in the session scratch folder, one result file each | 2026-11-03 12:50 to 13:00 | same | the saved scripts of run L (24 model-written) and of run G (22 model-written), voiced with Kokoro in a throwaway `DATA_DIR`: no images, no music, no video | none | none | Kokoro |
 
 Runs P1 to P3, R, S, A and B are on the **Gemini-first** story chain (Gemini →
 Groq → OpenRouter → OpenAI → Anthropic → Ollama → mock); only run G is
@@ -349,6 +351,135 @@ against Agnes. Cloudflare's refusal (dst-03, `HTTP 400`) was on a different
 prompt, so the two filters have not been compared on the same one. A refusal,
 a 429 and a 402 are tested only against a fake server: none happened in 56 live calls.
 
+## DST-28: films within ±15% of the length asked (runs L and V)
+
+The DST-10 baseline had films shorter than asked whichever model wrote the
+script. DST-28 changed three things: the planning speaking rate (2.2 to 2.6
+words/second), a word budget stated per scene in the story prompt, and a length
+check after the script, which sends a script outside ±15% back to the model to
+add or cut a stated number of words (at most 2 repairs) and flags one that is
+still outside. Run L repeats run G's protocol on the new code; run V voices the
+saved scripts of L and of G to see how long the films really are.
+
+**The rate.** From run R's films, all voiced by Kokoro, without dst-05 (the
+Urdu prompt Kokoro could not read, Findings 2): 7 films, 39 lines, 322 words,
+122.5 s of speech, so **2.63 words/second**
+(median line 2.73). A per-line fit gave 2.45 words/second with a 0.23 s
+intercept; the pooled ratio is what a film's total depends on, so 2.6 was
+used. The old 2.2 was calibrated on edge-tts in M3; with it the estimate of
+speech time was 7% to 37% too long in all 7 films. The rate was fitted on run
+R and tested on different scripts (run V): real against planned length,
+median **-1.4%** over the 24 films.
+
+**Yardstick.** "Before" is run G's saved scripts, planned with the new rate and
+voiced in run V, so both columns are measured the same way. Planned with the
+old rate, G's 22 model-written scripts reproduce the figures reported above
+(median 13.6%, mean 16.7%; 12 of 22 within ±15%).
+
+### Per prompt
+
+Percentages are against the target. "Planned" is the timeline's estimate from
+the script's lines; "voiced" is the length of the audio timeline with Kokoro,
+which is the film's length (in run R the film equalled the audio timeline in 8
+of 8 films). ⚠ = every provider failed and the template wrote the script (not
+repaired, and not voiced in run V). ² = a line was not spoken by Kokoro.
+
+| id | target | planned, before | planned, after | repairs | voiced, before | voiced, after |
+|---|---|---|---|---|---|---|
+| dst-01 | 30 s | 24.4 s (-18.8%) | 27.0 s (-9.8%) | 0 | 28.3 s (-5.8%) | 27.2 s (-9.4%) |
+| dst-02 | 45 s | 34.1 s (-24.3%) | 46.2 s (+2.6%) | 1 | 31.6 s (-29.7%) | 46.9 s (+4.2%) |
+| dst-03 | 20 s | 10.9 s (-45.3%) | 19.7 s (-1.5%) | 1 | 10.2 s (-49.2%) | 20.1 s (+0.7%) |
+| dst-04 | 30 s | 19.2 s (-35.9%) | 28.6 s (-4.7%) | 1 | 17.9 s (-40.2%) | 28.1 s (-6.4%) |
+| dst-05 | 30 s | 25.1 s (-16.3%) | 32.3 s (+7.6%) | 1 | 26.1 s (-12.9%) ² | 36.8 s (+22.5%) ² |
+| dst-06 | 30 s | 23.6 s (-21.3%) | 29.8 s (-0.6%) | 1 | 24.5 s (-18.5%) | 35.0 s (+16.6%) |
+| dst-07 | 20 s | 17.8 s (-11.1%) | 21.4 s (+7.0%) | 1 | 16.7 s (-16.7%) | 23.7 s (+18.5%) |
+| dst-08 | 45 s | 29.2 s (-35.1%) | 47.1 s (+4.7%) | 1 | 28.6 s (-36.4%) | 48.3 s (+7.4%) |
+| dst-09 | 45 s | 19.5 s (-56.7%) | 49.6 s (+10.3%) | 1 | 18.9 s (-58.1%) | 49.3 s (+9.5%) |
+| dst-10 | 30 s | 28.0 s (-6.8%) ⚠ | 28.9 s (-3.7%) | 0 | n/a | 29.3 s (-2.3%) |
+| dst-11 | 30 s | 27.0 s (-9.8%) | 35.9 s (+19.6%) **flagged** | 2 | 26.6 s (-11.3%) | 31.8 s (+6.0%) |
+| dst-12 | 60 s | 40.3 s (-32.8%) | 61.9 s (+3.2%) ⚠ | 0 | 35.7 s (-40.5%) | n/a |
+| dst-13 | 45 s | 31.1 s (-31.0%) | 43.2 s (-3.9%) | 0 | 26.8 s (-40.5%) | 38.9 s (-13.6%) |
+| dst-14 | 60 s | 38.6 s (-35.7%) | 60.7 s (+1.1%) | 1 | 34.7 s (-42.2%) | 59.0 s (-1.6%) |
+| dst-15 | 20 s | 17.1 s (-14.5%) | 19.2 s (-4.0%) | 0 | 16.3 s (-18.6%) | 17.4 s (-13.2%) |
+| dst-16 | 30 s | 31.0 s (+3.4%) ⚠ | 30.9 s (+3.1%) | 1 | n/a | 28.1 s (-6.4%) |
+| dst-17 | 30 s | 27.0 s (-9.8%) | 32.4 s (+8.0%) | 0 | 34.6 s (+15.4%) | 46.3 s (+54.2%) |
+| dst-18 | 30 s | 30.8 s (+2.5%) | 30.1 s (+0.4%) | 0 | 34.1 s (+13.6%) | 28.6 s (-4.5%) |
+| dst-19 | 30 s | 18.3 s (-39.0%) | 30.9 s (+2.9%) | 1 | 17.9 s (-40.3%) | 29.5 s (-1.8%) |
+| dst-20 | 30 s | 21.3 s (-29.1%) | 26.7 s (-11.1%) | 0 | 21.3 s (-29.1%) | 26.4 s (-12.1%) |
+| dst-21 | 45 s | 42.6 s (-5.3%) ⚠ | 54.8 s (+21.7%) **flagged** | 2 | n/a | 59.3 s (+31.9%) |
+| dst-22 | 30 s | 25.8 s (-14.0%) | 31.6 s (+5.2%) | 1 | 22.9 s (-23.6%) | 27.2 s (-9.3%) |
+| dst-23 | 30 s | 29.6 s (-1.2%) | 30.9 s (+3.0%) | 0 | 26.9 s (-10.2%) | 29.2 s (-2.8%) |
+| dst-24 | 20 s | 16.1 s (-19.4%) | 18.5 s (-7.5%) | 0 | 15.9 s (-20.5%) | 17.8 s (-10.8%) |
+| dst-25 | 30 s | 26.2 s (-12.8%) | 31.6 s (+5.5%) | 2 | 26.1 s (-13.0%) | 29.8 s (-0.6%) |
+
+² dst-05 is the Urdu prompt: Edge's Urdu voice answered a line with
+`NoAudioReceived` in run V's "after" voicing and gTTS spoke it; both columns
+used both engines.
+
+### Summary
+
+| Measure | Before (run G scripts) | After (run L scripts) |
+|---|---|---|
+| Scripts written by a model / by the template | 22 / 3 (dst-10, dst-16, dst-21) | 24 / 1 (dst-12) |
+| **Planned length within ±15%** | **8 of 22** | **22 of 24** |
+| Planned length shorter than the target | 21 of 22 | 9 of 24 |
+| Planned length, median / mean absolute error | 20.4% / 23.5% | 4.7% / 6.2% |
+| **Voiced length within ±15%** | **6 of 22** | **19 of 24** |
+| Voiced length shorter than the target | 20 of 22 | 14 of 24 |
+| Voiced length, median / mean absolute error | 22.1% / 26.7% | 8.4% / 11.1% |
+| Same 21 prompts, model-written in both: voiced within ±15% | 6 of 21 | 17 of 21 |
+| Same 21 prompts: median / mean absolute error | 20.5% / 26.0% | 9.3% / 10.8% |
+| Without the Urdu and Spanish prompts (dst-05, dst-17), 19 prompts: within ±15% | 5 of 19 | 17 of 19 |
+| Same 19 prompts: median / mean absolute error | 23.6% / 27.2% | 7.4% / 7.8% |
+| Plan time, median / mean (all 25) | 7.7 s / 37.8 s | 10.8 s / 15.0 s |
+| Story-chain calls that failed (all 25) | not counted here | 7 of 61: Groq `429` tokens-per-minute 2, Groq `400` 1, OpenRouter 2, Gemini `503` 2 |
+
+### The repairs
+
+- **15 of 24 model-written scripts were outside ±15% and went back to the
+  model**: 12 needed one repair, 3 needed two (18 repair calls). **13 of the 15
+  ended inside ±15%.** The 9 others were inside at the first try.
+- **2 stayed outside after two repairs** and were flagged: dst-11 (+19.6%) and
+  dst-21 (+21.7%), both too long. dst-11's second repair failed (no provider
+  produced an answer; Groq's was a tokens-per-minute `429`), so its script is
+  the better of the original and the first repair. No repair was discarded for
+  changing the cast or the scenes.
+- **Cost:** a script that needed one repair made 3 story calls instead of 1 or
+  2, and dst-11 made 5. Groq's tokens-per-minute limit answered `429` twice
+  (dst-08, dst-11); run G, with the same 45 s spacing and no repairs, had none.
+  13 first answers failed validation, one in each of 13 prompts (G: 13 of 25).
+- **dst-12 fell to the template** because every provider failed (Groq `400
+  Failed to generate JSON`, OpenRouter cut short, Gemini `503`). It is not
+  repaired (the template budgets by the same estimate) and lands at +3.2%
+  planned.
+
+### What the voices did
+
+- The estimate is right on average and wrong per script. Real against planned
+  length: median **-1.4%**, but from -13.8% to +42.7%. Apart from the Spanish
+  film (+42.7%) the longest was +17.4%.
+- **5 of the 24 voiced films are outside ±15%.** Two are non-English prompts,
+  not the rate: dst-17 (Spanish, +54.2%; its lines are voiced by Kokoro's
+  English voice, as `docs/REQUEST_TRACE.md` says of Latin-script languages, and
+  took 43% longer than planned; the old script was already +15.4%) and dst-05
+  (Urdu, +22.5%). Three are English: dst-06 (+16.6%)
+  and dst-07 (+18.5%), whose scripts were inside ±15% when planned and whose
+  voices ran 17% and 11% longer than estimated, and dst-21 (+31.9%), flagged
+  when planned at +21.7%.
+- So **a script inside ±15% does not guarantee a film inside ±15%**; the
+  estimate cannot see how fast each voice takes a given sentence. A check
+  against the real line durations after the voices exist could (suggested as a
+  separate ticket).
+
+### Not like for like
+
+One run each, at different times of day, on a free Groq tier whose answers
+vary: run L's 22 of 24 and run G's 8 of 22 are not a confidence interval. G
+had three template scripts and L one, so the prompts compared one to one are
+the 21 written by a model in both. The 45 s spacing is the same as in G. Edge
+TTS and the other engines were not voiced; at the 2.2 words/second measured
+for edge-tts in M3 their films would run about 18% longer than planned.
+
 ## Findings
 
 1. **A model call could hang forever (fixed by DST-12).** In run A on 2026-10-28,
@@ -366,7 +497,8 @@ a 429 and a 402 are tested only against a fake server: none happened in 56 live 
 3. **Films come out shorter than asked, and the plan already shows it.** 7 of
    8 renders were short in both run A and run R (mean error 15.5% and 22.1%
    without dst-05), and 17 of 22 plans were already short at the dialogue
-   estimate (median 11.1%).
+   estimate (median 11.1%). DST-28 addressed this; its section above has the
+   result (voiced films within ±15%: 6 of 22 before, 19 of 24 after).
 4. **The storyboard's length estimate just repeats the target.** Every
    storyboard frame's `estimated_ms` is the model's `duration_ms`, which the
    prompt sets to target ÷ scene count (`agents/video_agent/agent.py:340`),
@@ -407,3 +539,8 @@ a 429 and a 402 are tested only against a fake server: none happened in 56 live 
   `story`.
 - **Character consistency across images**: needs a visual check, not done.
 - **The same runs on the production VM.**
+- **DST-28 at render level with real images**: the length was measured by
+  voicing the scripts (run V), not by rendering films. The 8-film render
+  subset was not re-run on the new code.
+- **Voice engines other than Kokoro** under the 2.6 words/second rate.
+- **Run-to-run variation of the repairs**: L ran each prompt once.

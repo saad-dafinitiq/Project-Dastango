@@ -13,6 +13,7 @@ import jobs
 from auth import accounts
 from auth.deps import require_project, require_user
 from auth.accounts import User
+from agents.story_agent import current_length_check
 from shared import voices
 from agents.orchestrator.storyboard_view import cast, image_budget, scene_cards
 from shared.assets import asset_url
@@ -155,6 +156,8 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
         frame["lines"] = card.get("lines", [])
     board["cast"] = cast(state.script, engine)
     board["images"] = image_budget(state.script)
+    # What the script's length check found (DST-28), so a reload says what the plan did.
+    board["length"] = current_length_check(state)
     board["stage"] = state.stage
     board["version"] = state.version
     return board

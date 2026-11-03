@@ -217,9 +217,10 @@ visual description), and scenes (setting, tone, visual prompt, lines).
 
 ```mermaid
 flowchart LR
-    in(["Prompt · length ·<br/>scene count"]) --> budget["Word budget<br/>2.2 words per second"]
+    in(["Prompt · length ·<br/>scene count"]) --> budget["Word budget<br/>2.6 words per second"]
     budget --> llm["One structured call<br/>schema: ScriptOutput"]
-    llm -- "valid" --> check["Consistency check<br/>speakers in the cast"]
+    llm -- "valid" --> fit["Length check<br/>±15%: add or cut words,<br/>at most 2 repairs"]
+    fit --> check["Consistency check<br/>speakers in the cast"]
     llm -. "no model, or<br/>chain exhausted" .-> tmpl["Template script<br/>planner.py"]
     tmpl --> check
     check --> lock["Appearance lock<br/>look + image seed"]
@@ -227,9 +228,15 @@ flowchart LR
     vstyle --> out(["ScriptOutput"])
 ```
 
-- **Length is a budget, not a hope.** The prompt states how many words fit;
-  the 2.2 words/second figure was measured against the voices actually used,
-  after the first benchmark found films running 17% long.
+- **Length is a budget, then a check.** The prompt states how many words fit
+  in total and per scene (`shared/timeline.py` `word_budget`). The speaking
+  rate, 2.6 words/second, is Kokoro's, measured from 39 real lines (DST-28;
+  2.2 was edge-tts's, from M3). After the script comes back, its planned length
+  is computed with the timeline's own estimate; outside ±15% it goes back to
+  the model once or twice ("add or cut about N words", same cast and scenes),
+  the closest script wins, and a script still outside is flagged on the plan's
+  completion event and in the storyboard (`length` in the storyboard answer).
+  The offline template budgets by the same estimate and is never repaired.
 - **Characters keep their faces.** The appearance lock tops up each
   description with stable details the writer left vague and fixes a seed, so
   a character looks the same in every shot and after a re-render.

@@ -170,24 +170,25 @@ def _film_of_length(small_project, film_s: float):
     return state
 
 
-@pytest.mark.parametrize("film_s", [150.8, 14.0])      # dst-05's length; far too short
-def test_a_film_far_off_its_target_is_flagged(small_project, film_s):
+# dst-05's length, far too short, and just outside +/-15% of 30 s either way (DST-28)
+@pytest.mark.parametrize("film_s", [150.8, 14.0, 25.0, 35.0])
+def test_a_film_off_its_target_is_flagged(small_project, film_s):
     note, payload = PipelineOrchestrator._completion_notes(_film_of_length(small_project, film_s))
-    assert payload["length_warning"] == {"film_s": film_s, "target_s": 30, "tolerance": 0.5}
+    assert payload["length_warning"] == {"film_s": film_s, "target_s": 30, "tolerance": 0.15}
     assert f"{film_s:.1f} s for a 30 s target" in note
 
 
-@pytest.mark.parametrize("film_s", [17.4, 30.0, 44.0])  # DST-10's worst normal film was 42% short
+@pytest.mark.parametrize("film_s", [25.6, 30.0, 34.4])  # inside +/-15% of 30 s: 25.5 to 34.5
 def test_a_film_within_the_tolerance_is_not_flagged(small_project, film_s):
     note, payload = PipelineOrchestrator._completion_notes(_film_of_length(small_project, film_s))
     assert "length_warning" not in payload and note == ""
 
 
 def test_the_tolerance_comes_from_the_environment(small_project, monkeypatch):
-    state = _film_of_length(small_project, 36.0)            # 20% long
-    monkeypatch.setenv("FILM_LENGTH_TOLERANCE", "0.1")
+    state = _film_of_length(small_project, 33.0)            # 10% long
+    monkeypatch.setenv("FILM_LENGTH_TOLERANCE", "0.05")
     assert "length_warning" in PipelineOrchestrator._completion_notes(state)[1]
-    monkeypatch.setenv("FILM_LENGTH_TOLERANCE", "nonsense")  # back to the default 0.5
+    monkeypatch.setenv("FILM_LENGTH_TOLERANCE", "nonsense")  # back to the default 0.15
     assert "length_warning" not in PipelineOrchestrator._completion_notes(state)[1]
 
 
