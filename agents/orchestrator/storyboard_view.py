@@ -11,9 +11,11 @@ speak it. None of it is decoration.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from shared import providers, voices
+from shared.assets import asset_url
 
 from agents.video_agent import camera
 
@@ -49,12 +51,19 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
     cards = []
     for scene in script.scenes:
         tone = getattr(scene, "tone", "") or ""
+        # Who is in the scene: whoever speaks in it, in the order they first do.
+        # The script records nothing else about who is on screen.
+        in_scene: List[str] = []
+        for line in scene.dialogue:
+            if line.character_id in people and line.character_id not in in_scene:
+                in_scene.append(line.character_id)
         cards.append({
             "scene_id": scene.scene_id,
             "index": scene.index,
             "title": scene.title,
             "setting": scene.setting,
             "tone": tone,
+            "characters": [{"character_id": cid, "name": people[cid].name} for cid in in_scene],
             # The establishing shot opens the scene, so its move is the one
             # worth naming on the card.
             "move": camera.move_for("establishing", tone, 0).replace("_", " "),
@@ -74,11 +83,27 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
     return cards
 
 
-def cast(script, engine: Optional[str] = None) -> List[Dict]:
-    """Who is in the film and who will voice them.
+def _portrait_of(state, character_id: str) -> Tuple[Optional[str], bool]:
+    """(path, drawn) of a character's portrait: the film's own once there is one,
+    else the one the storyboard drew. `drawn` is False for a placeholder."""
+    if state is None:
+        return None, False
+    video = state.video
+    from_film = video.portrait_for(character_id) if video else None
+    if from_film and Path(from_film.image_path).exists():
+        return from_film.image_path, True
+    stored = state.storyboard.portrait(character_id) if state.storyboard else None
+    if stored and stored.path and Path(stored.path).exists():
+        return stored.path, bool(stored.signature)
+    return None, False
 
-    Also what the interface counts to state the render's cost honestly: every
-    character gets a portrait, so the cast size is part of the image bill.
+
+def cast(script, engine: Optional[str] = None, state=None) -> List[Dict]:
+    """Who is in the film, what they look like and who will voice them.
+
+    With `state`, each entry also carries the portrait the cast row shows. While
+    a plan is still streaming there is no state yet, so the entries come without
+    one and the portraits arrive as events.
     """
     from agents.audio_agent.agent import AudioAgent
 
@@ -91,20 +116,23 @@ def cast(script, engine: Optional[str] = None) -> List[Dict]:
     out = []
     for c in script.characters.characters:
         used, voice_id, _code = AudioAgent.voice_plan(c, engine, languages.get(c.id))
+        path, drawn = _portrait_of(state, c.id)
         out.append({"character_id": c.id, "name": c.name, "role": c.role,
-                    "voice": _voice_label(used, voice_id)})
+                    "description": c.description,
+                    "voice": _voice_label(used, voice_id),
+                    "portrait_url": asset_url(path, versioned=True) if path else None,
+                    "drawn": drawn})
     return out
 
 
 def image_budget(script) -> Dict[str, int]:
     """How many images planning and rendering each cost, from the real script.
 
-    Planning draws one preview per scene. Rendering draws a portrait per
-    character plus the two framings per scene that the preview cannot stand in
-    for — the wide shot reuses the preview.
+    Planning draws one preview per scene and one portrait per character.
+    Rendering draws only the two framings per scene that the preview cannot
+    stand in for: the wide shot reuses the preview and the portraits are kept.
     """
     if script is None:
         return {"plan": 0, "render": 0}
     scenes = len(script.scenes)
-    return {"plan": scenes,
-            "render": len(script.characters.characters) + 2 * scenes}
+    return {"plan": scenes + len(script.characters.characters), "render": 2 * scenes}

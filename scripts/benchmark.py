@@ -269,6 +269,8 @@ def run_case(case: Dict[str, Any], args) -> Dict[str, Any]:
         "scenes": len(state.script.scenes),
         "characters": len(cast),     # the narrator is not counted, as in the labels
         "character_names": [c.name for c in cast],
+        # Every image drawn while planning: one preview per scene and, since DST-29,
+        # one portrait per character (the render keeps those rather than drawing them).
         "storyboard_images": planned["images"],
         "llm_calls": planned["llm"],
         "render": None,

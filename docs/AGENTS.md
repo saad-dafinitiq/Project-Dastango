@@ -93,7 +93,7 @@ flowchart TB
 | **Closed vocabularies where actions follow** | The edit model chooses from enumerated intents and values the executor can actually perform. An invented intent fails validation instead of becoming a silent no-op. |
 | **Fail loudly, fall back visibly** | A provider that fails returns `success=False` or raises; the chain moves on and logs which provider served each result. Nothing ships degraded under a success label. |
 | **Always an offline path** | A deterministic template script, a keyword edit classifier, placeholder images, silent audio of the right length. The whole test suite runs this way, with no keys. |
-| **Human in the loop at the cheap moment** | The storyboard (script + one image per scene) is reviewed and edited before the expensive render. |
+| **Human in the loop at the cheap moment** | The storyboard (script, a portrait per character and one image per scene) is reviewed and edited before the expensive render. |
 | **Edits reuse the render's primitives** | An edited film is built by the same `render_line → retime → remix → compose` steps as a new one, so the two cannot drift apart. |
 | **Every step is undoable** | The orchestrator snapshots state and files after each step; "go back" is itself a new version. |
 
@@ -111,9 +111,9 @@ both without stopping (the CLI's default).
 
 ```mermaid
 flowchart LR
-    subgraph planG["plan (about 20 s)"]
+    subgraph planG["plan"]
         direction TB
-        p1["Story agent<br/>script · cast · scenes"] --> p2["Video agent<br/>one preview per scene,<br/>at render size"]
+        p1["Story agent<br/>script · cast · scenes"] --> p2["Video agent<br/>a portrait per character,<br/>one preview per scene,<br/>at render size"]
         p2 --> p3[("version: storyboard")]
     end
 
@@ -121,7 +121,7 @@ flowchart LR
 
     subgraph renderG["render (minutes)"]
         direction TB
-        r1["Audio agent<br/>voices · timeline · music"] --> r2["Video agent<br/>portraits · shots ·<br/>scenes · subtitles"]
+        r1["Audio agent<br/>voices · timeline · music"] --> r2["Video agent<br/>shots · scenes ·<br/>subtitles"]
         r2 --> r3[("version: rendered")]
     end
 
@@ -278,7 +278,7 @@ what every edit calls.
 flowchart LR
     subgraph assets["run: assets"]
         direction TB
-        port["Portrait per character"] ~~~ bank["Shot bank per scene<br/>wide · detail · alt"] ~~~ reuse["Storyboard preview<br/>= the wide shot"]
+        port["Portrait per character<br/>(the storyboard's, when it matches)"] ~~~ bank["Shot bank per scene<br/>wide · detail · alt"] ~~~ reuse["Storyboard preview<br/>= the wide shot"]
     end
 
     planS["Plan shots on the timeline<br/>pre-roll → wide · narrator → bank ·<br/>character → portrait"]

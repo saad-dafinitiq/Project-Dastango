@@ -187,7 +187,8 @@ class PipelineOrchestrator:
                 emit(ProgressEvent(phase="storyboard", status="started", project_id=project_id,
                                    message="Drawing storyboard previews", progress=0.5))
                 drawn = []
-                total = len(script.scenes)
+                # The portraits and the previews share one progress bar.
+                total = len(script.scenes) + len(script.characters.characters)
                 # Creators count scenes from one; models sometimes number them
                 # from zero, so the position is used rather than scene.index.
                 position = {s.scene_id: n for n, s in enumerate(script.scenes, start=1)}
@@ -201,9 +202,19 @@ class PipelineOrchestrator:
                         payload={"scene_id": scene.scene_id,
                                  "preview_url": asset_url(path, versioned=True)}))
 
+                def portrait_ready(character, path, ok):
+                    drawn.append(character.id)
+                    emit(ProgressEvent(
+                        phase="storyboard", status="portrait", project_id=project_id,
+                        message=f"Portrait drawn: {character.name}",
+                        progress=0.5 + 0.45 * len(drawn) / max(1, total),
+                        payload={"character_id": character.id, "drawn": ok,
+                                 "portrait_url": asset_url(path, versioned=True)}))
+
                 self.video.generate_storyboard(state, width=preview_width,
                                                height=preview_height,
-                                               on_frame=frame_ready)
+                                               on_frame=frame_ready,
+                                               on_portrait=portrait_ready)
             state.stage = "storyboard"
         except Exception as e:  # noqa: BLE001
             emit(ProgressEvent(phase="error", status="failed", project_id=project_id,
@@ -270,6 +281,7 @@ class PipelineOrchestrator:
             height=board.preview_height if board else DEFAULT_HEIGHT,
             scene_ids=[scene_id] if redraw else [],
             failed=failed,
+            character_ids=[],        # a scene edit never redraws the cast
         )
         redrawn = redraw and scene_id not in failed
         if redraw and outcome is not None:

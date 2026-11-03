@@ -35,12 +35,23 @@ class StoryboardFrame(BaseModel):
     estimated_ms: int = 0
 
 
+class StoryboardPortrait(BaseModel):
+    """A character's portrait as the cast row shows it (DST-29)."""
+    character_id: str
+    path: Optional[str] = None
+    # What the portrait was drawn from (appearance lock, seed, style, size). Set
+    # only when a real image came back: a placeholder is never stamped as current,
+    # so the render draws that character properly instead of reusing it.
+    signature: Optional[str] = None
+
+
 class Storyboard(BaseModel):
     project_id: str
     prompt: str
     title: str = ""
     logline: str = ""
     frames: List[StoryboardFrame] = Field(default_factory=list)
+    portraits: List[StoryboardPortrait] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     approved_at: Optional[str] = None
@@ -56,6 +67,9 @@ class Storyboard(BaseModel):
 
     def frame(self, scene_id: str) -> Optional[StoryboardFrame]:
         return next((f for f in self.frames if f.scene_id == scene_id), None)
+
+    def portrait(self, character_id: str) -> Optional[StoryboardPortrait]:
+        return next((p for p in self.portraits if p.character_id == character_id), None)
 
     def estimated_duration_ms(self) -> int:
         return sum(f.estimated_ms for f in self.frames)

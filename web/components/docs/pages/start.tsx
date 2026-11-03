@@ -20,8 +20,9 @@ export function Introduction() {
           One sentence and a length: 20 seconds to a minute, two to six scenes.
         </Step>
         <Step title="Storyboard">
-          In about twenty seconds you can read the whole film: every scene, its mood, its camera move, its
-          lines and who speaks them, with a first picture for each. Fix anything here. It costs nothing yet.
+          Long before a render, you can read the whole film: the cast with a portrait for each character, then
+          every scene, its mood, its camera move, its lines and who speaks them, with a first picture for each.
+          Fix anything here. Words are free; a redrawn picture costs one image.
         </Step>
         <Step title="Render">
           Voices are recorded, every shot is drawn and given a camera move, the music is mixed under the
@@ -88,8 +89,8 @@ export function Quickstart() {
         </Step>
         <Step title="Write the storyboard">
           <p>
-            The script arrives first, in a few seconds: every scene with its mood, camera move and lines. Then
-            each scene&rsquo;s first picture develops in. The whole storyboard takes about twenty seconds.
+            The script arrives first, in a few seconds: every scene with its mood, camera move and lines, and
+            the cast. Then the characters&rsquo; portraits and each scene&rsquo;s first picture develop in.
           </p>
         </Step>
         <Step title="Read it, and fix what you like">

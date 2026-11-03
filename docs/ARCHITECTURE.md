@@ -202,7 +202,7 @@ sequenceDiagram
     O->>DB: event storyboard/script (scenes, cast, image cost)
     Note over A,DB: The socket reads new job_events rows every 0.4 s
     A-->>W: the script appears, every scene readable
-    loop one preview per scene
+    loop a portrait per character, then one preview per scene
         O->>P: image (Cloudflare FLUX, else Agnes if a key is set, else placeholder)
         O->>DB: event storyboard/frame
         A-->>W: that frame develops in
@@ -215,7 +215,7 @@ sequenceDiagram
     A->>DB: insert job (render, queued)
     K->>O: render(project_id)
     O->>O: Audio agent: voices, timeline, music, master
-    O->>P: portraits and shot images
+    O->>P: shot images (the storyboard's portraits are kept)
     O->>O: Video agent: shots on the timeline, scenes, film, subtitles
     O->>DB: snapshot version 2, stage rendered
     K->>DB: job succeeded

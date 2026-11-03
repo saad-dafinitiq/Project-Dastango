@@ -40,7 +40,9 @@ from shared.schemas.audio import AudioSegment, SceneTiming
 from shared.schemas.pipeline import PipelineState
 from agents.story_agent.visual_style import portrait_style, scene_style
 from shared.schemas.story import Character, Scene, StoryOutput
-from shared.schemas.storyboard import Storyboard, StoryboardFrame, StoryboardLine
+from shared.schemas.storyboard import (
+    Storyboard, StoryboardFrame, StoryboardLine, StoryboardPortrait,
+)
 from shared.schemas.video import CharacterPortrait, SceneFrame, Shot, VideoOutput
 from shared.timeline import (
     SCENE_XFADE_MS, SHOT_XFADE_MS, build_timeline, span_frames, split_span,
@@ -132,7 +134,8 @@ class VideoAgent:
             # as concurrently as the active image provider allows.
             portraits = run_jobs(
                 [(self.generate_portrait, (state.project_id, c, width, height, "",
-                                           state.script.story))
+                                           state.script.story,
+                                           self.reusable_portrait(state, c, width, height)))
                  for c in state.script.characters.characters],
                 workers=providers.concurrency("image"), label="portraits",
             )
@@ -265,18 +268,45 @@ class VideoAgent:
 
     # ---- assets ----------------------------------------------------------
 
-    def generate_portrait(self, project_id: str, c: Character, width: int, height: int,
-                          seed_salt: str = "", story: Optional[StoryOutput] = None
-                          ) -> CharacterPortrait:
-        """(Re)generate one character's close-up portrait, in the film's style."""
-        out = project_dir(project_id) / "video" / "portraits" / f"{c.id}.png"
-        out.parent.mkdir(parents=True, exist_ok=True)
+    @staticmethod
+    def _portrait_request(c: Character, story: Optional[StoryOutput],
+                          seed_salt: str = "") -> Tuple[str, str, str, int]:
+        """(prompt, style, negative prompt, seed) of a character's portrait: one
+        definition for the cast row's portrait and the render's, so they match."""
         # The appearance lock (not the raw description) keeps the face stable.
         look = c.appearance_lock or build_appearance_lock(c)
         style, negative = portrait_style(story)
         prompt = f"close-up portrait of {look}, {c.role}"
         seed = character_seed(c, seed_salt) if seed_salt else (
             c.image_seed if c.image_seed is not None else character_seed(c))
+        return prompt, style, negative, seed
+
+    @classmethod
+    def portrait_signature(cls, c: Character, story: Optional[StoryOutput],
+                           width: int, height: int) -> str:
+        """Identifies the image a portrait holds, as `preview_signature` does for
+        a scene: two matching signatures mean two identical images."""
+        prompt, style, negative, seed = cls._portrait_request(c, story)
+        return hashlib.md5(
+            f"{prompt}|{style}|{negative}|{seed}|{width}x{height}".encode()).hexdigest()
+
+    def generate_portrait(self, project_id: str, c: Character, width: int, height: int,
+                          seed_salt: str = "", story: Optional[StoryOutput] = None,
+                          reusable: Optional[str] = None) -> CharacterPortrait:
+        """(Re)generate one character's close-up portrait, in the film's style.
+
+        `reusable` is the portrait the storyboard already drew from the same look,
+        seed, style and size (`reusable_portrait`): it is the very image this call
+        would make, so it is kept instead of paying for it twice.
+        """
+        out = project_dir(project_id) / "video" / "portraits" / f"{c.id}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if reusable and not seed_salt and Path(reusable).exists():
+            if Path(reusable).resolve() != out.resolve():
+                shutil.copyfile(reusable, out)
+            log.info("  portrait: %s -> %s (reused the storyboard portrait)", c.name, out.name)
+            return CharacterPortrait(character_id=c.id, image_path=str(out))
+        prompt, style, negative, seed = self._portrait_request(c, story, seed_salt)
         res = self.tools.execute(
             "vision.generate_image", prompt=prompt, out_path=str(out),
             width=width, height=height, style=style,
@@ -291,17 +321,25 @@ class VideoAgent:
                             height: int = DEFAULT_HEIGHT,
                             scene_ids: Optional[List[str]] = None,
                             on_frame: Optional[Any] = None,
-                            failed: Optional[List[str]] = None) -> Storyboard:
-        """One small preview image per scene, for approval before the real render.
+                            failed: Optional[List[str]] = None,
+                            character_ids: Optional[List[str]] = None,
+                            on_portrait: Optional[Any] = None) -> Storyboard:
+        """One small preview image per scene and one portrait per character, for
+        approval before the real render.
 
         A preview costs a single image; a full render costs three per scene plus
-        portraits, every voice line and all the video work.
+        every voice line and all the video work. The portraits are drawn here, for
+        the cast row, and the render keeps them (`reusable_portrait`), so they add
+        nothing to the bill.
 
         A scene whose picture could not be drawn (every provider failed, or only
         the placeholder answered after the real ones failed) keeps the picture it
         had, and its id is added to `failed` if a list is passed. It is never
         stamped as matching its text: the render must redraw it, not reuse a
         stale or placeholder image under a signature that says it is current.
+        The same holds for a portrait. `character_ids` picks which portraits to
+        draw as `scene_ids` does for scenes (None: all, []: none); `on_portrait` is
+        called with (character, path, drawn) as each one finishes.
         """
         script = state.script
         board = state.storyboard or Storyboard(
@@ -328,11 +366,26 @@ class VideoAgent:
                 on_frame(scene, path)
             return path
 
-        previews = run_jobs(
-            [(draw, (scene,)) for scene in targets],
-            workers=providers.concurrency("image"), label="storyboard previews",
+        cast_targets = [c for c in script.characters.characters
+                        if character_ids is None or c.id in character_ids]
+        portrait_drawn: Dict[str, bool] = {}
+
+        def draw_portrait(c: Character) -> str:
+            path, ok = self._draw_portrait(state.project_id, c, width, height, script.story)
+            portrait_drawn[c.id] = ok
+            if on_portrait is not None:
+                on_portrait(c, path, ok)
+            return path
+
+        # One batch, cast first: the cast row sits above the scenes, so it should
+        # fill in first, and the portraits share the image provider's limits.
+        results = run_jobs(
+            [(draw_portrait, (c,)) for c in cast_targets]
+            + [(draw, (scene,)) for scene in targets],
+            workers=providers.concurrency("image"), label="storyboard previews and portraits",
         )
-        preview_by_scene = dict(zip([s.scene_id for s in targets], previews))
+        portrait_by_char = dict(zip([c.id for c in cast_targets], results[:len(cast_targets)]))
+        preview_by_scene = dict(zip([s.scene_id for s in targets], results[len(cast_targets):]))
 
         frames = []
         for scene in script.scenes:
@@ -353,6 +406,18 @@ class VideoAgent:
                 estimated_ms=scene.duration_ms,
             ))
         board.frames = frames
+        portraits = []
+        for c in script.characters.characters:
+            existing = board.portrait(c.id)
+            if c.id in portrait_by_char:
+                real = portrait_drawn.get(c.id, False)
+                portraits.append(StoryboardPortrait(
+                    character_id=c.id, path=portrait_by_char[c.id],
+                    signature=(self.portrait_signature(c, script.story, width, height)
+                               if real else (existing.signature if existing else None))))
+            elif existing:
+                portraits.append(existing)
+        board.portraits = portraits
         board.title, board.logline = script.story.title, script.story.logline
         board.touch()
         state.storyboard = board
@@ -386,28 +451,45 @@ class VideoAgent:
         still False so the render draws the scene properly.
         """
         out = project_dir(project_id) / "video" / "storyboard" / f"{scene.scene_id}.png"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        staging = out.with_name(f"{out.stem}.new{out.suffix}")
         style, negative = scene_style(story, scene.tone)
         prompt = f"{scene.visual_prompt}, {BANK_FRAMINGS[0][1]}"
+        # A new prompt gives a new preview; the same prompt reuses the look.
+        return self._draw_in_place(out, f"storyboard {scene.scene_id}", prompt, style,
+                                   negative, _seed(prompt, ""), width, height)
+
+    def _draw_portrait(self, project_id: str, c: Character, width: int, height: int,
+                       story: StoryOutput) -> Tuple[str, bool]:
+        """Draw one character's portrait where the render keeps it, by the same
+        rule as a preview: `drawn` is False when no real image came back, the
+        previous portrait is left as it was, and a placeholder only stands in
+        when there never was one."""
+        out = project_dir(project_id) / "video" / "portraits" / f"{c.id}.png"
+        prompt, style, negative, seed = self._portrait_request(c, story)
+        return self._draw_in_place(out, f"portrait {c.name}", prompt, style, negative,
+                                   seed, width, height)
+
+    def _draw_in_place(self, out: Path, label: str, prompt: str, style: str, negative: str,
+                       seed: int, width: int, height: int) -> Tuple[str, bool]:
+        """Draw `out` beside itself and move the new image over it only if it is
+        real. Returns (path, drawn)."""
+        out.parent.mkdir(parents=True, exist_ok=True)
+        staging = out.with_name(f"{out.stem}.new{out.suffix}")
         res = self.tools.execute(
             "vision.generate_image", prompt=prompt, out_path=str(staging),
             width=width, height=height, style=style,
-            negative_prompt=negative,
-            # A new prompt gives a new preview; the same prompt reuses the look.
-            seed=_seed(prompt, ""),
+            negative_prompt=negative, seed=seed,
         )
         meta = res.metadata or {}
         real = bool(res.success and res.data and Path(res.data).exists()
                     and not (meta.get("provider") == "placeholder" and meta.get("fallback")))
-        log.info("  storyboard %s -> %s (%s)", scene.scene_id, out.name,
+        log.info("  %s -> %s (%s)", label, out.name,
                  meta.get("provider") if res.success else res.error)
         if real:
             _replace_file(Path(res.data), out)
             return str(out), True
         for leftover in {staging, Path(res.data)} if res.data else {staging}:
             leftover.unlink(missing_ok=True)
-        log.warning("  storyboard %s: no real image was produced, keeping %s", scene.scene_id,
+        log.warning("  %s: no real image was produced, keeping %s", label,
                     "the previous picture" if out.exists() else "a placeholder")
         if not out.exists():
             from mcp.tools.vision_tools.image_gen_tool import write_placeholder
@@ -464,6 +546,20 @@ class VideoAgent:
         if frame.preview_signature != self.preview_signature(scene, story, width, height):
             return None
         return frame.preview_path if Path(frame.preview_path).exists() else None
+
+    def reusable_portrait(self, state: PipelineState, c: Character,
+                          width: int, height: int) -> Optional[str]:
+        """The storyboard's portrait of this character, if the render would draw
+        the very same image: same appearance lock, seed, style and size. It stops
+        matching when any of them changes, which is when it must be drawn again."""
+        board = state.storyboard
+        stored = board.portrait(c.id) if board else None
+        if not stored or not stored.path or not stored.signature:
+            return None
+        story = state.script.story if state.script else None
+        if stored.signature != self.portrait_signature(c, story, width, height):
+            return None
+        return stored.path if Path(stored.path).exists() else None
 
     def _generate_scene_frame(self, project_id: str, scene: Scene, width: int, height: int,
                               fps: int, use_text_to_video: bool,

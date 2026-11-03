@@ -30,6 +30,7 @@ Groq → OpenRouter → OpenAI → Anthropic → Ollama → mock); only run G is
 Groq-first.
 
 - **Test set:** `eval/testset.jsonl`, 25 prompts, unchanged since commit `0bc83f4` (2026-10-28). Field guide: `eval/README.md`.
+- **Plan-time images changed with DST-29 (3 Nov 2026).** Every run in this file predates it: planning drew one image per scene. Since DST-29 it also draws one portrait per character, which the render keeps, so a plan's `storyboard_images` is now scenes plus characters and a render draws that many fewer. Image counts and placeholder rates from later runs are not comparable one to one with the tables below.
 - **Command:** `python scripts/benchmark.py --testset eval/testset.jsonl` with `--plan-only` (P1 to P3), `--ids <one id>` (R), `--render-subset` (A).
 - **Code:** reports from the 2026-10-29 runs record `2823ce3-dirty`. The uncommitted changes were the new `--plan-only` flag (`scripts/benchmark.py`, `tests/unit/test_eval_testset.py`) and this file; no pipeline code was changed. `2823ce3` includes DST-9, DST-11 (tracing) and DST-12 (model-call timeouts). Runs A and B predate both.
 - `--plan-only` committed in this PR (DST-10); the pipeline code is identical to `2823ce3`.

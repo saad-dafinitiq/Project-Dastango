@@ -125,6 +125,13 @@ export function SceneCard({ card, number, active, editable, delay = 0, onSave }:
         <>
           <h3 className={styles.sceneTitle}>{card.title}</h3>
           {card.tone && <p className="label">{card.tone}</p>}
+          {card.characters && card.characters.length > 0 && (
+            <ul className={styles.inScene} aria-label="Characters in this scene">
+              {card.characters.map((c) => (
+                <li key={c.character_id}>{c.name}</li>
+              ))}
+            </ul>
+          )}
           {card.lines.map((l) => (
             <blockquote key={l.line_id} className={styles.line}>
               {l.text}
