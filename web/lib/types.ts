@@ -33,6 +33,8 @@ export type Card = {
   move: string;
   estimated_ms: number;
   lines: Line[];
+  /** Who speaks in the scene, in the order they first do. */
+  characters?: { character_id: string; name: string }[];
   preview_url?: string | null;
   visual_prompt?: string;
 };
@@ -42,6 +44,12 @@ export type CastMember = {
   name: string;
   role: string;
   voice: string;
+  /** One sentence about who they are. */
+  description?: string;
+  /** Absent while the portrait is still being drawn. */
+  portrait_url?: string | null;
+  /** False when the picture is only a stand-in (nothing could be drawn yet). */
+  drawn?: boolean;
 };
 
 export type ImageBudget = { plan: number; render: number };

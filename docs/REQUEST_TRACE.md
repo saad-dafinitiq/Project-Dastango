@@ -76,7 +76,7 @@ sequenceDiagram
     Note over W,P: F9 · Edge TTS is an online service · Kokoro ~30 s cold start
     end
     W->>W: place lines on the shared timeline · mix music (−16 LUFS)
-    W->>P: video agent · portraits + shot images via image chain
+    W->>P: video agent · shot images via image chain (the storyboard's portraits are kept)
     rect rgb(254, 243, 199)
     Note over W,P: F5 · fallback to another model can change a character's face (verify)
     end
@@ -112,7 +112,7 @@ sequenceDiagram
 | 5 | The browser opens `/ws/progress/{project_id}`, which authenticates by cookie, checks ownership (`may_access`), sends a snapshot, then polls job events | `backend/websocket/progress.py` → `backend/services/progress.py` `stream()` |
 | 6 | A worker **claims the job atomically** (`UPDATE … SKIP LOCKED`) and starts a heartbeat thread (every 15 s) | `jobs/worker.py` `run_forever()` → `queue.claim()` → `run_job()` / `_Heartbeat` |
 | 7 | The orchestrator runs the story agent, which makes one LLM call through the `story` provider chain (Groq → OpenRouter → Gemini → Ollama → mock template; Groq first since DST-15) and gets back a structured script. Each character gets an appearance lock and a seed | `agents/orchestrator/workflow.py` `plan()` → `agents/story_agent/` → `mcp/tools/llm_tools/llm_client.py` |
-| 8 | One storyboard preview per scene is drawn through the `image` chain (Cloudflare FLUX → Agnes, if a key is set → placeholder) | `mcp/tools/vision_tools/image_gen_tool.py` |
+| 8 | One portrait per character (appearance lock and seed, for the cast row) and one storyboard preview per scene are drawn through the `image` chain (Cloudflare FLUX → Agnes, if a key is set → placeholder). The render keeps a portrait whose look, seed, style and size still match | `agents/video_agent/agent.py` `generate_storyboard()` · `mcp/tools/vision_tools/image_gen_tool.py` |
 | 9 | The state is **snapshotted** (every referenced file is copied into a new version), a progress event is written, and the job is marked complete | `state_manager/` `snapshot()` → `jobs/queue.py` `complete()` |
 
 ### Part B: review, render, playback (job `render`)

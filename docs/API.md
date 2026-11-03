@@ -46,8 +46,8 @@ the OpenAPI schema at `/api/openapi.json` (`/docs` is the product's own guide).
 
 | Method | Path | Body | |
 |---|---|---|---|
-| POST | `/plan` | `{prompt, target_duration_s=45, scene_count=4, with_preview=true}` | Queue a storyboard: script + one preview per scene |
-| GET | `/storyboard/{project_id}?engine=` | none | Scene cards (tone, camera move, lines and the voice that will speak each), cast, image budget |
+| POST | `/plan` | `{prompt, target_duration_s=45, scene_count=4, with_preview=true}` | Queue a storyboard: script, one portrait per character and one preview per scene |
+| GET | `/storyboard/{project_id}?engine=` | none | Scene cards (tone, camera move, `characters` who speak in the scene, lines and the voice that will speak each), the cast (per character: `name`, `role`, `description`, `voice`, `portrait_url`, `drawn`; `drawn` is false when the picture is only a stand-in), image budget, and the script's length check (`length`) |
 | PATCH | `/storyboard/{project_id}/{scene_id}` | `{title?, setting?, visual_prompt?, dialogue?: {line_id: text}}` | Edit one scene; a new `visual_prompt` redraws only that scene's preview (one image). The words are saved as a version even if the picture could not be drawn: the answer then has `redraw: {ok: false, message}` and the previous picture is kept (`redraw: {ok: true}` otherwise, absent for a words-only edit). `409` while a plan, render or edit is running for the film. Preview addresses end in `?v=` and change only when the picture does |
 | POST | `/render/{project_id}` | `{with_bgm, with_subtitles, subtitle_language, burn_subtitles, tts_engine?}` | Queue the render of an approved storyboard |
 | POST | `/run` | `{prompt, target_duration_s, scene_count, with_bgm, with_subtitles, subtitle_language, tts_engine?}` | Plan and render in one job |
@@ -123,6 +123,7 @@ reconnect is seamless.
 | `story` / `started`, `complete` | Script being written, then ready |
 | `storyboard` / `script` | The script exists: payload has scenes, cast and image budget |
 | `storyboard` / `frame` | One preview is drawn: payload has `scene_id`, `preview_url` |
+| `storyboard` / `portrait` | One character's portrait is drawn: payload has `character_id`, `portrait_url`, `drawn` (false for a stand-in, which the render replaces) |
 | `audio`, `video` / `started`, `complete` | Render phases |
 | `edit` / `understood` | What a change was taken to mean: payload has `summary` |
 | `edit` / `step` | Each edit step, in words ("Recording the voices") |

@@ -124,7 +124,9 @@ def test_plan_only_plans_the_render_subset_without_rendering_it(
                         .read_text(encoding="utf-8"))
     (row,) = report["runs"]
     assert row["render"] is None                         # not rendered, though in the subset
-    assert row["scenes"] == 2 and len(row["storyboard_images"]) == 2   # but fully planned
+    # But fully planned: a preview per scene and, since DST-29, a portrait for each of
+    # the template's three characters (narrator, protagonist, supporting).
+    assert row["scenes"] == 2 and len(row["storyboard_images"]) == 2 + 3
 
 
 # ---- what a run records ---------------------------------------------------------
@@ -183,14 +185,16 @@ def test_a_testset_run_plans_every_prompt_and_renders_the_subset(
     assert planned["scenes"] == 3                       # the scene count asked for
     assert planned["script_source"] == "template"       # offline: no model wrote it
     assert planned["characters"] == len(planned["character_names"]) >= 1
-    assert [i["provider"] for i in planned["storyboard_images"]] == ["placeholder"] * 3
+    # One image per scene, plus one portrait per character since DST-29 (3 in the template).
+    assert [i["provider"] for i in planned["storyboard_images"]] == ["placeholder"] * (3 + 3)
 
     film = rendered["render"]
     assert rendered["subtitle_language"] == "Urdu"
     assert film["in_sync"] and film["lines_on_a_cut"] == film["lines"]
     assert film["render_s"] > 0 and film["total_s"] >= film["render_s"]
     assert {v["engine"] for v in film["voices"]} == {"silent"}
-    # Every image in the film is accounted for: one preview per scene plus the render's own.
+    # Every image in the film is accounted for: the plan's (a preview per scene and a
+    # portrait per character, which the render keeps) plus the render's own.
     assert sum(film["image_providers"].values()) == (
         len(rendered["storyboard_images"]) + len(film["images"]))
 

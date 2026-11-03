@@ -95,9 +95,32 @@ export function Storyboard() {
   return (
     <>
       <p>
-        The storyboard is the film before it is rendered: the cheap half, ready in about twenty seconds, so
-        you can read and fix the story before spending minutes on pictures and voices.
+        The storyboard is the film before it is rendered: the cheap half, so you can read and fix the story
+        before spending minutes on pictures and voices.
       </p>
+
+      <H2 id="cast">The cast</H2>
+      <p>
+        Above the scenes is everyone in your film: a <strong>portrait</strong>, a <strong>name</strong>, a
+        line about who they are and the <strong>voice</strong> they will speak in. Check it before you
+        render: a wrong character is cheaper to catch here than in a finished film.
+      </p>
+      <ul>
+        <li>
+          Each portrait is drawn from the character&rsquo;s pinned look, the same one used in the scenes, and
+          the render keeps it rather than drawing it again.
+        </li>
+        <li>
+          If a portrait could not be drawn just now (the image services may be at their limit), the
+          character shows as a letter, the storyboard still works, and the portrait is drawn when you render.
+        </li>
+        <li>
+          A character has one portrait for the whole film; it does not change with the mood of a line.
+        </li>
+        <li>
+          Each scene lists the characters who speak in it, under its mood.
+        </li>
+      </ul>
 
       <H2 id="reading">Reading a scene</H2>
       <p>Each scene is a card with:</p>
@@ -167,9 +190,9 @@ export function Rendering() {
           frame.
         </li>
         <li>
-          <strong>The pictures are drawn</strong>: a portrait of each character and a few shots per scene: a
-          wide view, a detail, another angle. The storyboard picture is reused as each scene&rsquo;s opening
-          shot.
+          <strong>The pictures are drawn</strong>: a few shots per scene: a wide view, a detail, another
+          angle. The storyboard picture is reused as each scene&rsquo;s opening shot, and the characters&rsquo;
+          portraits from the storyboard are kept.
         </li>
         <li>
           <strong>Every shot gets a camera move</strong>, and the scenes are cut together: a character&rsquo;s

@@ -16,6 +16,7 @@ import type {
 } from "@/lib/types";
 import { useProgress } from "@/lib/useProgress";
 
+import { CastRow } from "./CastRow";
 import { EditPanel } from "./EditPanel";
 import { Player } from "./Player";
 import { RenderBar, type RenderChoice } from "./RenderBar";
@@ -125,12 +126,22 @@ export function Studio() {
         urls.set(String(e.payload.scene_id), String(e.payload.preview_url));
       }
     }
+    // Portraits arrive one by one after the script, each as its own event.
+    const portraits = new Map<string, { portrait_url: string | null; drawn: boolean }>();
+    for (const e of events) {
+      if (e.phase === "storyboard" && e.status === "portrait" && e.payload) {
+        portraits.set(String(e.payload.character_id), {
+          portrait_url: (e.payload.portrait_url as string | null) || null,
+          drawn: Boolean(e.payload.drawn),
+        });
+      }
+    }
     const p = script.payload as unknown as Streamed & { scenes: Card[] };
     return {
       prompt: p.prompt,
       title: p.title,
       logline: p.logline,
-      cast: p.cast ?? [],
+      cast: (p.cast ?? []).map((c) => ({ ...c, ...portraits.get(c.character_id) })),
       images: p.images,
       cards: p.scenes.map((c) => ({ ...c, preview_url: urls.get(c.scene_id) ?? null })),
     };
@@ -153,6 +164,7 @@ export function Studio() {
   const title = board?.title || streamed?.title || film?.title || "";
   const prompt = board?.prompt || streamed?.prompt || askedFor || "";
   const images = board?.images ?? streamed?.images;
+  const castMembers = board?.cast ?? streamed?.cast ?? [];
   // The scene being drawn right now: the first one without a frame.
   const drawingIndex = mode === "planning" ? cards.findIndex((c) => !c.preview_url) : -1;
   const elapsed = elapsedSeconds(events, now);
@@ -299,6 +311,7 @@ export function Studio() {
         </>
       ) : (
         <>
+          <CastRow cast={castMembers} planning={mode === "planning"} />
           <div
             className={styles.strip}
             style={{ "--count": Math.max(1, cards.length) } as React.CSSProperties}

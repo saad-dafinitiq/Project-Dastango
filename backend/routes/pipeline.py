@@ -154,7 +154,8 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
         frame["tone"] = card.get("tone", "")
         frame["move"] = card.get("move", "")
         frame["lines"] = card.get("lines", [])
-    board["cast"] = cast(state.script, engine)
+        frame["characters"] = card.get("characters", [])
+    board["cast"] = cast(state.script, engine, state)
     board["images"] = image_budget(state.script)
     # What the script's length check found (DST-28), so a reload says what the plan did.
     board["length"] = current_length_check(state)
