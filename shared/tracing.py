@@ -57,6 +57,11 @@ JOB_INPUT_FIELDS = ("target_duration_s", "scene_count", "subtitle_language", "tt
                     "with_bgm", "with_subtitles", "burn_subtitles", "with_preview", "phase",
                     "version", "prompt_chars", "request_chars")
 JOB_OUTPUT_FIELDS = ("stage", "version", "scenes", "film_s")
+# An API error (DST-32): what failed and where, never the request or the message.
+API_ERROR_FIELDS = ("kind", "error", "route", "method", "http_status")
+# At most this many API errors are sent per minute, so one broken endpoint hit
+# in a loop cannot flood the tracing server (the request log still counts all).
+API_ERRORS_PER_MINUTE = 30
 
 # Verb-first names for what a call does, by provider role.
 OPERATIONS = {"story": "write-script", "edit_intent": "classify-edit",
@@ -115,6 +120,9 @@ class NoopTracer:
         return None
 
     def end(self, handle: Any, fields: Dict[str, Any], output: Dict[str, Any]) -> None:
+        pass
+
+    def event(self, fields: Dict[str, Any]) -> None:
         pass
 
     def flush(self) -> None:
@@ -186,6 +194,12 @@ class LangfuseTracer:
                            level="DEFAULT" if fields.get("ok") else "ERROR",
                            status_message=status)
         observation.end()
+
+    def event(self, fields: Dict[str, Any]) -> None:
+        # Named for what it is and levelled ERROR; the class and the route are
+        # attributes, so errors group by them and the name stays stable.
+        self._client.create_event(name="api-error", level="ERROR",
+                                  status_message=fields.get("error"), metadata=fields)
 
     def flush(self) -> None:
         self._client.flush()
@@ -310,6 +324,29 @@ def model_call(kind: str, role: str, provider: str, model: Optional[str] = None,
         fields["latency_ms"] = round((time.monotonic() - started) * 1000)
         _safely(tracer().end, handle, _clean(fields),
                 _clean(call.output_fields, IO_FIELDS))
+
+
+_api_error_times: list = []
+
+
+def record_api_error(error: str, route: Optional[str], method: Optional[str],
+                     status: int = 500) -> None:
+    """Note that the API answered with a server error, without saying what was asked.
+
+    `error` is an exception class name (or `HTTP<status>` for an error response),
+    `route` the route pattern such as /api/pipeline/film/{pid}, never the URL that
+    was requested: ids, queries and bodies stay out. Called by the API's request
+    middleware; a failure here must never touch the response.
+    """
+    now = time.monotonic()
+    with _lock:
+        del _api_error_times[:next((i for i, t in enumerate(_api_error_times)
+                                    if now - t < 60), len(_api_error_times))]
+        if len(_api_error_times) >= API_ERRORS_PER_MINUTE:
+            return
+        _api_error_times.append(now)
+    _safely(tracer().event, _clean({"kind": "api", "error": error, "route": route,
+                                    "method": method, "http_status": status}, API_ERROR_FIELDS))
 
 
 def record_tokens(input: Optional[int] = None, output: Optional[int] = None,

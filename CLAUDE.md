@@ -62,6 +62,7 @@ python main.py serve --reload              # web UI on http://localhost:8000 (ru
 cd web && npm ci && npm run build          # build the creator UI; serve then uses it at /
 cd web && npm run dev                      # UI with hot reload on :3000, API proxied to :8000
 python main.py worker                      # a worker process on its own (WORKER_INLINE=0 for the API)
+python main.py monitor --once              # every live-site check's state, sends nothing (docs/MONITORING.md)
 python main.py jobs [--status failed]      # the queue: what ran, what broke
 python main.py users [create <email> --admin | passwd <email> | role <email> admin]
 docker compose up --build --scale worker=3 # API + workers + Postgres
@@ -95,6 +96,7 @@ not enough).
 | LLM client | `mcp/tools/llm_tools/llm_client.py` | `get_llm_client(role)` walks that role's chain: Gemini (google-genai, native JSON schema), Groq / OpenRouter / Ollama / OpenAI (all via the openai client), Anthropic, then `mock` = use the offline fallback. |
 | Accounts | `auth/` | `passwords.py` (argon2id), `accounts.py` (users, lockout, project ownership, linked identities), `sessions.py` (opaque token in an HttpOnly cookie, stored hashed), `github.py` (OAuth with GitHub — never joins accounts by email), `deps.py` (**the only place a request becomes a user** — routes depend on `require_user` / `require_project` rather than checking for themselves). |
 | Jobs | `jobs/` | **Runs are rows, not closures.** `queue.py` (enqueue/claim/heartbeat/cancel, one atomic UPDATE per claim) and `worker.py` (claims jobs, runs the orchestrator, publishes assets). Cancellation lands between pipeline steps, never mid-ffmpeg. **One job per project at a time, in queue order** — everything that writes a version (plan, render, edit, revert) goes through here. |
+| Monitoring | `shared/monitoring.py` + `config/monitoring.yaml` + `backend/request_log.py` | The `monitor` service on the VM: stuck/slow jobs, a dead worker, job and API error rates, disk; one Healthchecks.io check per problem, emailed to the owner. Thresholds carry their reasons in the YAML. API server errors also reach Langfuse as `api-error` events (class and route only). Setup, alert meanings, first steps: `docs/MONITORING.md`. |
 | Database | `shared/db.py` | One database for the version log and the queue. SQLite (WAL) by default, Postgres via `DATABASE_URL`, same SQL through SQLAlchemy Core. |
 | Assets | `shared/assets.py` | The only place a file path becomes a URL. Local disk by default; `STORAGE_URL=s3://bucket` publishes to any S3-compatible bucket (R2) so the worker and the API need not share a filesystem. |
 | Voices | `shared/voices.py` + `backend/routes/voices.py` | Which engines work on this machine and why not, their voices, and a cached one-line sample so a voice can be heard before a render. |

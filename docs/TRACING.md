@@ -111,6 +111,22 @@ Tests never trace: `tests/conftest.py` removes the `LANGFUSE_*` variables, and
 `tests/unit/test_model_call_tracing.py` checks what would be sent with a fake
 tracer.
 
+## In production (DST-32)
+
+- The Docker image installs the `tracing` extra, so the live site can trace. It
+  stays off until the keys are in the VM's `.env`; the keys are never in the
+  repository or the image.
+- `deploy/docker-compose.prod.yml` pins `LANGFUSE_TRACING_ENVIRONMENT=production`
+  and `OTEL_SERVICE_NAME=dastango` for the API and the worker. The values in
+  `.env` do not matter on the VM, so a copy of a laptop's file cannot tag the live
+  site as development. (Checked against the pinned SDK, 5.0.4: both reach the
+  tracer's resource attributes.)
+- An API request that ends in a server error is recorded as an `api-error`
+  event at level ERROR, with only the exception's class (or `HTTP503` for an
+  error response) and the route pattern: never the URL, query, headers, body or
+  message. At most 30 a minute are sent. See [MONITORING.md](MONITORING.md) for
+  how to read them and what else raises an alert.
+
 ## Verified live (2026-10-28)
 
 A job's worth of calls (one LLM call, one image, one voice line) sent through

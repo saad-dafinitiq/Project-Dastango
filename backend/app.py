@@ -34,6 +34,7 @@ from auth.deps import require_user
 from shared import assets, constants, db
 from shared.utils.logging import get_logger
 
+from .request_log import RequestLogMiddleware
 from .routes import auth as auth_routes
 from .routes import edit as edit_routes
 from .routes import history as history_routes
@@ -94,6 +95,9 @@ if _origins:
         allow_origins=_origins, allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],
     )
+
+# Added after CORS so it is outermost and sees how every request ended (DST-32).
+app.add_middleware(RequestLogMiddleware)
 
 # Signing in is the only thing that works signed out.
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
@@ -176,9 +180,14 @@ if not web_built():
         return _classic_page()
 
 
+@app.head("/health", include_in_schema=False)
 @app.get("/health")
 def health():
-    """Liveness only — cheap enough for a container probe to hit every second."""
+    """Liveness only — cheap enough for a container probe to hit every second.
+
+    HEAD too: an external uptime check may ask with HEAD, and a 404 there would
+    report a healthy site as down (DST-32).
+    """
     return {"status": "ok"}
 
 

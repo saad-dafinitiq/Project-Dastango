@@ -120,6 +120,7 @@ and with sign-ups closed it won't make a new one.
 | `worker` | renders and edits; scale with `--scale worker=2` (on 2 cores, one is right) |
 | `db` | Postgres 16, its data in a Docker volume |
 | `models` | runs once per start: fetches/verifies the voice model |
+| `monitor` | watches the queue, the API's error rate and the disk, and emails the owner (set up once: [docs/MONITORING.md](../docs/MONITORING.md)) |
 
 ## Day to day
 
@@ -131,9 +132,16 @@ docker compose $P logs -f worker         # what a render is doing
 
 To update, follow "Updating" below: it backs up first and records what was running.
 
-Both `api` and `worker` report health: the API through `/health`, the worker
-by having reached the job queue in the last two minutes. A worker that can't
-reach the database turns unhealthy rather than looking fine.
+`api`, `worker` and `monitor` all report health: the API through `/health`, the
+worker by having reached the job queue in the last two minutes, the monitor by
+having finished a pass in the last three. A worker that can't reach the
+database turns unhealthy rather than looking fine.
+
+**Who tells you when it breaks:** UptimeRobot (the site stopped answering),
+and the `monitor` through Healthchecks.io (a stuck or slow job, a dead worker,
+errors piling up, the disk filling, the monitor itself stopping). Each email
+names what broke; [docs/MONITORING.md](../docs/MONITORING.md) says what to do
+first for each. Traces and API errors are in Langfuse, tagged `production`.
 
 An update that changes `deploy/Caddyfile` needs one more step:
 `docker compose $P up -d --no-deps --force-recreate caddy`. `git pull`

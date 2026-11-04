@@ -20,10 +20,45 @@ services:
       # Caddy terminates TLS; this lets the app see https, so the session
       # cookie is Secure and GitHub's callback is built as https://DOMAIN/...
       FORWARDED_ALLOW_IPS: "*"
+      # Pinned here, not left to .env, so the live site's traces are never
+      # tagged "development" by a .env copied from a laptop (DST-32).
+      LANGFUSE_TRACING_ENVIRONMENT: production
+      OTEL_SERVICE_NAME: dastango
 
   worker:
     environment:
       DATABASE_URL: postgresql+psycopg://storygen:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/storygen
+      LANGFUSE_TRACING_ENVIRONMENT: production
+      OTEL_SERVICE_NAME: dastango
+
+  # Watches the queue, the API's error rate and the disk, and emails the owner
+  # through Healthchecks.io when something is wrong (docs/MONITORING.md). The
+  # same image as the others; it serves nothing. Without MONITOR_PING_BASE in
+  # .env it only logs what it finds.
+  monitor:
+    image: storygen:local
+    command: ["python", "main.py", "monitor"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://storygen:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/storygen
+      DATA_DIR: /app/data
+    volumes:
+      # The API writes its request log here, and the disk it measures is this one.
+      - ${DATA_PATH:-./data}:/app/data
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # No web server to ask: the loop touches this file every pass, so a monitor
+    # that has hung turns unhealthy instead of looking fine.
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$(find /tmp/storygen-monitor-alive -mmin -3 2>/dev/null)\""]
+      interval: 60s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
 
   caddy:
     image: caddy:2-alpine

@@ -46,12 +46,14 @@ WORKDIR /app
 
 # Dependencies first: application edits then don't invalidate this layer.
 # Voices (Kokoro) and S3 are optional on a laptop but belong in the image: the
-# open-source voice is the default, and a bucket is a setting away. The test
+# open-source voice is the default, and a bucket is a setting away. Tracing
+# (Langfuse) is in too, so the live site can be traced: it stays off until its
+# keys are set, and only the VM's .env sets them. The test
 # tools (the `dev` group, installed by default) stay: CI runs the font,
 # boot-race and voice tests inside this image. --locked fails the build if
 # pyproject.toml and uv.lock disagree, rather than quietly re-resolving.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --extra postgres --extra voices --extra s3
+RUN uv sync --locked --extra postgres --extra voices --extra s3 --extra tracing
 
 COPY . .
 # Without this the container would serve the old page: web/out is gitignored,

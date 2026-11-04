@@ -25,7 +25,9 @@ for _credential in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPE
                     "OLLAMA_HOST", "SD_API_URL", "LOCAL_SD", "MYMEMORY_EMAIL",
                     # Tracing: a test run must not send traces anywhere.
                     "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL",
-                    "LANGFUSE_HOST"):
+                    "LANGFUSE_HOST",
+                    # Alerts: a test run must not email anyone.
+                    "MONITOR_PING_BASE", "MONITORING_FILE"):
     os.environ.pop(_credential, None)
 os.environ.pop("DATABASE_URL", None)
 
@@ -114,6 +116,13 @@ def pytest_deal_out_slices(config, items):
     mine = {i for place, i in enumerate(by_id) if place % total == number - 1}
     config.hook.pytest_deselected(items=[it for i, it in enumerate(items) if i not in mine])
     items[:] = [it for i, it in enumerate(items) if i in mine]
+
+
+@pytest.fixture(autouse=True)
+def _request_log_in_tmp(tmp_path, monkeypatch):
+    """The API notes every request for the monitor (DST-32); keep that out of data/."""
+    from shared import monitoring
+    monkeypatch.setattr(monitoring, "request_log_dir", lambda: tmp_path / "monitoring")
 
 
 @pytest.fixture
