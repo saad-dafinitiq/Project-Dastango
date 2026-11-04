@@ -35,13 +35,17 @@ from the last milestone:
 ## Running it
 
 ```bash
-python -m pytest -q                                   # everything, ~6 min on a laptop
+python -m pytest -q                                   # everything, ~6 min on a laptop (what Gate 1 requires)
+python -m pytest -q -m "not slow"                     # what a pull request runs: everything but the SLOW list
+TEST_SHARD=2/2 python -m pytest -q -m "not slow"      # one pull-request CI job: slice 2 of 2
 python -m pytest tests/unit/test_m8_edit_jobs.py -q   # one area
 
 # The same suite against a real Postgres
 docker run -d --name storygen-pg -e POSTGRES_USER=storygen -e POSTGRES_PASSWORD=storygen \
   -e POSTGRES_DB=storygen -p 55432:5432 postgres:16-alpine
 TEST_DATABASE_URL=postgresql+psycopg://storygen:storygen@localhost:55432/storygen python -m pytest -q
+# (run it as one process: the tests share the one server and empty its tables, so two
+# slices must not run at once against the same server)
 
 # Object storage against a real S3 server (or R2 with real credentials)
 python -m moto.server -p 5111 &
@@ -67,14 +71,85 @@ docker run --rm -e PIPELINE_SKIP_DOTENV=1 storygen:local python -m pytest -q \
 
 ## Continuous integration
 
-`.github/workflows/tests.yml` runs on every push and pull request:
+Two workflows. What gates a pull request is kept small and fast; the wide matrix
+and the heaviest tests run every week, so coverage is kept without every merge
+paying for it. The reason is the free GitHub plan's monthly minutes (below).
+
+**On every pull request** (`.github/workflows/tests.yml`):
 
 | Job | What |
 |---|---|
-| `ubuntu-latest · python 3.11` / `3.12` | `compileall` (a syntax error in a file no test imports still fails), then the suite with ffmpeg and the Noto fonts |
-| `windows-latest · python 3.11` | The suite on the development OS (fonts and path separators differ) |
+| `ubuntu-latest · python 3.11 · slice 1 … 2 of 2` | `compileall` (a syntax error in a file no test imports still fails), then the tests that are not marked `slow` (`-m "not slow"`) with ffmpeg and the Noto fonts, in two slices on two machines. Python 3.11 is what the production image runs |
 | `web · build and typecheck` | `npm ci` from the lock file, `next build`, `tsc --noEmit`, and a check that the export contains the pages FastAPI serves |
 | `image · build and run` | Builds the production image (cached), imports the database, S3 and voice drivers, runs the in-image tests, starts the whole stack on a fresh database and fails on any container restart |
+
+**When a pull request merges to `main`**, only the web and image jobs run. The
+pull request's own run already tested the very same merged result (GitHub runs a
+pull request merged into the current `main`), and the team's rule is that a branch
+is up to date with `main` before it merges, so a second test run would repeat the
+first. A manual run of this workflow (Actions tab → tests → Run workflow) runs
+everything, slow tests included.
+
+**The `slow` tests.** `SLOW` in `tests/conftest.py` lists the 27 test functions
+that took 5 s or more when the suite was timed on 4 Nov 2026 (together 327 of
+567 s, 58%): they build a rendered film and run it through edits, voices or the
+whole pipeline. A pull request skips them. A plain `python -m pytest -q` runs all
+of them, and Gate 1 requires that, with 0 failed, before every commit. The weekly
+full matrix and a manual run also run them. A new heavy test is added to `SLOW` by
+hand; `tests/unit/test_slow_registry.py` fails if a listed name no longer exists or
+the marker does not select exactly the list.
+
+**How the suite is split.** `TEST_SHARD=N/M` (read in `tests/conftest.py`) keeps
+the Nth of M slices of whatever is going to run: the tests are sorted by id and
+dealt out in turn, so the slices are equal in size, the same on every machine, and
+every test is in exactly one of them (`tests/unit/test_shards.py`). Each slice
+runs its tests one at a time, so the few tests that assert a wall-clock bound (a
+1 s provider timeout must resolve in under 4 s) still see a quiet machine. It is
+not `pytest-xdist`: measured on two CPUs (4 Nov 2026), two workers took 573 s
+against 676 s for the serial run, because every test already uses both cores
+(ffmpeg and the shot renderer are multi-threaded). Separate machines add cores;
+extra workers on one machine mostly share them.
+
+A pull request that changes only documentation (every changed file under
+`docs/` or a Markdown file) skips those three jobs; nothing in the suite reads
+either. A newer push to a pull request cancels its older run; a push to `main`
+never cancels another.
+
+**Every Monday at 22:00 UTC, and on demand** (`.github/workflows/full-matrix.yml`):
+
+| Job | What |
+|---|---|
+| `windows-latest · python 3.11` | The whole suite, `slow` tests included, in one job, on the development OS (fonts and path separators differ) |
+| `ubuntu-latest · python 3.12` | The whole suite, `slow` tests included, in one job, on the other supported Python |
+
+Each runs the unfiltered, unsliced suite, so it also proves that the slices and the
+`slow` list lose nothing.
+
+A failing scheduled run opens one issue titled "The full test matrix (Windows,
+Python 3.12) is failing", comments on it each time it keeps failing, and closes
+it when a run passes. To run the full matrix by hand: Actions tab → full matrix →
+Run workflow, or `gh workflow run full-matrix.yml`. It has no pull-request trigger
+(each push to a pull request would spend about $0.28 of the free allowance), so
+after a change to it or to the shared setup (`.github/actions/python-env`) run it
+once by hand. Both workflows set Python, uv, ffmpeg and the locked dependencies up
+through that one shared action.
+
+**Why weekly and not nightly.** The account is on the GitHub Free plan, whose
+Licensing page lists "2,000 Actions minutes/month" and, under "Not included",
+protected branches and required status checks (seen 4 Nov 2026). A run is blocked
+once the included amount is used up if no payment method is on file. GitHub's
+billing page gives the same allowance as $12 and the per-minute rates: $0.006
+(Linux, 2-core) and $0.010 (Windows, 2-core), so a Windows minute counts as about
+1.7 Linux minutes. One Windows plus Linux 3.12 run takes about 35 minutes of
+runner time (the Linux 3.12 job took 15 minutes on 3 Nov; Windows is estimated at
+19), roughly $0.28 or 47 Linux-equivalent minutes. Nightly (30 runs) would use
+about 1,400 of the 2,000 minutes on its own; weekly (about 4 runs) about 190.
+
+GitHub does not enforce any of this: the repository is private on the free
+plan, where branch protection and rulesets are not available (the API answers
+"Upgrade to GitHub Pro or make this repository public", 4 Nov 2026), so no check
+can be made required. "Green before merge" is the team's rule
+(`.claude/CLAUDE.md`), kept by hand.
 
 The first CI run found a real bug the laptop could not: choosing Kokoro on a
 machine without its optional packages raised `ModuleNotFoundError` before the

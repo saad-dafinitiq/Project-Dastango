@@ -94,3 +94,12 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+markers = [
+    # The tests listed in SLOW in tests/conftest.py (those that took 5 s or more:
+    # renders, edits, voices, the whole pipeline). Pull-request CI skips them with
+    # -m "not slow"; a plain `pytest -q`, which runs all of them, is what Gate 1
+    # requires before every commit.
+    "slow: took 5 s or more when timed; skipped on pull requests, run in the full suite",
+]

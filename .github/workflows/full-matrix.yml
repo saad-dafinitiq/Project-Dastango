@@ -1,0 +1,85 @@
+name: full matrix
+
+# The wide matrix that no longer gates every pull request (tests.yml does):
+# Windows, which is what Dastango is developed on, and the second supported
+# Python. It runs weekly rather than nightly to stay inside the free GitHub plan,
+# whose included compute is a fixed monthly amount (docs/TESTING.md has the
+# arithmetic). Run it by hand any time from the Actions tab ("Run workflow") or
+# with `gh workflow run full-matrix.yml`. It runs the WHOLE suite, including the
+# tests marked `slow` that pull requests skip. There is deliberately no pull
+# request trigger: each push to a pull request would spend about $0.28 of the
+# free allowance. After a change to this file, run it once by hand.
+on:
+  schedule:
+    # Mondays at 22:00 UTC, which is Tuesday 03:00 in Pakistan.
+    - cron: "0 22 * * 1"
+  workflow_dispatch:
+
+# A scheduled run never cancels another.
+concurrency:
+  group: full-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two disagree with Linux about fonts and path separators, which is
+        # exactly the kind of thing that only shows up here.
+        include:
+          - os: windows-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/python-env
+        with:
+          python: ${{ matrix.python }}
+
+      - name: Every module imports
+        shell: bash
+        run: uv run --no-sync python -m compileall -q agents backend jobs mcp shared state_manager main.py
+
+      - name: Tests
+        shell: bash
+        run: uv run --no-sync python -m pytest -q --timeout=600
+        env:
+          PIPELINE_SKIP_DOTENV: "1"
+
+  report:
+    # A red scheduled run is easy to miss, so a failure also opens one issue
+    # (and adds a comment to it on each later failing run), and a green run
+    # closes it. It uses the run's own token; nothing is stored anywhere.
+    name: tell the repository
+    needs: full
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TITLE: The full test matrix (Windows, Python 3.12) is failing
+      RESULT: ${{ needs.full.result }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open, update or close the issue
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
+          if [ "$RESULT" = "success" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Green again: $RUN"
+            fi
+          elif [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "Still failing ($RESULT): $RUN"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --body "The scheduled run of the full matrix (Windows on Python 3.11, Linux on Python 3.12) did not pass ($RESULT). Run: $RUN"
+          fi

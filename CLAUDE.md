@@ -47,6 +47,8 @@ The default TTS engine shells out to the `edge-tts` CLI, which lives in
 
 ```bash
 python -m pytest -q                        # full suite (~3 min, offline: mock LLM + placeholder images)
+python -m pytest -q -m "not slow"          # what a pull request runs: all but the SLOW list in tests/conftest.py
+TEST_SHARD=2/2 python -m pytest -q -m "not slow"   # one pull-request CI job: slice 2 of 2
 TEST_DATABASE_URL=postgresql+psycopg://... python -m pytest -q   # same suite, real Postgres
 TEST_S3_ENDPOINT=http://127.0.0.1:5111 python -m pytest -k real_s3   # against a real S3/R2 server
 python -m pytest tests/unit/test_phase5_edit.py -q
