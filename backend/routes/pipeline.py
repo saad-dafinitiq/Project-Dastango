@@ -15,7 +15,7 @@ from auth.deps import require_project, require_user
 from auth.accounts import User
 from agents.story_agent import current_length_check
 from shared import voices
-from agents.orchestrator.storyboard_view import cast, image_budget, scene_cards
+from agents.orchestrator.storyboard_view import cast, cast_note, image_budget, scene_cards
 from shared.assets import asset_url
 from shared.languages import iso639_1, supported_names
 from shared.utils.files import project_dir
@@ -156,6 +156,8 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
         frame["lines"] = card.get("lines", [])
         frame["characters"] = card.get("characters", [])
     board["cast"] = cast(state.script, engine, state)
+    # Said only when a character the creator named had no lines (DST-33).
+    board["cast_note"] = cast_note(state)
     board["images"] = image_budget(state.script)
     # What the script's length check found (DST-28), so a reload says what the plan did.
     board["length"] = current_length_check(state)

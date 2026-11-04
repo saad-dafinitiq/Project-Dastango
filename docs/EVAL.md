@@ -24,6 +24,9 @@ are reported separately and never averaged together.
 | **Q2** | six images, drawn by a script in the session scratch folder | 2026-11-02 11:04 to 11:06 | same | the DST-10 wide-shot prompts of dst-01 and dst-04, 3 scenes each | Agnes only | none | none |
 | **L** | `20261103_122339_testset.json` … `20261103_124828_testset.json` (one per prompt), logs `DST-28_dst-NN.log` | 2026-11-03 12:23 to 12:49 | `6fe7842` + DST-28's length check (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run G) | none |
 | **V** | two scripts in the session scratch folder, one result file each | 2026-11-03 12:50 to 13:00 | same | the saved scripts of run L (24 model-written) and of run G (22 model-written), voiced with Kokoro in a throwaway `DATA_DIR`: no images, no music, no video | none | none | Kokoro |
+| **T33** | printed to the console by two scripts in the session scratch folder (no result file) | 2026-11-04 and 2026-11-05 | `545be5a` + DST-33 (uncommitted at run time) | offline, no model: the saved scripts of run G (22 model-written, 3 template) and run L (24 model-written, 1 template) before and after the new trim; the template over the 25 prompts of `eval/testset.jsonl` before and after | none | none | none |
+| **T33b** | `20261105_013451_testset.json` … `20261105_020446_testset.json` (one per prompt), logs `DST-33v1_dst-NN.log` | 2026-11-05 01:34 to 02:05 PKT | `545be5a` + DST-33, first prompt wording (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart, 10 min cap each | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run L) | none |
+| **T33c** | `20261105_020847_testset.json` … `20261105_024347_testset.json` (one per prompt), logs `DST-33v2_dst-NN.log`, plus one plan of the production prompt (not a result file: printed by a script in the session scratch folder) | 2026-11-05 02:08 to 02:54 PKT | `545be5a` + DST-33, final prompt wording (uncommitted at run time) | plan only, all 25, same protocol; then the production prompt at 45 s / 4 scenes, through the usual chain (refused) and Gemini alone | forced placeholder | same chain; Gemini forced for the last plan | none |
 
 Runs P1 to P3, R, S, A and B are on the **Gemini-first** story chain (Gemini →
 Groq → OpenRouter → OpenAI → Anthropic → Ollama → mock); only run G is
@@ -480,6 +483,127 @@ had three template scripts and L one, so the prompts compared one to one are
 the 21 written by a model in both. The 45 s spacing is the same as in G. Edge
 TTS and the other engines were not voiced; at the 2.2 words/second measured
 for edge-tts in M3 their films would run about 18% longer than planned.
+
+## DST-33: only characters who speak (run T33, offline)
+
+**The problem.** A character appears on screen only through their lines, so a listed
+character with none is drawn (a portrait at plan time since DST-29) and voiced for
+nothing. A production film listed six characters and let only the narrator speak.
+
+**Cause, measured on the saved model-written scripts of runs G and L (46 scripts, no
+quota):** the story prompt asked for "3-4 characters total" whatever the film's length.
+
+| Target | Scripts | Lines (avg) | Characters listed (avg) | Characters speaking (avg) | Silent people |
+|---|---|---|---|---|---|
+| 20 s | 8 | 3.9 | 3.2 | 2.6 | 5 |
+| 30 s | 26 | 6.8 | 3.2 | 3.0 | 5 |
+| 45 s | 9 | 9.0 | 3.3 | 3.2 | 1 |
+| 60 s | 3 | 11.7 | 3.7 | 3.7 | 0 |
+
+A 20 s film has about four lines and cannot give four characters one each. Four of the
+nine scripts with a silent character are 20 s films. A model line has 8.1 words on
+average (323 lines).
+
+**What the silent ones were.** In 11 of the 46 scripts the creator's prompt names a
+character, and none of those was silent: every silent character was the narrator
+(three scripts: two in G, one in L) or one the writer invented ("Memory of Lin",
+"Officer Patel").
+
+**The change** (`agents/story_agent/cast.py`, `shared/timeline.py`): the prompt asks for
+a cast of 2 up to a limit from the film's length (`cast_limit`: 2 for 15 s, 3 for 20 s,
+4 from 30 s), allows fewer only for a deliberately single-voice story, says every
+character must speak and that characters named in the creator's prompt must be in the
+cast and speak. A named character who is still silent gets one repair; anyone still
+silent is left out of the cast before voices, portraits and files; the creator is told
+only when a character they named was removed.
+
+**Offline re-score with the real function** (`trim_silent_cast`, no model):
+
+| Scripts | With a silent character before | After | Silent people before | After | Listed, then kept |
+|---|---|---|---|---|---|
+| Run G, model-written (22) | 6 | 0 | 8 | 0 | 72, 64 |
+| Run L, model-written (24) | 3 | 0 | 3 | 0 | 78, 75 |
+| Runs G and L, template (4) | 0 | 0 | 0 | 0 | 12, 12 |
+| Template over the 25 test prompts | 4 | 0 | 4 (all Kai: dst-03, dst-07, dst-15, dst-24) | 0 | each loses Kai |
+
+No roster was emptied. The trim removes 11 of the 150 characters the model-written
+scripts listed. Four of the 46 model-written scripts (two in each run) list more
+characters than the new limit allows.
+
+### Live, on the free-tier models (runs T33b and T33c, 2026-11-05)
+
+Run L's protocol on the new code: all 25 prompts, plan only, one at a time, 45 s
+apart, 10 minutes at most each, images forced to the placeholder (no image quota),
+the story chain Groq (gpt-oss-120b), OpenRouter free, Gemini, then the template. Run
+T33b used a first wording of the prompt ("list only the characters this story needs,
+no more than N"); the result led to the final wording, which T33c ran. All three
+columns below are model-written scripts only; each prompt ran once per run.
+
+| | L (before) | T33b, first wording | T33c, final wording |
+|---|---|---|---|
+| Scripts written by a model (template fallbacks) | 24 (1) | 25 (0) | 22 (3) |
+| Characters listed per script | 3.25 | 2.44 | 2.64 |
+| Scripts with one speaker / two / three / four or more | 1 / 2 / 15 / 6 | 6 / 7 / 9 / 3 | 1 / 8 / 11 / 2 |
+| Scripts with a silent character | 3 | 0 | 0 |
+| Characters the trim had to remove | (not in the code) | 0 | 0 |
+| Scripts listing more than the new limit | 2 | 2 | 0 |
+| Dialogue lines per script | 8.1 | 7.0 | 8.3 |
+| Planned length within ±15% | 22 of 24 | 22 of 25 | 18 of 22 |
+| Story calls that failed (of all made) | 4 of 58 | 10 of 56 | 18 of 62 |
+
+- **The prompt rule removes silence on real models.** 0 scripts with a silent
+  character in 47 model-written scripts, against 3 of 24 in run L; the trim never
+  had anything to do. In 20 s films the cast is now two or three characters (run L
+  listed up to four for about four lines).
+- **The first wording over-corrected.** Told to list only what the story needs, models
+  listed the minimum: 6 of 25 films became a one-speaker monologue (run L: 1 of 24),
+  and dst-09 (a librarian and rearranging books, 45 s) went from three characters to
+  one speaking eight lines. The final wording asks for a range with a floor of 2, and
+  one speaker has to be a deliberate choice. T33c has one: dst-20 (the whole life of
+  an oak tree), a narrated film. Cast size is still a little below run L (2.64 against
+  3.25 listed).
+- **Length is not settled by these runs.** T33c's 4 misses (dst-01 +25.9%, dst-02
+  -27.2%, dst-09 -28.7%, dst-14 -16.1%) and T33b's 3 (dst-02 -27.5%, dst-13 -24.4%,
+  dst-14 -27.4%) coincide with free-tier trouble: in T33c Groq's daily token allowance
+  (200,000) ran out (10 rate-limit answers and 5 "quota used up" against 2 rate-limit
+  answers in T33b), providers were passed over 27 times (T33b: 10), a length repair
+  failed in 4 prompts, and the last three prompts (dst-21 to dst-23) fell back to the
+  template because every provider refused. Run L's repairs mostly ran (4 failed story
+  calls). dst-02 and dst-14 missed in both new runs and not in L, so a small effect of
+  the new wording on the longer films cannot be ruled out. Repeating the comparison
+  on a day with a full allowance would settle it.
+- **The cast repair never ran live.** No prompt-named character was silent in any of
+  the 47 model-written scripts, so it is exercised only by the scripted stand-in.
+
+**The production prompt, live (run T33c, 2026-11-05).** "A boy born from a giant peach
+grows up to fight a band of ogres (oni) with the help of a talking dog, monkey, and
+pheasant." at the interface's defaults (45 s, 4 scenes). Through the usual chain at 02:46
+and 02:53 every provider refused (Groq's daily allowance, OpenRouter returned no text,
+Gemini 503) and the template wrote the script, which says nothing about the prompt.
+Gemini alone (`PROVIDER_STORY=gemini`) then answered: a cast of **four, all speaking**,
+Momotaro (4 lines), Inu (3), Saru (2) and Kiji (2), the dog, the monkey and the
+pheasant, and nobody removed. The film that started DST-33 listed six characters and
+let only the narrator speak.
+
+That run also showed a hole in the name match, which is why the match now reads the
+character's id as well as their name: the writer named the animals Inu, Saru and Kiji
+(ids `char_dog`, `char_monkey`, `char_pheasant`), and the prompt said "dog, monkey,
+and pheasant". On names alone none of the three would have counted as named, so a
+silent one would have been dropped without telling the creator.
+
+**Not measured.**
+- The cast repair on a real model (it did not trigger, above).
+- Length on the final wording with a full provider allowance (above).
+- A render on the new code.
+
+**Known limits.**
+- "Named in the prompt" is a word match on the character's name or id (three letters or
+  more, not a title, age or bare role such as "old" or "captain"). A nickname the writer
+  gives without a matching id is not found, and a name sharing an ordinary word with the
+  prompt can match.
+- A scene's picture is drawn from the scene text, so it can still show a character who
+  is not in the cast.
+- The creator cannot add or edit cast members in the interface.
 
 ## Findings
 

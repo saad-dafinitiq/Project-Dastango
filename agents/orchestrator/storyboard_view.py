@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 from shared import providers, voices
 from shared.assets import asset_url
 
+from agents.story_agent.cast import join_names
 from agents.video_agent import camera
 
 
@@ -123,6 +124,24 @@ def cast(script, engine: Optional[str] = None, state=None) -> List[Dict]:
                     "portrait_url": asset_url(path, versioned=True) if path else None,
                     "drawn": drawn})
     return out
+
+
+def cast_note(state) -> Optional[str]:
+    """What the creator is told about the cast, or None (DST-33).
+
+    A character the creator named in their prompt who had no lines in the script
+    is left out of the cast, and that is worth saying: they asked for that person.
+    A character the writer invented and never used is also left out, quietly: the
+    creator never expected them, and a note about it would be noise.
+    """
+    check = (state.metadata.get("cast_check") if state else None) or {}
+    asked = [str(r["name"]) for r in check.get("removed", []) if r.get("named_in_prompt")]
+    if not asked:
+        return None
+    if len(asked) == 1:
+        return f"{asked[0]} was named in your prompt but has no lines in the script, so isn't in the cast."
+    return (f"{join_names(asked)} were named in your prompt but have no lines in the script, "
+            "so aren't in the cast.")
 
 
 def image_budget(script) -> Dict[str, int]:

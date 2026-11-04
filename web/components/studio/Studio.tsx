@@ -36,6 +36,7 @@ type Streamed = {
   logline: string;
   cards: Card[];
   cast: CastMember[];
+  cast_note?: string | null;
   images?: ImageBudget;
 };
 
@@ -142,6 +143,7 @@ export function Studio() {
       title: p.title,
       logline: p.logline,
       cast: (p.cast ?? []).map((c) => ({ ...c, ...portraits.get(c.character_id) })),
+      cast_note: p.cast_note ?? null,
       images: p.images,
       cards: p.scenes.map((c) => ({ ...c, preview_url: urls.get(c.scene_id) ?? null })),
     };
@@ -165,6 +167,7 @@ export function Studio() {
   const prompt = board?.prompt || streamed?.prompt || askedFor || "";
   const images = board?.images ?? streamed?.images;
   const castMembers = board?.cast ?? streamed?.cast ?? [];
+  const castNote = board?.cast_note ?? streamed?.cast_note ?? null;
   // The scene being drawn right now: the first one without a frame.
   const drawingIndex = mode === "planning" ? cards.findIndex((c) => !c.preview_url) : -1;
   const elapsed = elapsedSeconds(events, now);
@@ -311,7 +314,7 @@ export function Studio() {
         </>
       ) : (
         <>
-          <CastRow cast={castMembers} planning={mode === "planning"} />
+          <CastRow cast={castMembers} note={castNote} planning={mode === "planning"} />
           <div
             className={styles.strip}
             style={{ "--count": Math.max(1, cards.length) } as React.CSSProperties}

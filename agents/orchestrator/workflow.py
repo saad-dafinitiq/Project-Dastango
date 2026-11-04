@@ -18,7 +18,7 @@ from shared import providers
 from shared.assets import asset_url
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, film_length_tolerance
 
-from .storyboard_view import cast, image_budget, scene_cards
+from .storyboard_view import cast, cast_note, image_budget, scene_cards
 from shared.schemas.edit import EditCommand, EditResult
 from shared.schemas.pipeline import PipelineState
 from shared.timeline import LINE_GAP_MS, SCENE_PREROLL_MS, SCENE_TAIL_MS, estimate_line_ms
@@ -182,6 +182,7 @@ class PipelineOrchestrator:
                 payload={"prompt": state.user_prompt,
                          "title": script.story.title, "logline": script.story.logline,
                          "scenes": scene_cards(script), "cast": cast(script),
+                         "cast_note": cast_note(state),
                          "images": image_budget(script)}))
             if with_preview:
                 emit(ProgressEvent(phase="storyboard", status="started", project_id=project_id,
@@ -543,6 +544,12 @@ class PipelineOrchestrator:
                          f"{check['target_s']} s target")
                 payload["script_length_warning"] = {
                     k: check[k] for k in ("planned_s", "target_s", "tolerance", "repairs")}
+            said = cast_note(state)
+            if said:
+                note += f" · {said}"
+                payload["cast_removed"] = [
+                    r["name"] for r in state.metadata["cast_check"]["removed"]
+                    if r.get("named_in_prompt")]
             return note, payload
         if video.subtitles_skipped:
             note += f" · subtitles skipped, translation failed: {', '.join(video.subtitles_skipped)}"

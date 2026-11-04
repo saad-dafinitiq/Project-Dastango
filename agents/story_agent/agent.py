@@ -10,19 +10,23 @@ character's look is pinned before any image is drawn.
 """
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from mcp.tools.llm_tools.llm_client import get_llm_client
-from shared.constants import PHASE_STORY, film_length_tolerance, script_length_repairs
+from shared.constants import (
+    PHASE_STORY, film_length_tolerance, script_cast_repairs, script_length_repairs,
+)
 from shared.schemas.pipeline import PipelineState
 from shared.schemas.story import Character, ScriptOutput
 from shared.timeline import (
-    WORDS_PER_SECOND, expected_scene_overhead_ms, planned_length_ms, word_budget,
+    WORDS_PER_SECOND, cast_limit, cast_range, expected_scene_overhead_ms, line_room,
+    planned_length_ms, word_budget,
 )
 from shared.utils.files import project_dir, write_json
 from shared.utils.logging import get_logger
 
 from .appearance import lock_appearances
+from .cast import join_names, silent_but_named, speakers, trim_silent_cast
 from .planner import template_script
 
 log = get_logger("story_agent")
@@ -92,7 +96,15 @@ Generate a complete script JSON object with this exact structure:
 }}
 
 Rules:
-- Include 3-4 characters total, each with a consistent visual + voice identity.
+- Cast: choose {cast_size} characters for a {duration_s}-second film of {scene_count} scenes. It has
+  room for about {line_room} lines in all, so a bigger cast would leave characters with nothing to say.
+  A narrator counts as one if you list one. Use fewer only when the story is deliberately about a
+  single voice (a narrated documentary, someone entirely alone). Give each character a consistent
+  visual + voice identity.
+- Every character in the roster MUST speak at least one line. Do not list anyone who does not speak:
+  a character with no lines never appears in the film.
+- Any character the user's prompt names MUST be in the roster and MUST speak, even if that makes
+  the cast bigger than {max_cast}.
 - Generate {scene_count} total scenes forming a clear arc (intro -> rising -> climax -> resolution).
 - Every dialogue line's character_id MUST match a character.id from the roster.
 - Visual prompts should be self-contained and image-gen friendly.
@@ -111,7 +123,18 @@ Rules:
 
 LENGTH_REPAIR_PROMPT = """Your script's dialogue is too {direction}: the film would run about {planned_s} seconds and it must run {target_s} seconds. It has {words} words of dialogue. {verb} about {change} words, so that it has about {goal} words in all, spread across the {scene_count} scenes.
 
-Keep exactly the same characters (same ids), the same {scene_count} scenes in the same order and the same story. Change only the spoken lines: {how}. Every scene keeps at least one line, and every line's character_id must still be one of the characters.
+Keep exactly the same characters (same ids), the same {scene_count} scenes in the same order and the same story. Change only the spoken lines: {how}. Every scene keeps at least one line, everyone who speaks now keeps at least one line, and every line's character_id must still be one of the characters.
+Answer with the complete script JSON again, in exactly the same structure as the script below.
+
+Current script:
+{script}"""
+
+
+CAST_REPAIR_PROMPT = """The user's prompt was: "{prompt}"
+
+It names {names}, but your script gives {them} no lines, so {they} would never appear in the film. Give {each} at least one line.
+
+Keep exactly the same characters (same ids), the same {scene_count} scenes in the same order and the same story. Change only the spoken lines: rewrite a line or add one where a scene can bear it, and keep the dialogue to about {words} words in all so the film keeps its length. Every scene keeps at least one line, everyone who speaks now keeps at least one line, and every line's character_id must still be one of the characters.
 Answer with the complete script JSON again, in exactly the same structure as the script below.
 
 Current script:
@@ -140,6 +163,26 @@ def repair_prompt(script: ScriptOutput, planned_ms: int, target_s: int) -> str:
     )
 
 
+def _cast_size_text(duration_s: int, scene_count: int) -> str:
+    """'2 to 4' (or '2' for the shortest films): the cast the prompt asks for."""
+    fewest, most = cast_range(duration_s, scene_count)
+    return str(most) if fewest == most else f"{fewest} to {most}"
+
+
+def cast_repair_prompt(script: ScriptOutput, prompt: str, missing: List[Character]) -> str:
+    """Ask for lines for the characters the creator named and the script left silent."""
+    words = sum(len(ln.text.split()) for scene in script.scenes for ln in scene.dialogue)
+    if len(missing) > 1:
+        them, they, each = "them", "they", "each of them"
+    else:
+        them = they = each = "that character"
+    return CAST_REPAIR_PROMPT.format(
+        prompt=prompt, names=join_names([c.name for c in missing]),
+        them=them, they=they, each=each,
+        scene_count=len(script.scenes), words=words, script=script.model_dump_json(),
+    )
+
+
 def _changed_shape(before: ScriptOutput, after: ScriptOutput) -> Optional[str]:
     """Why `after` is not the same film as `before`, or None if it is: the repair
     may change what is said, not who says it or how the film is cut into scenes."""
@@ -152,7 +195,25 @@ def _changed_shape(before: ScriptOutput, after: ScriptOutput) -> Optional[str]:
         return "a line has a speaker outside the cast"
     if any(old.dialogue and not new.dialogue for old, new in zip(before.scenes, after.scenes)):
         return "a scene lost all its lines"
+    if speakers(before) - speakers(after):
+        # A repair that fixes one character by silencing another has only moved
+        # the problem (DST-33).
+        return "a character who spoke lost all their lines"
     return None
+
+
+def cast_check(script: ScriptOutput, target_s: int, repairs: int,
+               removed: List[dict]) -> dict:
+    """What the cast check found, kept on the project like the length check: the
+    limit this film's length allows, how many repairs it took, who was removed
+    and whether the creator's prompt had named them."""
+    return {
+        "limit": cast_limit(target_s, len(script.scenes)),
+        "listed": len(script.characters.characters) + len(removed),
+        "kept": len(script.characters.characters),
+        "repairs": repairs,
+        "removed": removed,
+    }
 
 
 def length_check(script: ScriptOutput, target_s: int, repairs: int, written_by: str) -> dict:
@@ -200,6 +261,19 @@ class StoryAgent:
             script, repairs, written_by = self._generate(
                 state.project_id, state.user_prompt, target_duration_s, scene_count)
             self._validate(script)
+            cast_repairs = 0
+            if written_by == "model":
+                script, cast_repairs = self._fit_cast(script, state.user_prompt,
+                                                      target_duration_s)
+            # Nobody is drawn or voiced for nothing: this is the last word on who
+            # is in the film, before anything below reads the cast.
+            removed = trim_silent_cast(script, state.user_prompt)
+            if removed:
+                log.info("cast: %s had no lines and %s left out of the film",
+                         ", ".join(f"{r['name']} ({r['role']})" for r in removed),
+                         "was" if len(removed) == 1 else "were")
+            state.metadata["cast_check"] = cast_check(
+                script, target_duration_s, cast_repairs, removed)
             state.metadata["length_check"] = length_check(
                 script, target_duration_s, repairs, written_by)
             # Pin each character's look before any image is drawn.
@@ -242,6 +316,9 @@ class StoryAgent:
             prompt=prompt,
             duration_s=duration_s,
             scene_count=scene_count,
+            max_cast=cast_limit(duration_s, scene_count),
+            cast_size=_cast_size_text(duration_s, scene_count),
+            line_room=line_room(duration_s, scene_count),
             scene_duration_ms=scene_duration_ms,
             total_ms=total_ms,
             word_budget=total_words,
@@ -304,6 +381,58 @@ class StoryAgent:
             off = abs(script_planned_ms(candidate) - target_ms)
             if off < best_off:
                 best, best_off = candidate, off
+        return best, repairs
+
+    def _fit_cast(self, script: ScriptOutput, prompt: str,
+                  duration_s: int) -> Tuple[ScriptOutput, int]:
+        """Give the characters the creator named, and the script left silent, some
+        lines: send the script back to the model to write them in, up to
+        `script_cast_repairs()` times (DST-33).
+
+        Only characters the prompt names are worth a call: a character the model
+        invented and never used is simply left out afterwards. The answer replaces
+        the script only if it is still the same film (same cast and scenes, nobody
+        who spoke is silenced), fewer named characters are silent, and the length
+        is not pushed outside the tolerance when it was inside, so a repair can
+        never make the script worse. A provider that fails ends the repairs; the
+        script is kept as it is and never falls back to the template."""
+        target_ms = duration_s * 1000
+        allowed_ms = film_length_tolerance() * target_ms
+        best, repairs, limit = script, 0, script_cast_repairs()
+        while repairs < limit:
+            missing = silent_but_named(best, prompt)
+            if not missing:
+                break
+            repairs += 1
+            log.info("%s %s named in the prompt but silent; cast repair %d of %d",
+                     ", ".join(c.name for c in missing),
+                     "is" if len(missing) == 1 else "are", repairs, limit)
+            try:
+                candidate = self.llm.generate_structured(
+                    prompt=cast_repair_prompt(best, prompt, missing),
+                    schema=ScriptOutput,
+                    system=SYSTEM_PROMPT,
+                    temperature=0.5,
+                    max_tokens=4000,
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("cast repair %d failed (%s); keeping the script as it is", repairs, e)
+                break
+            problem = _changed_shape(best, candidate)
+            if problem:
+                log.warning("cast repair %d discarded: %s", repairs, problem)
+                continue
+            if len(silent_but_named(candidate, prompt)) >= len(missing):
+                log.warning("cast repair %d discarded: no fewer named characters have lines", repairs)
+                continue
+            before_off = abs(script_planned_ms(best) - target_ms)
+            after_off = abs(script_planned_ms(candidate) - target_ms)
+            if after_off > max(allowed_ms, before_off):
+                log.warning("cast repair %d discarded: it pushed the length out of tolerance", repairs)
+                continue
+            candidate.story.project_id = best.story.project_id
+            candidate.story.target_duration_s = duration_s
+            best = candidate
         return best, repairs
 
     # ---- validation --------------------------------------------------------
