@@ -69,6 +69,8 @@ export type Storyboard = {
   logline: string;
   frames: Card[];
   cast: CastMember[];
+  /** Set when a character the creator named had no lines and was left out of the cast. */
+  cast_note?: string | null;
   images: ImageBudget;
   length: LengthCheck | null;
   stage: "draft" | "storyboard" | "rendered";

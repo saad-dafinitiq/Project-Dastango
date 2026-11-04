@@ -567,6 +567,12 @@
   font-size: 12px;
   color: var(--faint);
 }
+/* Said once, under the cast: someone the creator named is not in the film. */
+.castNote {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
 @media (max-width: 560px) {
   /* A row you swipe through, so the scenes stay near the top of a phone. */
   .castList {

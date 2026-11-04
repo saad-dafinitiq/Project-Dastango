@@ -124,9 +124,13 @@ def test_plan_only_plans_the_render_subset_without_rendering_it(
                         .read_text(encoding="utf-8"))
     (row,) = report["runs"]
     assert row["render"] is None                         # not rendered, though in the subset
-    # But fully planned: a preview per scene and, since DST-29, a portrait for each of
-    # the template's three characters (narrator, protagonist, supporting).
-    assert row["scenes"] == 2 and len(row["storyboard_images"]) == 2 + 3
+    # But fully planned: a preview per scene and, since DST-29, a portrait for each
+    # character. Since DST-33 that is each character who speaks: in this 2-scene
+    # template film the supporting character (Kai) has no line, so he is not in the
+    # cast and is not drawn, leaving the narrator (not counted in `character_names`, as
+    # in the labels) and the protagonist.
+    assert row["scenes"] == 2 and row["character_names"] == ["Aria"]
+    assert len(row["storyboard_images"]) == 2 + 2
 
 
 # ---- what a run records ---------------------------------------------------------
@@ -185,8 +189,15 @@ def test_a_testset_run_plans_every_prompt_and_renders_the_subset(
     assert planned["scenes"] == 3                       # the scene count asked for
     assert planned["script_source"] == "template"       # offline: no model wrote it
     assert planned["characters"] == len(planned["character_names"]) >= 1
-    # One image per scene, plus one portrait per character since DST-29 (3 in the template).
-    assert [i["provider"] for i in planned["storyboard_images"]] == ["placeholder"] * (3 + 3)
+    # The cast check (DST-33) is in the row: the template listed three, and Kai is left out.
+    check = planned["cast_check"]
+    assert check["listed"] == 3 and check["kept"] == 2 and check["repairs"] == 0
+    assert [r["name"] for r in check["removed"]] == ["Kai"]
+    # One image per scene, plus one portrait per character since DST-29: the narrator
+    # (who frames the template's first and last scenes) and each named character, and
+    # since DST-33 only those who speak (Kai has no line in this 3-scene film).
+    assert [i["provider"] for i in planned["storyboard_images"]] == (
+        ["placeholder"] * (3 + 1 + planned["characters"]))
 
     film = rendered["render"]
     assert rendered["subtitle_language"] == "Urdu"

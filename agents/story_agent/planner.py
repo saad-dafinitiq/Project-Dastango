@@ -190,13 +190,17 @@ def template_script(project_id: str, prompt: str,
 
     from .visual_style import GENRE_STYLES, DEFAULT_STYLE
     style = next((v[0] for k, v in GENRE_STYLES.items() if k in genre), DEFAULT_STYLE[0])
+    # Only people who speak are in the film (DST-33), so only they are named.
+    spoken = {ln.character_id for sc in scenes for ln in sc.dialogue}
+    lead = "our protagonist Aria" if "char_protagonist" in spoken else "our hero"
+    company = " — joined by Kai —" if "char_supporting" in spoken else ""
     story = StoryOutput(
         project_id=project_id,
         title=title,
         visual_style=style,
         logline=logline,
         synopsis=(f"An exploration inspired by '{prompt}'. "
-                  f"Across {n} acts, our protagonist Aria — joined by Kai — "
+                  f"Across {n} acts, {lead}{company} "
                   "confronts the question implied by the prompt and emerges changed."),
         genre=genre,
         themes=themes,

@@ -34,6 +34,13 @@ FILM_LENGTH_TOLERANCE = 0.15
 # overshoot. SCRIPT_LENGTH_REPAIRS in .env overrides it (0 turns repairs off).
 SCRIPT_LENGTH_REPAIRS = 2
 
+# How many times a script whose cast has a character the creator named in their
+# prompt but who has no lines is sent back to the model to give them some (DST-33).
+# One: a character who was asked for is worth one more call, a second try is
+# rarely different, and each repair is a full script call on a free tier.
+# SCRIPT_CAST_REPAIRS in .env overrides it (0 turns the repair off; the trim still runs).
+SCRIPT_CAST_REPAIRS = 1
+
 
 def film_length_tolerance() -> float:
     """FILM_LENGTH_TOLERANCE from the environment, read when a film finishes."""
@@ -64,6 +71,22 @@ def script_length_repairs() -> int:
             "SCRIPT_LENGTH_REPAIRS=%r is not a whole number from 0 to 5; using %s",
             raw, SCRIPT_LENGTH_REPAIRS)
         return SCRIPT_LENGTH_REPAIRS
+    return value
+
+
+def script_cast_repairs() -> int:
+    """SCRIPT_CAST_REPAIRS from the environment, read when a script is written."""
+    raw = os.getenv("SCRIPT_CAST_REPAIRS", "").strip()
+    try:
+        value = int(raw) if raw else SCRIPT_CAST_REPAIRS
+    except ValueError:
+        value = -1
+    if not 0 <= value <= 3:
+        from shared.utils.logging import get_logger
+        get_logger("constants").warning(
+            "SCRIPT_CAST_REPAIRS=%r is not a whole number from 0 to 3; using %s",
+            raw, SCRIPT_CAST_REPAIRS)
+        return SCRIPT_CAST_REPAIRS
     return value
 
 # Phase names

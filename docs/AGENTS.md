@@ -223,7 +223,8 @@ flowchart LR
     fit --> check["Consistency check<br/>speakers in the cast"]
     llm -. "no model, or<br/>chain exhausted" .-> tmpl["Template script<br/>planner.py"]
     tmpl --> check
-    check --> lock["Appearance lock<br/>look + image seed"]
+    check --> cast["Cast check<br/>a named but silent character: one repair,<br/>then anyone silent is left out"]
+    cast --> lock["Appearance lock<br/>look + image seed"]
     lock --> vstyle["Visual style<br/>story's own or genre preset"]
     vstyle --> out(["ScriptOutput"])
 ```
@@ -237,6 +238,34 @@ flowchart LR
   the closest script wins, and a script still outside is flagged on the plan's
   completion event and in the storyboard (`length` in the storyboard answer).
   The offline template budgets by the same estimate and is never repaired.
+- **The cast is sized to the film, and only speakers stay (DST-33).** A character
+  is on screen only through their lines, so a listed character with none was
+  drawn and voiced for nothing. The prompt asks for a cast of 2 up to a limit from
+  the film's length (`shared/timeline.py` `cast_limit`: the lines the film has room
+  for, 1.5 per character, between 2 and 4: 2 for a 15 s film, 3 for 20 s, 4 from
+  30 s), allows fewer only for a deliberately single-voice story, says every
+  character must speak, and says characters the creator names in their own prompt
+  must be in the cast and speak. (The floor matters: a first wording that only
+  capped the cast and asked for "the characters this story needs" made 6 of 25
+  live films a monologue; see `docs/EVAL.md`.) After the script comes back
+  (`agents/story_agent/cast.py`):
+  1. A silent character whose name is in the creator's prompt is worth one more
+     model call (`SCRIPT_CAST_REPAIRS`). The answer is used only if the cast and
+     scenes are unchanged, nobody who spoke is silenced, fewer named characters are
+     silent and the length is not pushed outside the tolerance.
+  2. Anyone still silent, whatever their role, is removed from the cast before
+     appearances are locked, voices assigned, portraits drawn or any file is
+     written, so the cast row, the image budget and the scene chips all follow.
+     A script where nobody speaks is left as it is, so the cast is never empty.
+     The names and whether each was named in the prompt are in
+     `state.metadata["cast_check"]`.
+  3. The creator is told only when someone they named was removed: a sentence under
+     the cast row (`cast_note` in the plan stream and the storyboard answer, and in
+     the completion note). Removing a character the writer invented says nothing.
+  A length repair that silences someone who spoke is discarded, and the offline
+  template follows the same rule (its synopsis names only people who speak).
+  Known limit: a scene's picture is drawn from the scene text, so it can still
+  show a character who is not in the cast.
 - **Characters keep their faces.** The appearance lock tops up each
   description with stable details the writer left vague and fixes a seed, so
   a character looks the same in every shot and after a re-render.

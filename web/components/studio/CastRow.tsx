@@ -4,6 +4,8 @@ import styles from "./studio.module.css";
 
 type Props = {
   cast: CastMember[];
+  /** Said when a character the creator named had no lines and is not in the cast. */
+  note?: string | null;
   /** The plan is still running, so a missing portrait is on its way. */
   planning: boolean;
 };
@@ -13,7 +15,7 @@ function initial(name: string): string {
 }
 
 /** Who is in the film, above the scenes: face, name, who they are, and their voice. */
-export function CastRow({ cast, planning }: Props) {
+export function CastRow({ cast, note, planning }: Props) {
   if (cast.length === 0) return null;
   return (
     <section className={styles.cast} aria-label="Cast">
@@ -52,6 +54,7 @@ export function CastRow({ cast, planning }: Props) {
           );
         })}
       </ul>
+      {note && <p className={styles.castNote} role="note">{note}</p>}
     </section>
   );
 }

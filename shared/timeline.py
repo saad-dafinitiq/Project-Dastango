@@ -44,6 +44,17 @@ MIN_LINE_MS = 1200
 EXPECTED_LINES_PER_SCENE = 2
 
 
+# How many words a spoken line has, for sizing a cast before any line exists:
+# 8.1 over the 323 lines of the 46 model-written scripts of runs G and L
+# (2026-10-29 and 2026-11-03; docs/EVAL.md, DST-33).
+WORDS_PER_LINE = 8
+
+# A character needs a few lines to be present in a film, not one: sizing the cast
+# at 1.5 lines each leaves room for a short exchange for most of them.
+LINES_PER_CHARACTER = 1.5
+MIN_CAST, MAX_CAST = 2, 4     # narrator and one voice; "3-4 characters" was the old rule
+
+
 @dataclass(frozen=True)
 class LineSlot:
     scene_id: str
@@ -90,6 +101,44 @@ def word_budget(target_s: float, scene_count: int) -> Tuple[int, int]:
     speech_s = max(0.0, target_s - scene_count * expected_scene_overhead_ms() / 1000)
     total = max(scene_count * 6, int(round(speech_s * WORDS_PER_SECOND)))
     return total, max(6, int(round(total / scene_count)))
+
+
+def line_room(target_s: float, scene_count: int) -> int:
+    """About how many lines of dialogue a film of `target_s` seconds has room for.
+
+    From the word budget, so it moves with the length and the scene count the
+    same way the script's own budget does. In the 46 scripts measured (runs G
+    and L) models wrote 11% to 22% fewer words than budgeted (33 of 40, 54 of 60,
+    77 of 93 and 98 of 125 words at 20, 30, 45 and 60 s), so this reads high: 4.9,
+    7.4, 11.5 and 15.4 against 3.9, 6.8, 9.0 and 11.5 lines. The cast limit is
+    capped, so that does not matter above the shortest films.
+    """
+    total, _ = word_budget(target_s, scene_count)
+    return max(max(1, scene_count), int(round(total / WORDS_PER_LINE)))
+
+
+def cast_limit(target_s: float, scene_count: int) -> int:
+    """The most characters a film this long can give something to say (DST-33).
+
+    A 20 s film has about four lines: four characters cannot each have one, and
+    the ones left over are drawn and voiced for nothing. Characters the creator
+    names in their own prompt are not bound by this (the story prompt says so).
+    """
+    wanted = int(round(line_room(target_s, scene_count) / LINES_PER_CHARACTER))
+    return max(MIN_CAST, min(MAX_CAST, wanted))
+
+
+def cast_range(target_s: float, scene_count: int) -> Tuple[int, int]:
+    """(fewest, most) characters the story prompt asks for.
+
+    The first live plan run on a prompt that only capped the cast and asked for "the
+    characters this story needs" (2026-11-05) made 6 of 25 films a one-speaker
+    monologue, against 1 of 24 before: told to list only what the story needs, models
+    list the minimum. So the prompt names a range, and a lone voice has to be a
+    deliberate choice.
+    """
+    most = cast_limit(target_s, scene_count)
+    return min(MIN_CAST, most), most
 
 
 def planned_length_ms(scene_lines: Sequence[Sequence[str]]) -> int:
