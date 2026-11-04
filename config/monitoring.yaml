@@ -1,0 +1,66 @@
+# What the monitor service watches on the live site, and when it speaks up.
+#
+# `python main.py monitor` reads this every start. Each number has its reason
+# beside it, so the next person can move it knowing what it protects. Measured
+# figures come from the real VM (docs/BENCHMARK.md, CLAUDE.md "M9"). Override
+# the whole file with MONITORING_FILE=/path/to/monitoring.yaml.
+#
+# What each alert means and what to do first: docs/MONITORING.md.
+
+version: 1
+
+# How often the monitor looks. A minute is fast enough to notice a dead worker
+# well inside the 5 minutes below, and slow enough that its own queries are
+# nothing next to a render.
+loop_s: 60
+
+# A check's state is sent when it changes, and again at least this often.
+# Healthchecks.io alerts on a change of state, but it also needs a ping now and
+# then to know the monitor is alive: its `dastango-monitor` check expects one
+# every 10 minutes, so this must stay under that.
+repeat_ping_s: 300
+
+jobs:
+  # A running job whose worker has not checked in for this long. Workers check
+  # in every 15 s and the queue gives a silent job back after 120 s, but only
+  # when some worker is running to notice. Five minutes means two sweeps went
+  # by and nothing took it: the worker is down, not just slow.
+  silent_after_s: 300
+
+  # A running job that is still checking in but has run this long. The slowest
+  # real film on the VM (5 scenes, 45 s) took 398 s, so 30 minutes is about
+  # 4.5 times that: a stuck model call or a hung ffmpeg, not an ordinary render.
+  running_too_long_s: 1800
+
+  # A job waiting to start, with nothing else running, for this long. A busy
+  # worker is a good reason to wait (the queue runs one job at a time per
+  # film, and the VM has one worker), so this only fires when nothing is
+  # making progress at all.
+  queued_unclaimed_s: 600
+
+  # Job failure rate over the last hour. A film fails for ordinary reasons now
+  # and then (a provider's quota, a bad request), and on a quiet site one
+  # failure is 100% of the day's jobs. So it takes at least three failures AND
+  # more than half of the finished jobs failing. A cancelled job is not a
+  # failure; a job that is retried counts only if it fails for good.
+  error_window_s: 3600
+  error_min_failures: 3
+  error_rate: 0.5
+
+api:
+  # Server errors (status 500 and up) returned by the API. Same reasoning as
+  # the jobs, on a shorter window because a broken deploy shows at once: at
+  # least five in ten minutes AND more than 5% of the requests answered.
+  # Health and readiness probes are not counted.
+  window_s: 600
+  min_errors: 5
+  error_rate: 0.05
+
+disk:
+  # Percent of the data disk in use. Films and their versions grow it; a
+  # rebuild of the image needs several GB free (the image is 1.7 GB, plus build
+  # cache), so 80% leaves room to act before a deploy would fail.
+  warn_percent: 80
+  # Past this a render or a backup can fail halfway: stop everything else and
+  # clear space.
+  critical_percent: 90

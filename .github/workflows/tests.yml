@@ -164,8 +164,8 @@ jobs:
       - name: What the server needs is in it
         run: >
           docker run --rm storygen:local python -c
-          "import kokoro_onnx, soundfile, onnxruntime, psycopg, boto3, argon2;
-          print('voices, Postgres and S3 drivers present')"
+          "import kokoro_onnx, soundfile, onnxruntime, psycopg, boto3, argon2, langfuse;
+          print('voices, Postgres, S3 and tracing packages present')"
 
       - name: Subtitles render in every script, first boot doesn't race, voices can't crash it
         # Run inside the image: these are about its fonts, its database

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 # Make sure project root is on sys.path when invoked directly.
@@ -290,6 +291,41 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_monitor(args: argparse.Namespace) -> int:
+    """Watch the live site and tell the owner when something is wrong (docs/MONITORING.md)."""
+    from shared import monitoring
+    thresholds = monitoring.load_thresholds()
+    base = os.getenv("MONITOR_PING_BASE", "").strip()
+    pinger = monitoring.Pinger(base) if base else None
+
+    if args.send_test:
+        if args.send_test not in monitoring.CHECKS:
+            print(f"unknown check {args.send_test!r}; one of: {', '.join(monitoring.CHECKS)}")
+            return 2
+        if not pinger:
+            print("MONITOR_PING_BASE is not set, so there is nowhere to send it")
+            return 2
+        check = args.send_test
+        print(f"reporting a problem on dastango-{check} (an alert should arrive)")
+        if not pinger.send(check, "A test alert sent on purpose by `main.py monitor --send-test`."):
+            print("it could not be sent; see the warning above")
+            return 1
+        print(f"waiting {args.hold:.0f} s, then reporting it well again (the all-clear email)")
+        time.sleep(args.hold)
+        return 0 if pinger.send(check, None) else 1
+
+    if args.once:
+        for check, message in monitoring.evaluate(thresholds).items():
+            print(f"{check:14} {'ok' if message is None else 'PROBLEM: ' + message}")
+        return 0
+
+    try:
+        monitoring.run_forever(thresholds, pinger)
+    except KeyboardInterrupt:
+        print("\nstopping")
+    return 0
+
+
 def _read_password(prompt: str) -> str:
     """Ask for a password without echoing it, or read it from a pipe."""
     import getpass
@@ -518,6 +554,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help=f"only these job kinds ({', '.join(JOB_KINDS)})")
     wp.set_defaults(fn=cmd_worker)
 
+    mp = sub.add_parser("monitor", help="watch the live site and email the owner when it breaks")
+    mp.add_argument("--once", action="store_true",
+                    help="look once, print every check's state, send nothing")
+    mp.add_argument("--send-test", metavar="CHECK", default=None,
+                    help="send one check's alert on purpose, then its all-clear")
+    mp.add_argument("--hold", type=float, default=60.0,
+                    help="seconds between the test alert and its all-clear (default 60)")
+    mp.set_defaults(fn=cmd_monitor)
+
     up = sub.add_parser("users", help="manage accounts (list, create, passwd, role)")
     up.add_argument("action", nargs="?", default="list",
                     choices=["list", "create", "passwd", "role", "enable", "disable"])
@@ -552,7 +597,7 @@ def main() -> int:
     parser = build_parser()
     if len(sys.argv) > 1 and sys.argv[1] not in (
         "run", "plan", "storyboard", "restyle", "render", "serve", "edit",
-        "history", "list", "providers", "worker", "jobs", "users", "-h", "--help"
+        "history", "list", "providers", "worker", "jobs", "users", "monitor", "-h", "--help"
     ):
         # Treat first arg as a prompt for convenience.
         args = parser.parse_args(["run"] + sys.argv[1:])

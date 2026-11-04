@@ -49,7 +49,7 @@ flowchart TB
 
     subgraph ops["Delivery and operations"]
         direction LR
-        docker["Docker<br/>multi-stage, non-root"] ~~~ compose["Docker Compose<br/>5 services"] ~~~ oci["Oracle Cloud<br/>A1 arm64 · free"] ~~~ gha["GitHub Actions<br/>4 jobs"] ~~~ tests["pytest · moto<br/>388 offline tests"]
+        docker["Docker<br/>multi-stage, non-root"] ~~~ compose["Docker Compose<br/>6 services"] ~~~ oci["Oracle Cloud<br/>A1 arm64 · free"] ~~~ gha["GitHub Actions<br/>4 jobs"] ~~~ tests["pytest · moto<br/>388 offline tests"]
     end
 
     exp --> edge --> apiL --> exec --> media --> data --> ops
@@ -190,6 +190,7 @@ flowchart LR
 | **Docker** (multi-stage) | `Dockerfile` | Node 22 builds the UI; Python 3.11-slim runs everything with ffmpeg and the fonts; runs as uid 10001, never root. |
 | **Docker Compose** | `docker-compose.yml`, `deploy/docker-compose.prod.yml` | The whole stack in one file; the prod override adds Caddy and removes the API's public port. |
 | **Caddy 2** | `deploy/Caddyfile` | Automatic certificates and renewal, HTTP/3, security headers, in twenty lines of config. |
+| **Monitoring** | `shared/monitoring.py`, `config/monitoring.yaml` | The `monitor` container checks the queue, the API's error rate and the disk every minute and reports to **Healthchecks.io** (free: 20 checks, one per kind of problem, email to the owner); **UptimeRobot** (free) watches the public `/health` from outside. Server errors and traces go to **Langfuse**. See `docs/MONITORING.md`. |
 | **Oracle Cloud Always Free** | `deploy/README.md` | 2 OCPU / 12 GB arm64 for $0. |
 | **sslip.io** | `DOMAIN` in the server `.env` | A real hostname for an IP, so HTTPS works without buying a domain. |
 | **cron + rsync + pg_dump** | `deploy/backup.sh` | Nightly backups hard-linked to the previous night; restore is a tested script. |
