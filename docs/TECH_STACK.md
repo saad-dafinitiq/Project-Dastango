@@ -201,7 +201,7 @@ flowchart LR
 | **pytest** (+ pytest-asyncio, pytest-timeout) | 9.1 | 382 tests, fully offline: mock LLM, placeholder images, silent voices. |
 | **moto** | 5.2 | A local fake of S3 for the backup and storage tests. |
 | **FastAPI TestClient** (httpx) | with FastAPI | API, auth and WebSocket tests without a server. |
-| **GitHub Actions** | hosted | Ubuntu 3.11 and 3.12, Windows 3.11, the web build and typecheck, and the production image built and tested on every push. |
+| **GitHub Actions** | hosted | On every pull request: the suite minus its slowest tests on Ubuntu with Python 3.11 (what the image runs) in two parallel jobs, the web build and typecheck, and the production image built and tested. On a merge to `main`: the web build and the image. Every week and on demand: the suite on Windows 3.11 and Ubuntu 3.12. |
 
 ---
 

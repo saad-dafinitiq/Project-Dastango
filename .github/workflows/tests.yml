@@ -1,72 +1,80 @@
 name: tests
 
+# What gates a pull request. The slower, wider matrix (Windows, the second
+# Python version) runs weekly instead: see full-matrix.yml and docs/TESTING.md.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
-# A new push supersedes the run already in flight for that branch.
+# A new push to a pull request supersedes the run already in flight for it. A
+# push to main never cancels another: each merge keeps its own result.
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    # Decides whether anything but documentation changed. It is a job, not a
+    # `paths-ignore` on the workflow, on purpose: a workflow that is skipped
+    # that way reports nothing, and a required check that never reports leaves
+    # the pull request waiting forever. A job skipped by `if` reports as
+    # skipped, which satisfies a required check.
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          code=true
+          if [ "$EVENT" = "pull_request" ]; then
+            files=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+            echo "changed in this pull request:"; echo "$files"
+            # Documentation only (every file under docs/ or a Markdown file) is
+            # the one case that skips the tests; the rule, and why doubt runs
+            # them, is in scripts/ci_changed.py, which is unit-tested.
+            code=$(echo "$files" | python3 scripts/ci_changed.py)
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "run the test jobs: $code"
+
   test:
-    name: ${{ matrix.os }} · python ${{ matrix.python }}
-    runs-on: ${{ matrix.os }}
+    # Python 3.11 is what the production image runs (Dockerfile). On a pull
+    # request this runs the tests that are not marked `slow` (-m "not slow"; the
+    # list is SLOW in tests/conftest.py), split into two slices that run as
+    # separate jobs on separate machines (TEST_SHARD). Each slice runs its tests
+    # one at a time, like a local run, so tests that assert a wall-clock bound see
+    # a quiet machine. The slow tests run in the weekly full-matrix workflow, on
+    # demand, and locally (Gate 1 requires the whole suite before every commit).
+    # It does not run when a pull request merges to main: the pull request's run
+    # tested the very same merged result (web and image still run, below). A manual
+    # run of this workflow runs everything. GitHub cannot make a check required on
+    # this plan, so the job names are free to change.
+    name: ubuntu-latest · python 3.11 · slice ${{ matrix.slice }} of 2
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Linux is what the container runs; Windows is what it is developed on.
-        # The two disagree about fonts and path separators, which is exactly
-        # the kind of thing that only shows up here.
-        os: [ubuntu-latest, windows-latest]
-        python: ["3.11"]
-        include:
-          - os: ubuntu-latest
-            python: "3.12"
-
+        slice: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/python-env
         with:
-          python-version: ${{ matrix.python }}
-
-      # The exact tag: this action publishes no floating major (v10) tag. uv's
-      # own version is pinned to the one that wrote uv.lock; python-version makes
-      # uv use the interpreter set up above instead of downloading another.
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: "0.13.6"
-          python-version: ${{ matrix.python }}
-
-      - name: Install ffmpeg and fonts (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          # ffmpeg does all the audio/video work. The Noto fonts are what stop
-          # burned-in Urdu subtitles rendering as blank boxes (and what the
-          # subtitle-font tests render with).
-          sudo apt-get install -y --no-install-recommends \
-            ffmpeg fontconfig fonts-dejavu-core fonts-noto-core
-
-      - name: Install ffmpeg (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ffmpeg --no-progress -y
-
-      - name: Check ffmpeg is on PATH
-        run: ffmpeg -version
-
-      - name: Install dependencies from the lock
-        # Exactly the versions in uv.lock, so a release published after the lock
-        # was written cannot change what this job tests (F11). --locked also
-        # fails the job if pyproject.toml and uv.lock have drifted apart.
-        # The S3 client and moto (a local fake of S3, in the dev group) let the
-        # off-machine backup tests run here too, offline.
-        run: uv sync --locked --extra s3 --extra tracing
+          python: "3.11"
 
       - name: Every module imports
         # A syntax error in a file no test touches should still fail the build.
@@ -76,12 +84,26 @@ jobs:
         # The suite runs fully offline: the mock LLM writes the script and
         # images are the local placeholder, so no key is needed and none of
         # this spends anyone's quota.
-        run: uv run --no-sync python -m pytest -q --timeout=600
+        # Why slices and not pytest-xdist workers: measured on two CPUs (4 Nov
+        # 2026), 2 workers took 573 s against 676 s for the serial run. Every
+        # test already uses both cores (ffmpeg and the shot renderer are
+        # multi-threaded), so extra workers on the same machine mostly share
+        # them; slices on separate machines add cores.
+        # --durations lists the slowest tests in the log, so what CI spends its
+        # time on is read from CI itself. Only a pull request skips the slow
+        # tests; a manual run (workflow_dispatch) runs the whole suite, still in
+        # two slices.
+        run: >
+          uv run --no-sync python -m pytest -q --timeout=600 --durations=15
+          ${{ github.event_name == 'pull_request' && '-m "not slow"' || '' }}
         env:
           PIPELINE_SKIP_DOTENV: "1"
+          TEST_SHARD: ${{ matrix.slice }}/2
 
   web:
     name: web · build and typecheck
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -121,6 +143,8 @@ jobs:
     # build and Python wheels exist together — so it is built and checked on
     # every change rather than discovered on deploy day.
     name: image · build and run
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -176,4 +200,3 @@ jobs:
       - name: Stop the stack
         if: always()
         run: docker compose down -v
-

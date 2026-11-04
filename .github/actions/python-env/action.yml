@@ -1,0 +1,67 @@
+name: Python environment
+description: >
+  Python, uv, ffmpeg and the locked dependencies. Shared by the pull-request
+  workflow and the scheduled full-matrix one, so the two cannot drift apart.
+  Changing it affects both; the full-matrix workflow has no pull-request trigger,
+  so run it by hand once after a change here.
+
+inputs:
+  python:
+    description: Python version to test on
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python }}
+
+    # The exact tag: this action publishes no floating major (v10) tag. uv's
+    # own version is pinned to the one that wrote uv.lock; python-version makes
+    # uv use the interpreter set up above instead of downloading another.
+    # Caching is on by default on GitHub-hosted runners (enable-cache: auto);
+    # its key includes uv.lock, so a lockfile change refreshes it.
+    - uses: astral-sh/setup-uv@v10.3.3
+      with:
+        version: "0.13.6"
+        python-version: ${{ inputs.python }}
+
+    - name: Install ffmpeg and fonts (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Acquire::Retries: a mirror that hiccups is tried again, not a failed job.
+        sudo apt-get -o Acquire::Retries=3 update
+        # ffmpeg does all the audio/video work. The Noto fonts are what stop
+        # burned-in Urdu subtitles rendering as blank boxes (and what the
+        # subtitle-font tests render with).
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+          ffmpeg fontconfig fonts-dejavu-core fonts-noto-core
+
+    - name: Install ffmpeg (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      # Chocolatey is an outside service: on 3 Nov 2026 it answered 504 Gateway
+      # Timeout and failed a Windows job before any test ran. Three tries, with a
+      # wait between them, so an outage of a minute is not a red build.
+      run: |
+        for attempt in 1 2 3; do
+          choco install ffmpeg --no-progress -y && exit 0
+          echo "ffmpeg install failed (attempt $attempt of 3)"
+          [ "$attempt" = 3 ] || sleep $((attempt * 20))
+        done
+        exit 1
+
+    - name: Check ffmpeg is on PATH
+      shell: bash
+      run: ffmpeg -version
+
+    - name: Install dependencies from the lock
+      # Exactly the versions in uv.lock, so a release published after the lock
+      # was written cannot change what this job tests (F11). --locked also
+      # fails the job if pyproject.toml and uv.lock have drifted apart.
+      # The S3 client and moto (a local fake of S3, in the dev group) let the
+      # off-machine backup tests run here too, offline.
+      shell: bash
+      run: uv sync --locked --extra s3 --extra tracing
