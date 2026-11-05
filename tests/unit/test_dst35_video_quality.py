@@ -170,10 +170,22 @@ def test_no_command_in_the_pipeline_carries_a_crf_of_its_own():
     assert offenders == [], f"hard-coded encode settings in: {offenders}"
 
 
+_REAL_RUN = subprocess.run
+
+
 def _record(monkeypatch, module):
+    """Record the ffmpeg commands `module` runs instead of running them.
+
+    `module.subprocess` is the one global `subprocess`, so this fake is seen by every
+    caller. Only ffmpeg is faked; anything else (the font lookup runs `fc-match` where
+    fontconfig exists, as on the CI runner) goes to the real `run`, which wants text
+    back, not the empty bytes a faked encode returns.
+    """
     seen = []
 
     def run(cmd, *a, **kw):
+        if str(cmd[0]) != "ffmpeg":
+            return _REAL_RUN(cmd, *a, **kw)
         seen.append([str(c) for c in cmd])
         return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
     monkeypatch.setattr(module.subprocess, "run", run)
