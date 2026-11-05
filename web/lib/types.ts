@@ -23,6 +23,22 @@ export type Line = {
   text: string;
 };
 
+/** One shot a scene is cut into (DST-36). Times are estimates until the voices exist. */
+export type CardShot = {
+  shot_id: string;
+  framing: "wide" | "medium" | "close" | "cutaway";
+  /** Which picture it is cut from: the scene's wide one, a character's portrait, or a
+   *  detail drawn when the film is rendered. */
+  source: "wide" | "portrait" | "cutaway";
+  move: string;
+  character_id: string | null;
+  character: string | null;
+  start_ms: number;
+  end_ms: number;
+  /** For a medium shot: the part of the wide picture it keeps. */
+  crop: { w: number; x: number; y: number } | null;
+};
+
 /** One scene card. Streamed during planning, read back from the storyboard. */
 export type Card = {
   scene_id: string;
@@ -32,6 +48,8 @@ export type Card = {
   tone: string;
   move: string;
   estimated_ms: number;
+  /** The shots the scene is cut into, in order. */
+  shots?: CardShot[];
   lines: Line[];
   /** Who speaks in the scene, in the order they first do. */
   characters?: { character_id: string; name: string }[];

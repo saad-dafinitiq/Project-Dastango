@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from shared import video_quality
 from shared.utils.images import ensure_readable_image
@@ -90,6 +90,10 @@ class Shot:
     # Phase 1 decided the film's look; the grade follows it rather than a default.
     visual_style: str = ""
     tone: str = ""
+    # The part of the picture this shot frames, (width fraction, x, y), or None for
+    # all of it; and a number that varies a handheld sway from shot to shot.
+    crop: Optional[Tuple[float, float, float]] = None
+    seed: int = 0
 
 
 def probe_duration_ms(path: str | Path) -> Optional[int]:
@@ -127,7 +131,8 @@ def render_shot(shot: Shot, out_path: Path, width: int, height: int, fps: int,
     move = LEGACY_MOTIONS.get(shot.motion, shot.motion)
     # camera.motion_filter is the whole chain: scale up, move, scale back down.
     vf = (
-        camera.motion_filter(move, frames, width, height, fps)
+        camera.motion_filter(move, frames, width, height, fps,
+                             crop=shot.crop, seed=shot.seed)
         + ","
         + camera.post_chain(shot.visual_style, shot.tone, add_grain=add_grain,
                             add_vignette=add_vignette, letterbox=letterbox,
@@ -162,7 +167,8 @@ def render_shot(shot: Shot, out_path: Path, width: int, height: int, fps: int,
                     out_path.stem, camera.supersample_for(width, height),
                     (proc.stderr or b"").decode("utf-8", "replace").strip()[-200:])
         vf_plain = (
-            camera.motion_filter(move, frames, width, height, fps, factor=1.0)
+            camera.motion_filter(move, frames, width, height, fps, factor=1.0,
+                                 crop=shot.crop, seed=shot.seed)
             + "," + camera.post_chain(shot.visual_style, shot.tone,
                                       add_grain=add_grain, add_vignette=add_vignette,
                                       letterbox=letterbox, width=width, height=height)

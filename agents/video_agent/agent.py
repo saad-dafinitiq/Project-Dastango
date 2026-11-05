@@ -2,16 +2,18 @@
 
 Two stages:
 
-1. **Assets** (`run`): one portrait per character and a 3-image shot bank per
-   scene (wide / detail / alt), plus an optional real-motion clip for the
-   establishing shot when a text/image-to-video provider is configured.
+1. **Assets** (`run`): one portrait per character and a shot bank per scene
+   (the wide picture, plus a detail cutaway for a long scene), plus an optional
+   real-motion clip for the establishing shot when a text/image-to-video
+   provider is configured.
 
 2. **Composition** (`compose`, also used by edits): every scene is cut to the
-   audio timeline from Phase 2 (shared/timeline.py):
-       pre-roll  -> establishing shot (or the real-motion clip)
-       each line -> narrator: rotate through the shot bank
-                    character: their portrait (B-roll cutaway on long lines),
-                    or a real lip-sync clip when a provider is configured
+   audio timeline from Phase 2 (shared/timeline.py). The shots are planned by
+   `coverage.plan_coverage` (DST-36): 2 to 4 per scene, a wide shot that opens
+   it, a cut to whoever is speaking, a pull-out that closes it, each cropped or
+   framed from the scene's picture or a character's portrait so extra shots do
+   not cost extra images. A scene with a real lip-sync or text-to-video clip is
+   planned the earlier way (`_plan_scene_classic`), which those clips need.
    Shot boundaries are the timeline's boundaries rounded to frames, and every
    clip is rendered with extra frames to cover its crossfade, so the final
    video is exactly as long as the master audio and every cut lands on its
@@ -26,6 +28,7 @@ import os
 import shutil
 import subprocess
 import time
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +55,7 @@ from shared.utils.files import project_dir, write_json
 from shared.utils.parallel import run_jobs
 from shared.utils.logging import get_logger
 
+from . import coverage
 from .animator import (
     Shot as RenderShot, assemble_scene, pick_motion_for_index, render_shot, shot_workers,
 )
@@ -77,12 +81,18 @@ log = get_logger("video_agent")
 MAX_SHOT_MS = 4500   # longest a single still stays on screen before a cut
 MIN_SHOT_MS = 1500   # shortest cut we'll create when splitting a long span
 
-# Three deliberately different framings of the same scene so cuts feel meaningful.
+# The pictures drawn for a scene. The wide one is also the storyboard preview, and a
+# medium shot is a crop of it. A scene long enough (config coverage.cutaway_scene_s)
+# also gets a detail picture to cut away to; shorter ones cost a single image.
 BANK_FRAMINGS = [
     ("wide",   "wide establishing shot, full landscape, expansive composition"),
     ("detail", "extreme close-up detail, macro, intricate texture, shallow depth of field"),
-    ("alt",    "alternate angle, low-angle hero shot, dramatic perspective, dynamic framing"),
 ]
+
+
+def framings_for(scene: Scene) -> List[Tuple[str, str]]:
+    """The pictures this scene needs: the wide shot, and a cutaway if it is long."""
+    return BANK_FRAMINGS if coverage.needs_cutaway(scene.duration_ms) else BANK_FRAMINGS[:1]
 
 
 @dataclass
@@ -98,6 +108,8 @@ class PlannedShot:
     character_id: Optional[str] = None
     audio_path: Optional[str] = None
     is_video: bool = False
+    framing: str = ""             # wide | medium | close | cutaway (DST-36)
+    crop: Optional[Tuple[float, float, float]] = None   # (width fraction, x, y)
 
 
 class VideoAgent:
@@ -508,7 +520,8 @@ class VideoAgent:
     def generate_shot_bank(self, project_id: str, scene: Scene, width: int, height: int,
                            seed_salt: str = "", story: Optional[StoryOutput] = None,
                            reusable_preview: Optional[str] = None) -> List[str]:
-        """(Re)generate a scene's wide / detail / alt images, in the film's style.
+        """(Re)generate a scene's pictures (the wide one, and a detail for a long
+        scene), in the film's style.
 
         `reusable_preview` is the storyboard preview for this scene when it was
         drawn from the same prompt at the same size — the wide shot would be
@@ -518,7 +531,7 @@ class VideoAgent:
         img_dir.mkdir(parents=True, exist_ok=True)
         style, negative = scene_style(story, scene.tone)
         bank: List[str] = []
-        for tag, suffix in BANK_FRAMINGS:
+        for tag, suffix in framings_for(scene):
             out = img_dir / f"{scene.scene_id}_{tag}.png"
             prompt = f"{scene.visual_prompt}, {suffix}"
             if (tag == "wide" and not seed_salt and reusable_preview
@@ -610,7 +623,75 @@ class VideoAgent:
     def _plan_scene(self, state: PipelineState, scene: Scene, frame: SceneFrame,
                     timing: SceneTiming, segments: List[AudioSegment],
                     is_last_scene: bool) -> List[PlannedShot]:
-        """Decide every cut in a scene. Pure planning — nothing is rendered."""
+        """Decide every cut in a scene. Pure planning — nothing is rendered.
+
+        A scene is covered (DST-36): a wide shot, a cut to whoever speaks, a pull-out
+        at the end. A scene that has a real lip-sync or text-to-video clip is planned
+        the earlier way, since those clips are the picture for their span.
+        """
+        video = state.video
+        if video.used_lip_sync or (frame.t2v_clip and Path(frame.t2v_clip).exists()):
+            return self._plan_scene_classic(state, scene, frame, timing, segments,
+                                            is_last_scene)
+        bank = frame.shot_bank or [frame.image_path]
+        people = {c.id: c for c in state.script.characters.characters}
+
+        def portrait_of(character_id: str) -> Optional[str]:
+            path = frame.portrait_overrides.get(character_id)
+            if not path:
+                p = video.portrait_for(character_id)
+                path = p.image_path if p else None
+            return path if path and Path(path).exists() else None
+
+        lines = [coverage.CoverLine(
+                    seg.character_id or "",
+                    narrator=(people.get(seg.character_id) is None
+                              or people[seg.character_id].role == "narrator"),
+                    start_ms=seg.start_ms, end_ms=seg.start_ms + seg.duration_ms,
+                    text=seg.text or "")
+                 for seg in segments]
+        covers = coverage.plan_coverage(
+            timing.start_ms, timing.end_ms, lines, getattr(scene, "tone", "") or "",
+            nominal_ms=scene.duration_ms, scene_index=scene.index,
+            has_portrait=lambda cid: portrait_of(cid) is not None,
+            has_cutaway=len(bank) > 1)
+
+        planned: List[PlannedShot] = []
+        for j, c in enumerate(covers):
+            if c.source == "portrait":
+                source = portrait_of(c.character_id) or bank[0]
+            elif c.source == "cutaway":
+                source = bank[1] if len(bank) > 1 else bank[0]
+            else:
+                source = bank[0]
+            kind = {"wide": "establishing", "close": "character", "cutaway": "broll"}.get(
+                c.framing, "character" if c.speakers else "establishing")
+            planned.append(PlannedShot(
+                shot_id=f"{frame.scene_id}_est" if j == 0 else f"{frame.scene_id}_s{j + 1}",
+                kind=kind, source=source, start_ms=c.start_ms, end_ms=c.end_ms,
+                nominal_frames=span_frames(c.start_ms, c.end_ms, video.fps),
+                render_frames=span_frames(c.start_ms, c.end_ms, video.fps),
+                motion=c.move, character_id=c.character_id, framing=c.framing, crop=c.crop))
+        return self._extend_for_crossfades(planned, video.fps, is_last_scene)
+
+    @staticmethod
+    def _extend_for_crossfades(planned: List[PlannedShot], fps: int,
+                               is_last_scene: bool) -> List[PlannedShot]:
+        """Extra frames to cover crossfade overlaps: every shot but the last
+        overlaps the next shot; the scene's last shot overlaps the next scene."""
+        shot_x = xfade_frames(SHOT_XFADE_MS, fps)
+        scene_x = xfade_frames(SCENE_XFADE_MS, fps)
+        for k, p in enumerate(planned):
+            if k < len(planned) - 1:
+                p.render_frames = p.nominal_frames + shot_x
+            elif not is_last_scene:
+                p.render_frames = p.nominal_frames + scene_x
+        return planned
+
+    def _plan_scene_classic(self, state: PipelineState, scene: Scene, frame: SceneFrame,
+                            timing: SceneTiming, segments: List[AudioSegment],
+                            is_last_scene: bool) -> List[PlannedShot]:
+        """The earlier plan: a cut per line, split every few seconds, from a bank."""
         video = state.video
         fps = video.fps
         bank = frame.shot_bank or [frame.image_path]
@@ -675,16 +756,7 @@ class VideoAgent:
                     is_video=bool(span.get("video")),
                 ))
 
-        # Extra frames to cover crossfade overlaps: every shot but the last
-        # overlaps the next shot; the scene's last shot overlaps the next scene.
-        shot_x = xfade_frames(SHOT_XFADE_MS, fps)
-        scene_x = xfade_frames(SCENE_XFADE_MS, fps)
-        for k, p in enumerate(planned):
-            if k < len(planned) - 1:
-                p.render_frames = p.nominal_frames + shot_x
-            elif not is_last_scene:
-                p.render_frames = p.nominal_frames + scene_x
-        return planned
+        return self._extend_for_crossfades(planned, fps, is_last_scene)
 
     def _lip_sync_clip(self, state: PipelineState, scene_id: str, line_idx: int,
                        portrait: str, seg: AudioSegment) -> Optional[str]:
@@ -715,8 +787,8 @@ class VideoAgent:
         payload = {
             "fmt": [video.width, video.height, video.fps, video.cinematic_post,
                     SHOT_XFADE_MS, SCENE_XFADE_MS],
-            "shots": [[p.kind, stamp(p.source), p.render_frames, p.motion, p.is_video]
-                      for p in planned],
+            "shots": [[p.kind, stamp(p.source), p.render_frames, p.motion, p.is_video,
+                       p.framing, p.crop] for p in planned],
         }
         return hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -728,6 +800,7 @@ class VideoAgent:
             character_id=p.character_id, image_path=p.source, clip_path=None,
             duration_ms=p.end_ms - p.start_ms, motion=p.motion, audio_path=p.audio_path,
             start_ms=p.start_ms, render_frames=p.render_frames,
+            framing=p.framing, crop=list(p.crop) if p.crop else None,
         )
 
     # ---- rendering -------------------------------------------------------
@@ -755,7 +828,8 @@ class VideoAgent:
                 rs = RenderShot(image_path=p.source, duration_ms=p.end_ms - p.start_ms,
                                 motion=p.motion, frames=p.render_frames,
                                 is_lip_sync=p.is_video, visual_style=visual_style,
-                                tone=tones.get(scene_id, ""))
+                                tone=tones.get(scene_id, ""), crop=p.crop,
+                                seed=zlib.crc32(p.shot_id.encode()))
                 jobs.append((render_shot, (rs, shot_dir / f"{p.shot_id}.mp4",
                                            video.width, video.height, video.fps,
                                            video.cinematic_post, video.cinematic_post)))

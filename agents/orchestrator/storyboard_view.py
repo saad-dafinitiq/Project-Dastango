@@ -18,7 +18,7 @@ from shared import providers, voices
 from shared.assets import asset_url
 
 from agents.story_agent.cast import join_names
-from agents.video_agent import camera
+from agents.video_agent import coverage
 
 
 def _voice_label(engine: str, voice_id: str) -> str:
@@ -29,6 +29,33 @@ def _voice_label(engine: str, voice_id: str) -> str:
             if v.id == voice_id and v.label:
                 return v.label.split(" · ")[0].strip()
     return voice_id or ""
+
+
+def shot_cards(scene, people: Dict) -> List[Dict]:
+    """The shots a scene will be cut into, for the card to show (DST-36).
+
+    The same plan the renderer cuts (agents/video_agent/coverage.py), with the line
+    times estimated from the script because no voice exists yet, so the cuts are
+    "about" where they will fall. A medium shot's `crop` is where it looks in the
+    scene's wide picture, which the interface draws from that picture (no image of
+    its own); a close-up is the speaker's portrait; a cutaway is drawn at render.
+    """
+    cards = []
+    for i, c in enumerate(coverage.plan_for_script(scene, people,
+                                                   has_portrait=lambda cid: cid in people)):
+        who = people.get(c.character_id) if c.character_id else None
+        cards.append({
+            "shot_id": f"{scene.scene_id}_est" if i == 0 else f"{scene.scene_id}_s{i + 1}",
+            "framing": c.framing,
+            "source": c.source,
+            "move": c.move.replace("_", " "),
+            "character_id": c.character_id,
+            "character": who.name if who else None,
+            "start_ms": c.start_ms,
+            "end_ms": c.end_ms,
+            "crop": ({"w": c.crop[0], "x": c.crop[1], "y": c.crop[2]} if c.crop else None),
+        })
+    return cards
 
 
 def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
@@ -52,6 +79,7 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
     cards = []
     for scene in script.scenes:
         tone = getattr(scene, "tone", "") or ""
+        shots = shot_cards(scene, people)
         # Who is in the scene: whoever speaks in it, in the order they first do.
         # The script records nothing else about who is on screen.
         in_scene: List[str] = []
@@ -66,8 +94,9 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
             "tone": tone,
             "characters": [{"character_id": cid, "name": people[cid].name} for cid in in_scene],
             # The establishing shot opens the scene, so its move is the one
-            # worth naming on the card.
-            "move": camera.move_for("establishing", tone, 0).replace("_", " "),
+            # worth naming on the card; the rest are in `shots`.
+            "move": shots[0]["move"] if shots else "",
+            "shots": shots,
             "estimated_ms": scene.duration_ms,
             "lines": [
                 {
@@ -148,10 +177,13 @@ def image_budget(script) -> Dict[str, int]:
     """How many images planning and rendering each cost, from the real script.
 
     Planning draws one preview per scene and one portrait per character.
-    Rendering draws only the two framings per scene that the preview cannot
-    stand in for: the wide shot reuses the preview and the portraits are kept.
+    Rendering draws only what planning did not: the wide shot reuses the preview,
+    the portraits are kept, and a medium shot is a crop of the wide one. The one
+    new picture is a detail cutaway, for a scene long enough to want it (config
+    coverage.cutaway_scene_s). So more shots per scene cost no more images.
     """
     if script is None:
         return {"plan": 0, "render": 0}
     scenes = len(script.scenes)
-    return {"plan": scenes + len(script.characters.characters), "render": 2 * scenes}
+    cutaways = sum(1 for s in script.scenes if coverage.needs_cutaway(s.duration_ms))
+    return {"plan": scenes + len(script.characters.characters), "render": cutaways}

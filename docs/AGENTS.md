@@ -307,11 +307,11 @@ what every edit calls.
 flowchart LR
     subgraph assets["run: assets"]
         direction TB
-        port["Portrait per character<br/>(the storyboard's, when it matches)"] ~~~ bank["Shot bank per scene<br/>wide · detail · alt"] ~~~ reuse["Storyboard preview<br/>= the wide shot"]
+        port["Portrait per character<br/>(the storyboard's, when it matches)"] ~~~ bank["Pictures per scene<br/>wide · detail cutaway if long"] ~~~ reuse["Storyboard preview<br/>= the wide shot"]
     end
 
-    planS["Plan shots on the timeline<br/>pre-roll → wide · narrator → bank ·<br/>character → portrait"]
-    move["Camera move per shot<br/>job + tone, eased, computed at ~3×"]
+    planS["Cover each scene: 2–4 shots on the timeline<br/>wide opens · cut to whoever speaks ·<br/>medium = crop · close-up = portrait"]
+    move["Camera move per shot<br/>its job (pan · handheld · push · pull-out),<br/>eased, computed at ~3×"]
     sig{"Scene<br/>unchanged?"}
     keep["Reuse its clip"]
     pool["Render changed shots<br/>one per core, max 4"]
@@ -333,6 +333,18 @@ flowchart LR
   computing the move at 3× and scaling down turns that into a fraction of an
   output pixel. Measured by phase correlation: up to 5.13 px/frame of travel
   with a worst frame-to-frame jump of 0.19 px.
+- **A scene is covered, not just shown (DST-36).** `coverage.plan_coverage` cuts each
+  scene into 2 to 4 shots: a wide shot that pans opens it, the film cuts to whoever
+  is speaking (shot and reverse shot) with a shot for each line while the cap of 4
+  allows, and the last shot pulls out. A close-up is the speaker's own portrait, a
+  medium is a crop of the scene's wide picture, so extra shots cost no extra
+  image; only a scene of 14 s or more draws one more picture, a detail to cut away
+  to. Dialogue gets a slow handheld sway, and a slow push-in when the moment is
+  heavy (the scene's tone, or a line that shouts, trails off or breaks off). The
+  storyboard and the render call the same planner, so the storyboard's shot strip
+  is what the render cuts. Cuts are absolute milliseconds on the shared timeline,
+  so frame-exact sync is unchanged. Every number is in `config/video.yaml`.
+  A scene with a real lip-sync or text-to-video clip keeps the earlier plan.
 - **Sharp pictures (DST-35).** Films are 1080p. Pictures stay at 1280x720 (storing
   them at 1080p cost 1.85x the disk for no extra detail) and are enlarged once,
   with Lanczos, to well above the output size before the camera moves; moves

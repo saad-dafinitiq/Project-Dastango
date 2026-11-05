@@ -168,6 +168,10 @@ export function Studio() {
   const images = board?.images ?? streamed?.images;
   const castMembers = board?.cast ?? streamed?.cast ?? [];
   const castNote = board?.cast_note ?? streamed?.cast_note ?? null;
+  // The close-ups in each scene's shot strip are these portraits.
+  const portraitUrls = Object.fromEntries(
+    castMembers.filter((m) => m.portrait_url).map((m) => [m.character_id, m.portrait_url as string]),
+  );
   // The scene being drawn right now: the first one without a frame.
   const drawingIndex = mode === "planning" ? cards.findIndex((c) => !c.preview_url) : -1;
   const elapsed = elapsedSeconds(events, now);
@@ -328,6 +332,7 @@ export function Studio() {
                 active={i === drawingIndex}
                 editable={mode === "storyboard" && Boolean(board)}
                 onSave={(edit) => saveScene(card.scene_id, edit)}
+                portraits={portraitUrls}
               />
             ))}
           </div>

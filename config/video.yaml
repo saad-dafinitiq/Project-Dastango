@@ -66,3 +66,47 @@ encode:
   # the index to the front so the web player can start and seek at once.
   final_profile: high
   pix_fmt: yuv420p
+
+coverage:
+  # How a scene is shot (DST-36): 2 to 4 shots per scene, each framed for its job.
+  # agents/video_agent/coverage.py plans them; shared/video_quality.py checks these.
+  #
+  # The fewest and most shots a scene gets. The ticket asks for 2 to 4. Fewer than
+  # 2 is one picture held for the whole scene, and more than 4 cuts it so often
+  # that the cuts stop meaning anything. (The film made on 2 Nov was cut 4.2 times a
+  # scene, each shot 2.5 s, from only 3 or 4 distinct pictures, and most of its
+  # dialogue shots were locked off: the baseline is in docs/EVAL.md, DST-36.)
+  min_shots: 2
+  max_shots: 4
+  # How long a typical shot stays on screen, which sets how many a scene needs
+  # (its length divided by this, rounded, then kept between the two above). 4.5 s
+  # is the old longest hold (MAX_SHOT_MS), which the film made on 2 Nov was
+  # cut to; a scene longer than max_shots x this holds each shot longer, kept alive
+  # by a slow move, rather than being cut more.
+  typical_shot_s: 4.5
+  # The shortest a shot may be: shorter than this and a cut plus its 200 ms
+  # crossfade is most of the shot (the old MIN_SHOT_MS).
+  min_shot_s: 1.5
+  # A scene at least this long also gets a second picture, a cutaway to a detail
+  # of the scene, because a long scene on one picture and its crops looks static.
+  # Shorter scenes cost one image (the wide shot, which is also the storyboard
+  # preview). The old film drew three pictures per scene, and a bank of 2 or 3 is
+  # still read if a saved film has one.
+  cutaway_scene_s: 14
+  # How much of the picture a medium shot keeps, as a fraction of its width. The
+  # pictures hold about 1024 px of real detail, so a medium shot enlarged to
+  # 1080p is soft: 0.72 keeps 737 px of a 1024 px picture, 1.9x the enlargement
+  # of a wide shot, and the camera's own push adds up to 1.16x on top of that.
+  # Tighter than this is a close-up, which is the speaker's own portrait instead.
+  medium_crop: 0.72
+
+handheld:
+  # The dialogue camera: a slow sway as if held, not a locked-off frame. It moves
+  # within the headroom the zoom leaves, so it never shows the picture's edge.
+  #
+  # The zoom the sway needs room for, as a multiple of the frame. Zoom 1.06 leaves
+  # 6% of headroom to sway in; more would crop the picture tighter for no gain.
+  zoom: 1.06
+  # How much of that headroom the sway uses, as a fraction. 0.30 is about a
+  # 1.8% drift of the frame, which reads as breathing, not shaking.
+  sway: 0.30

@@ -27,6 +27,7 @@ are reported separately and never averaged together.
 | **T33** | printed to the console by two scripts in the session scratch folder (no result file) | 2026-11-04 and 2026-11-05 | `545be5a` + DST-33 (uncommitted at run time) | offline, no model: the saved scripts of run G (22 model-written, 3 template) and run L (24 model-written, 1 template) before and after the new trim; the template over the 25 prompts of `eval/testset.jsonl` before and after | none | none | none |
 | **A35** | none (printed by a script in the session scratch folder) | 2026-11-05 | `8e69d3c` + DST-35 (uncommitted at run time) | offline, no model: six shots of film `20261102_103626_58325d` through shot, scene join, compose and burned subtitles under the old settings and 15 candidates, with a lossless reference per graph | the film's own pictures | none | none |
 | **W35** | none (printed by a script in the session scratch folder) | 2026-11-05 | same | the whole of that film (25 shots, 62.79 s, real audio and subtitles) re-rendered in a throwaway data folder, old settings at 720p and shipped settings at 1080p | the film's own pictures | none | its own master audio |
+| **W36** | none (printed by a script in the session scratch folder) | 2026-11-05 | `1e20146` (main) and `1e20146` + DST-36 (uncommitted at run time) | the whole of film `20261102_103626_58325d` (62.79 s, real audio and subtitles) re-rendered at 1080p in a throwaway data folder, once by the code of `main` (a read-only export of `HEAD`) and once by this branch, one after the other on an idle machine | the film's own pictures | none | its own master audio |
 | **T33b** | `20261105_013451_testset.json` … `20261105_020446_testset.json` (one per prompt), logs `DST-33v1_dst-NN.log` | 2026-11-05 01:34 to 02:05 PKT | `545be5a` + DST-33, first prompt wording (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart, 10 min cap each | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run L) | none |
 | **T33c** | `20261105_020847_testset.json` … `20261105_024347_testset.json` (one per prompt), logs `DST-33v2_dst-NN.log`, plus one plan of the production prompt (not a result file: printed by a script in the session scratch folder) | 2026-11-05 02:08 to 02:54 PKT | `545be5a` + DST-33, final prompt wording (uncommitted at run time) | plan only, all 25, same protocol; then the production prompt at 45 s / 4 scenes, through the usual chain (refused) and Gemini alone | forced placeholder | same chain; Gemini forced for the last plan | none |
 
@@ -707,6 +708,97 @@ any viewer's own perception beyond the attached crops.
 **Known limit.** Pictures hold about 1024 pixels of real detail, so a 1080p film is
 enlarged about 1.9x from them. A higher-resolution image provider or an AI upscaler is
 the only way past that, and is a separate ticket.
+
+## DST-36: a cinematic camera (run W36)
+
+Hashim said in the 3 Nov product review that the camera is very basic and that the
+storyboard should show more frames between scenes. In a film of stills those frames are
+shots. This section records how that film was cut before, what was changed, what the
+same film costs afterwards, and what the numbers do not show.
+
+**Measured first (the baseline).** Film `20261102_103626_58325d`, read from its saved
+state:
+
+| What | Measured |
+|---|---|
+| Shots | 25 over 6 scenes: 4, 4, 4, 4, 5, 4 a scene, 2.51 s each |
+| Pictures | 3 to 4 distinct pictures per scene, 10 in the whole film's shots |
+| Moves | `static_hold` 9, `push_in` 7, `pan_right` 4, `pull_out` 3, `drift` 1, `tilt_down` 1 |
+| Cut at | every line and every 4.5 s inside a long span |
+| Drawn | 3 pictures per scene (18) and 4 portraits |
+
+So the film was already cut often (my first reading, "about 2.5 shots a scene", was
+that 2.5 s figure misread: it is 4.2 shots a scene). What it lacked was purpose: cuts
+every 4.5 s inside a span landed on the same picture again, and over a third of the shots
+(the dialogue ones) were locked off.
+
+**The change.** `agents/video_agent/coverage.py` plans each scene (config
+`coverage`, `handheld`, with reasons beside every number):
+- 2 to 4 shots, from the scene's length (one per 4.5 s), its speakers (the wide and one
+  each) and its lines (one per line while the cap allows).
+- The scene opens on a wide shot that pans (alternate scenes pan opposite ways), cuts
+  to whoever speaks (close-up = that character's portrait, so the cut is a real shot and
+  reverse shot), uses a crop of the wide picture for a medium shot, and ends on a
+  pull-out.
+- A speaker who talks twice running gets a medium the second time, and the world
+  alternates wide and medium, so two cuts in a row never land on the same framing.
+- Dialogue gets a slow handheld sway; a heavy moment (a tense, uneasy, somber or
+  melancholic scene, or a line that shouts, trails off or breaks off) gets a slow push-in
+  instead. Every move is eased.
+- A scene of 14 s or more draws one more picture, a detail to cut away to. Nothing else
+  costs an image: a close-up is a portrait that already exists and a medium is a crop.
+- A cut is an absolute millisecond on the shared timeline, as before.
+- The storyboard cards carry the shots (framing, move, speaker, estimated time, crop) from
+  the same planner, and the interface shows them as a strip under each scene's picture.
+  A medium is drawn by cropping the scene's picture in the browser, so it costs no image.
+
+**The same film, before and after (run W36).** Both rendered at 1920x1080 from the film's
+own pictures, one after the other on an idle laptop:
+
+| | main (before) | DST-36 (after) |
+|---|---|---|
+| Frames, duration | 1507, 62.79 s | 1507, 62.79 s |
+| Shots, per scene | 25 (4, 4, 4, 4, 5, 4) | 24 (4, 4, 4, 4, 4, 4) |
+| Average shot | 2.51 s | 2.62 s |
+| Framings | not recorded | 6 wide, 5 medium, 13 close-up |
+| Moves | `static_hold` 9, `push_in` 7, `pan_right` 4, `pull_out` 3, `drift` 1, `tilt_down` 1 | `push_in` 6, `pull_out` 6, `pan_left` 5, `pan_right` 4, `handheld` 3; no locked-off shot |
+| Render (compose, every scene forced) | 139.8 s | 145.6 s (+4%) |
+| File | 21.55 MB, 2,746 kb/s | 26.55 MB (+23%), 3,383 kb/s |
+
+- **Sync is unchanged**: the same 1507 frames in both. The unit tests also check that
+  every line of the small test film starts on a cut.
+- **Render time** is within the run-to-run spread of this laptop: the same "before" code
+  took 153.9 s on the same film earlier today (W35), against 139.8 s now.
+- **File size** rises because a swaying or pushing shot gives the encoder more to spend
+  bits on than a locked-off one; the encode settings are the DST-35 ones, unchanged.
+- **Images**: for this film's ten-second scenes the render draws no picture the storyboard
+  did not (before: 12 more, a detail and an alternate angle per scene). That follows from
+  the plan and is asserted by `image_budget` tests; this run re-used the film's existing
+  pictures and so did not draw any.
+
+**What the numbers do not show.** The frame sheets of this film's first two scenes look
+alike before and after: both are mostly close-ups of the same few portraits, and a still
+cannot show motion. The differences are in the clips: the dialogue sways instead of
+holding, a heavy line pushes in, every scene ends on a pull-out, and alternate scenes open
+with opposite pans. Before/after frame sheets and 8 s clips are attached to the PR. Whether
+that reads as "directed" is a viewer's judgment, which this ticket does not measure.
+
+**Limits.**
+- A medium crop keeps 72% of a picture that holds about 1024 px of real detail, so a medium
+  shot is softer than a wide one (the DST-35 limit again). Faces use the portrait, not a crop.
+- The storyboard's cuts are placed from estimated line lengths, so they move a little once
+  the voices are recorded; the shot types and moves do not.
+- "Every line on a cut" holds while a scene has at most three lines (the wide and a shot for
+  each, within the cap of 4); a scene with more lines shares shots between lines of the same
+  speaker first.
+- A scene with a real lip-sync or text-to-video clip is planned the earlier way, which those
+  clips need; neither has been exercised end to end (they cost money).
+- Not measured: a render on the Oracle server; films of other aspect ratios (DST-34; the crops
+  are stored as fractions of the picture so they follow its shape).
+- Aiming a crop at a face or the speaker with a detector (MediaPipe and similar were
+  suggested in research for DST-34) is not done: crops sit at fixed, alternating positions,
+  and the portraits carry the faces. The crop is stored as (width, x, y), so a detector
+  could fill those numbers in later without changing the plan.
 
 ## Findings
 

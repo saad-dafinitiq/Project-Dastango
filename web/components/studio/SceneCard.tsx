@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import type { SceneEdit } from "@/lib/api";
-import type { Card } from "@/lib/types";
+import type { Card, CardShot } from "@/lib/types";
 
 import styles from "./studio.module.css";
 
@@ -17,9 +17,43 @@ type Props = {
   editable?: boolean;
   delay?: number;
   onSave?: (edit: SceneEdit) => Promise<void>;
+  /** character_id -> portrait URL, for the close-ups in the shot strip. */
+  portraits?: Record<string, string>;
 };
 
-export function SceneCard({ card, number, active, editable, delay = 0, onSave }: Props) {
+/** A shot's picture. A medium is the wide picture framed tighter, drawn by cropping it
+ *  here, so it costs no image; a close-up is the speaker's portrait; a cutaway is
+ *  drawn when the film is rendered, so it has no picture yet. */
+function ShotThumb({ shot, preview, portrait }: { shot: CardShot; preview?: string | null; portrait?: string }) {
+  if (shot.framing === "cutaway") return <span className={styles.shotLater}>drawn at render</span>;
+  if (shot.framing === "close") {
+    // eslint-disable-next-line @next/next/no-img-element
+    return portrait ? <img src={portrait} alt="" /> : <span className={styles.shotLater}>{shot.character}</span>;
+  }
+  if (!preview) return <span className={styles.shotLater} />;
+  if (shot.framing === "medium" && shot.crop) {
+    // Scale the picture up by 1/w and put the kept window's centre in view.
+    const { w, x, y } = shot.crop;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={preview}
+        alt=""
+        style={{
+          width: `${100 / w}%`,
+          maxWidth: "none",
+          position: "absolute",
+          left: `${-x * (100 / w - 100)}%`,
+          top: `${-y * (100 / w - 100)}%`,
+        }}
+      />
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={preview} alt="" />;
+}
+
+export function SceneCard({ card, number, active, editable, delay = 0, onSave, portraits }: Props) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(card.title);
@@ -80,6 +114,26 @@ export function SceneCard({ card, number, active, editable, delay = 0, onSave }:
           </button>
         )}
       </div>
+
+      {card.shots && card.shots.length > 0 && !editing && (
+        <ol className={styles.shots} aria-label={`${card.shots.length} shots in this scene`}>
+          {card.shots.map((shot) => (
+            <li key={shot.shot_id} title={`${shot.framing}, ${shot.move}`}>
+              <div className={styles.shotPic}>
+                <ShotThumb
+                  shot={shot}
+                  preview={card.preview_url}
+                  portrait={shot.character_id ? portraits?.[shot.character_id] : undefined}
+                />
+              </div>
+              <span className={styles.shotName}>
+                {shot.framing === "close" && shot.character ? shot.character : shot.framing}
+              </span>
+              <span className={styles.shotMove}>{shot.move}</span>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {editing ? (
         <div className={styles.editor}>
