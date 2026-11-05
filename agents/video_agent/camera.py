@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from shared import video_quality
 
@@ -88,6 +88,7 @@ MOVES: Dict[str, Move] = {
     "tilt_down": Move("tilt_down", "settle downwards — weight, defeat"),
     "drift": Move("drift", "slow diagonal float, barely noticeable"),
     "static_hold": Move("static_hold", "locked off — lets a performance land"),
+    "handheld": Move("handheld", "a slow sway, as if held — dialogue that breathes"),
 }
 
 # Which move suits which moment. These keys are the project's tone vocabulary
@@ -161,11 +162,85 @@ def move_for(shot_kind: str, tone: str = "", index: int = 0) -> str:
     return options[index % len(options)]
 
 
+# Tones that make a line land heavily: the camera pushes in on them (DST-36).
+HEAVY_TONES = ("tense", "uneasy", "somber", "melancholic")
+
+
+def is_emotional(tone: str, text: str = "") -> bool:
+    """Is this a moment for a slow push-in rather than a held, breathing frame?
+
+    The scene's tone says so when it is a heavy one, and the line itself says so
+    when it is shouted, trails off or breaks off ("!", "...", an all-capitals
+    word). It is read from what the script already holds: no extra field of the
+    writing model's answer is needed, and the same line always gets the same move.
+    """
+    if canonical_tone(tone) in HEAVY_TONES:
+        return True
+    words = [w.strip(".,!?\"'()") for w in (text or "").split()]
+    return ("!" in text or "..." in text or "…" in text
+            or any(len(w) >= 3 and w.isalpha() and w.isupper() for w in words))
+
+
+def move_for_role(role: str, tone: str = "", emotional: bool = False,
+                  scene_index: int = 0, shot_index: int = 0) -> str:
+    """The camera move for a shot, from the job it does in its scene (DST-36).
+
+    The job comes first, then the mood:
+      ending        the scene's last shot pulls out, so each scene closes
+      establishing  the scene's opening wide shot pans; alternate scenes pan
+                    opposite ways so two in a row do not open the same way
+      dialogue      a face delivering a line breathes (handheld), and a heavy
+                    moment pushes in slowly
+      narration     the world while a narrator speaks: a pan, the other way from the last
+      cutaway       a detail, floating
+    Every one of them is eased (motion_filter).
+    """
+    if role == "ending":
+        return "pull_out"
+    if role == "establishing":
+        return "pan_right" if scene_index % 2 == 0 else "pan_left"   # shot_index is 0
+    if role == "dialogue":
+        return "push_in" if emotional else "handheld"
+    if role == "narration":
+        # The same alternation as the opening pan, so no two pans in a row go the same way.
+        return "pan_right" if (scene_index + shot_index) % 2 == 0 else "pan_left"
+    if role == "cutaway":
+        return "drift"
+    return "drift"
+
+
+Crop = Tuple[float, float, float]     # (width as a fraction of the picture, x, y), x and y 0..1
+
+
+def _handheld(frames: int, fps: int, seed: int) -> str:
+    """zoompan for a handheld shot: two slow sines per axis, inside the headroom.
+
+    The zoom leaves a margin (config handheld.zoom) and the sway uses a fraction of
+    it (handheld.sway), so the picture's edge never shows. The frequencies, about
+    0.45 and 1.1 Hz, are a breath and a slightly quicker tremor; their phases come
+    from `seed`, so the shots of a film do not sway together.
+    """
+    q = video_quality.get()
+    two_pi = 6.283185
+    a1, a2 = two_pi * 0.45 / fps, two_pi * 1.1 / fps
+    p = [((seed >> (6 * i)) % 63) / 10.0 for i in range(4)]   # four phases, 0 to 6.2
+    k = q.handheld_sway
+    x = (f"(iw-iw/zoom)*(0.5+{k:.3f}*(0.65*sin({a1:.5f}*on+{p[0]:.2f})"
+         f"+0.35*sin({a2:.5f}*on+{p[1]:.2f})))")
+    y = (f"(ih-ih/zoom)*(0.5+{k * 0.8:.3f}*(0.65*sin({a1 * 0.8:.5f}*on+{p[2]:.2f})"
+         f"+0.35*sin({a2 * 0.9:.5f}*on+{p[3]:.2f})))")
+    return f"zoompan=z={q.handheld_zoom:.3f}:x='{x}':y='{y}'"
+
+
 def motion_filter(move: str, frames: int, width: int, height: int,
-                  fps: int = 24, factor: Optional[float] = None) -> str:
+                  fps: int = 24, factor: Optional[float] = None,
+                  crop: Optional[Crop] = None, seed: int = 0) -> str:
     """The ffmpeg filter chain for one camera move, supersampled.
 
-    Returns the whole chain: scale up, move, scale back down.
+    Returns the whole chain: [crop], scale up, move, scale back down. `crop` frames
+    a part of the picture first (a medium shot out of the wide one, at no image
+    cost); the one enlargement then happens on that part. `seed` varies the sway
+    of a handheld shot, so two of them do not move in step.
     """
     f = max(1, frames)
     factor = supersample_for(width, height, factor)
@@ -206,10 +281,21 @@ def motion_filter(move: str, frames: int, width: int, height: int,
         # reads as a float rather than a move.
         inner = (f"zoompan=z={held}:x='(iw-iw/zoom)*(0.33+0.34*{gone})':"
                  f"y='(ih-ih/zoom)*(0.33+0.34*{gone})'")
+    elif move == "handheld":
+        inner = _handheld(f, fps, seed)
     else:   # static_hold and anything unrecognised
         inner = f"zoompan=z={held}:x='{centre_x}':y='{centre_y}'"
 
+    framed = ""
+    if crop and crop[0] < 1.0:
+        w, px, py = crop
+        # Even sides (libx264 refuses an odd one); the window keeps the picture's
+        # own aspect, since both sides take the same fraction.
+        framed = (f"crop=w=trunc(iw*{w:.4f}/2)*2:h=trunc(ih*{w:.4f}/2)*2:"
+                  f"x=(iw-ow)*{px:.4f}:y=(ih-oh)*{py:.4f},")
+
     return (
+        framed +
         # The one enlargement: the picture goes up to the working size here, with
         # the configured filter, before the camera touches it.
         f"scale=w={sw}:h={sh}:force_original_aspect_ratio=increase:flags={flt},"

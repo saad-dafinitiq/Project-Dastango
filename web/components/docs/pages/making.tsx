@@ -163,6 +163,16 @@ export function Storyboard() {
         same person looks the same in every shot, and still does after you re-render.
       </Note>
 
+      <H2 id="shots">The shots in each scene</H2>
+      <p>
+        Under each scene&rsquo;s picture is a strip of its <strong>shots</strong>: two to four, the way a
+        film is edited. The scene opens on a wide shot, then cuts to whoever is speaking, and ends by
+        pulling back. Each shot is named with its camera move. A close-up is the speaker&rsquo;s portrait and
+        a medium shot is the scene&rsquo;s picture framed tighter, so the extra shots cost no extra pictures;
+        a long scene also cuts away to one detail, drawn when you render. The cuts are placed from the
+        script&rsquo;s estimated line lengths, so they move a little once the voices are recorded.
+      </p>
+
       <H2 id="before-render">Before you render</H2>
       <p>
         Under the storyboard, choose the <strong>voices</strong> (press <strong>Hear it</strong> for a sample)
@@ -190,13 +200,16 @@ export function Rendering() {
           frame.
         </li>
         <li>
-          <strong>The pictures are drawn</strong>: a few shots per scene: a wide view, a detail, another
-          angle. The storyboard picture is reused as each scene&rsquo;s opening shot, and the characters&rsquo;
-          portraits from the storyboard are kept.
+          <strong>The pictures are drawn</strong>: only what the storyboard did not already draw. The
+          storyboard picture is each scene&rsquo;s wide shot, the characters&rsquo; portraits are the
+          close-ups, medium shots are framed from the wide picture, and a long scene gets one detail to
+          cut away to.
         </li>
         <li>
-          <strong>Every shot gets a camera move</strong>, and the scenes are cut together: a character&rsquo;s
-          line shows that character, a narrator&rsquo;s line shows the scene, and every cut lands on a line.
+          <strong>Every shot gets a camera move</strong> that suits its job (a pan to open a scene, a slow
+          sway on dialogue, a push-in on a heavy moment, a pull-back to end it), and the scenes are cut
+          together: a character&rsquo;s line shows that character, a narrator&rsquo;s line shows the scene,
+          and every cut lands exactly on the film&rsquo;s timeline.
         </li>
         <li>
           <strong>Music is mixed under the dialogue</strong> (it dips while someone speaks and rises in the

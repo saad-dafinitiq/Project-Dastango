@@ -153,6 +153,7 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
         card = cards.get(frame["scene_id"], {})
         frame["tone"] = card.get("tone", "")
         frame["move"] = card.get("move", "")
+        frame["shots"] = card.get("shots", [])
         frame["lines"] = card.get("lines", [])
         frame["characters"] = card.get("characters", [])
     board["cast"] = cast(state.script, engine, state)

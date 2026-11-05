@@ -42,6 +42,15 @@ class VideoQuality:
     final_preset: str
     final_profile: str
     pix_fmt: str
+    # How a scene is shot (DST-36).
+    min_shots: int
+    max_shots: int
+    typical_shot_s: float
+    min_shot_s: float
+    cutaway_scene_s: float
+    medium_crop: float
+    handheld_zoom: float
+    handheld_sway: float
 
 
 def _section(data: dict, name: str, path: Path) -> dict:
@@ -78,6 +87,14 @@ def load(path: Optional[Path | str] = None) -> VideoQuality:
     images, upscale = _section(data, "images", target), _section(data, "upscale", target)
     motion, sharpen = _section(data, "motion", target), _section(data, "sharpen", target)
     encode = _section(data, "encode", target)
+    coverage, handheld = _section(data, "coverage", target), _section(data, "handheld", target)
+    min_shots = _number(coverage, "coverage", "min_shots", target, int, low=1, inclusive_low=True,
+                        high=8)
+    max_shots = _number(coverage, "coverage", "max_shots", target, int, low=1, inclusive_low=True,
+                        high=8)
+    if max_shots < min_shots:
+        raise ValueError(f"{target.name}: coverage.max_shots ({max_shots}) is below "
+                         f"coverage.min_shots ({min_shots})")
     return VideoQuality(
         image_long_side=_number(images, "images", "long_side", target, int, low=319),
         upscale_filter=_choice(upscale, "upscale", "filter", FILTERS, target),
@@ -95,6 +112,20 @@ def load(path: Optional[Path | str] = None) -> VideoQuality:
         final_preset=_choice(encode, "encode", "final_preset", PRESETS, target),
         final_profile=_choice(encode, "encode", "final_profile", PROFILES, target),
         pix_fmt=_choice(encode, "encode", "pix_fmt", PIX_FMTS, target),
+        min_shots=min_shots,
+        max_shots=max_shots,
+        typical_shot_s=_number(coverage, "coverage", "typical_shot_s", target, float, low=1,
+                               high=30, inclusive_low=True),
+        min_shot_s=_number(coverage, "coverage", "min_shot_s", target, float, low=0.5, high=10,
+                           inclusive_low=True),
+        cutaway_scene_s=_number(coverage, "coverage", "cutaway_scene_s", target, float, low=1,
+                                high=600, inclusive_low=True),
+        medium_crop=_number(coverage, "coverage", "medium_crop", target, float, low=0.4, high=1,
+                            inclusive_low=True),
+        handheld_zoom=_number(handheld, "handheld", "zoom", target, float, low=1.01, high=1.3,
+                              inclusive_low=True),
+        handheld_sway=_number(handheld, "handheld", "sway", target, float, low=0, high=0.5,
+                              inclusive_low=True),
     )
 
 

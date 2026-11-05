@@ -37,6 +37,11 @@ class Shot(BaseModel):
     audio_path: Optional[str] = None     # the dialogue line whose duration drives this shot
     start_ms: int = 0                     # absolute position on the film timeline
     render_frames: int = 0                # frames actually rendered (includes crossfade overlap)
+    # How the shot is framed (DST-36): wide | medium | close | cutaway, and for a
+    # medium the part of the picture it keeps as (width fraction, x, y). Absent on
+    # films made before, which are read as they were.
+    framing: str = ""
+    crop: Optional[List[float]] = None
 
 
 class SceneFrame(BaseModel):

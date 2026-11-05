@@ -47,12 +47,20 @@ def test_the_wide_shot_reuses_the_preview_rather_than_paying_twice(planned, monk
     reusable = agent.reusable_preview(state, scene, 320, 180)
     assert reusable == frame.preview_path
 
+    # A short scene needs only its wide picture, which is the preview: nothing is drawn.
     bank = agent.generate_shot_bank("t_reuse", scene, 320, 180,
                                     story=state.script.story,
                                     reusable_preview=reusable)
-    # Three framings, but only the two that are genuinely different images.
-    assert len(bank) == 3
-    assert len(generated) == 2, "the wide shot should not have been generated"
+    assert len(bank) == 1 and generated == [], "the wide shot should not have been generated"
+    assert Path(bank[0]).exists() and Path(bank[0]).stat().st_size > 0
+
+    # A long scene also gets a detail cutaway (DST-36): the one picture that is drawn.
+    scene.duration_ms = 20_000
+    bank = agent.generate_shot_bank("t_reuse", scene, 320, 180,
+                                    story=state.script.story,
+                                    reusable_preview=reusable)
+    assert len(bank) == 2
+    assert len(generated) == 1, "only the detail should have been generated"
     assert Path(bank[0]).exists() and Path(bank[0]).stat().st_size > 0
 
 
@@ -94,8 +102,9 @@ def test_a_reroll_still_draws_a_fresh_wide_shot(planned, monkeypatch):
         return real(tool, **kwargs)
 
     monkeypatch.setattr(agent.tools, "execute", counting)
+    scene.duration_ms = 20_000                 # long enough for a cutaway too (DST-36)
     agent.generate_shot_bank("t_reuse", scene, 320, 180, seed_salt="v2",
                              story=state.script.story,
                              reusable_preview=state.storyboard.frame(
                                  scene.scene_id).preview_path)
-    assert len(generated) == 3
+    assert len(generated) == 2                 # the wide shot, drawn fresh, and the detail

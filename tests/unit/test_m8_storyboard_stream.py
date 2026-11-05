@@ -113,31 +113,21 @@ def test_a_reloaded_storyboard_shows_the_same_cards_as_the_stream(orch, isolated
         assert frame["preview_url"].startswith("/assets/")
 
 
-# ---- tone reaches the camera in a real render ----------------------------------
+# ---- the camera in a real render ------------------------------------------------
 
-def test_a_scenes_tone_shapes_its_camera_moves_in_a_real_render(small_project):
-    """M6 claimed tone drives the camera, and its test checked
-    move_for("detail", "tense") — but the video agent never makes a "detail"
-    shot. It only makes establishing, character and lip_sync shots, all of
-    which were routed to fixed lists, so in a real render a scene's mood never
-    reached the camera. This goes through the actual render and reads back the
-    moves the agent chose."""
-    from agents.video_agent import camera
-
+def test_a_scene_opens_on_a_pan_that_alternates_in_a_real_render(small_project):
+    """M8 made a scene's tone choose its opening move, and found that the video agent
+    only ever made establishing, character and lip_sync shots, so tone had to reach
+    those. DST-36 gives every shot a job instead: a scene opens with a pan (the
+    ticket asks for one), alternate scenes pan opposite ways so two in a row do not
+    open alike, and the tone now acts on dialogue. This goes through the actual
+    render and reads back the moves the agent chose."""
     state, _sm = small_project(scenes=3)
-    tones = {s.scene_id: camera.canonical_tone(s.tone) for s in state.script.scenes}
-    assert len(set(tones.values())) > 1, "the template should vary its tones"
 
-    openings = {}
+    openings = []
     for frame in state.video.frames:
-        mood = tones[frame.scene_id]
-        establishing = [s for s in frame.shots if s.kind == "establishing"]
-        assert establishing, frame.scene_id
-        for shot in establishing:
-            # Every establishing move comes from that scene's mood.
-            assert shot.motion in camera.TONE_MOVES[mood], (
-                f"{frame.scene_id} ({mood}) opened on {shot.motion}")
-        openings[frame.scene_id] = establishing[0].motion
-
-    # And different moods really do open differently.
-    assert len(set(openings.values())) > 1, openings
+        first = frame.shots[0]
+        assert first.kind == "establishing" and first.framing == "wide", frame.scene_id
+        assert first.motion in ("pan_left", "pan_right"), (frame.scene_id, first.motion)
+        openings.append(first.motion)
+    assert len(set(openings)) > 1 and all(a != b for a, b in zip(openings, openings[1:])), openings

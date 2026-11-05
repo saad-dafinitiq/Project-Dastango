@@ -564,7 +564,7 @@ def test_the_plan_draws_one_portrait_per_speaking_character_and_the_budget_says_
     assert {p.character_id for p in state.storyboard.portraits} == {c.id for c in people} == {NARR, ARIA}
     drawn = [e for e in events if (e.phase, e.status) == ("storyboard", "portrait")]
     assert {e.payload["character_id"] for e in drawn} == {NARR, ARIA}
-    assert image_budget(state.script) == {"plan": SCENES + 2, "render": 2 * SCENES}
+    assert image_budget(state.script) == {"plan": SCENES + 2, "render": 0}   # 10 s scenes: no cutaway (DST-36)
     script = next(e for e in events if (e.phase, e.status) == ("storyboard", "script"))
     assert script.payload["images"]["plan"] == SCENES + 2
 

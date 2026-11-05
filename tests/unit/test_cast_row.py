@@ -118,9 +118,12 @@ def test_the_plan_streams_each_portrait_as_it_is_drawn(orch):
 
 
 def test_the_image_budget_counts_portraits_in_the_plan_not_the_render():
+    # DST-36: the render draws no picture the plan did not, unless a scene is long
+    # enough to get a detail cutaway. These 8 s scenes are not (see the long case in
+    # test_dst36_coverage.py).
     script = template_script("p", "A robot learns to paint", target_duration_s=24, scene_count=3)
     people = len(script.characters.characters)
-    assert image_budget(script) == {"plan": 3 + people, "render": 2 * 3}
+    assert image_budget(script) == {"plan": 3 + people, "render": 0}
 
 
 # ---- who is in each scene ---------------------------------------------------------
@@ -242,8 +245,9 @@ def test_a_render_with_a_fresh_plan_draws_no_portrait_again(orch, monkeypatch):
 
     assert _portrait_calls(prompts) == []                            # kept, not redrawn
     assert len(state.video.portraits) == len(state.script.characters.characters)
-    # The scenes' other two framings are still drawn: the plan only covered the cast.
-    assert len(prompts) == 2 * len(state.script.scenes)
+    # Only what the plan did not cover is drawn: a medium shot is a crop of the wide
+    # picture, so the render draws just the cutaways of the scenes long enough (DST-36).
+    assert len(prompts) == image_budget(state.script)["render"]
 
 
 def test_a_scene_text_edit_never_redraws_the_cast(orch):
