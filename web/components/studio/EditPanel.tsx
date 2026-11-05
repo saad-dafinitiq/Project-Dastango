@@ -40,6 +40,9 @@ export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onSt
   const last = events[events.length - 1];
   const understood = events.find((e) => e.phase === "edit" && e.status === "understood");
   const summary = understood?.payload?.summary as string | undefined;
+  const steps = (understood?.payload?.steps as string[] | undefined) ?? [];
+  // Only said where it was measured: regrading the pictures took 95 to 135 s live (F17).
+  const expect = steps.includes("apply_filter") ? "Regrading takes one to two minutes on this server." : null;
   const failed = last?.phase === "error" && last.status === "failed";
   const done = last?.phase === "complete";
   const busy = running || sending;
@@ -59,7 +62,7 @@ export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onSt
 
   return (
     <section className={styles.edit} aria-labelledby="change-heading">
-      <h2 id="change-heading" className="label">
+      <h2 id="change-heading">
         Change something
       </h2>
       <form className={styles.editForm} onSubmit={submit}>
@@ -103,6 +106,7 @@ export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onSt
               </button>
             )}
           </p>
+          {running && expect && <p className={styles.editNote}>{expect} You can keep watching meanwhile.</p>}
           {failed && <p className={styles.editNote}>Nothing was changed. The film is as it was.</p>}
         </div>
       )}

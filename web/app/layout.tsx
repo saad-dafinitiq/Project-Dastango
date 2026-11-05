@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
-import { monoFont, titleFont, uiFont } from "@/lib/fonts";
+import { titleFont, uiFont } from "@/lib/fonts";
 
 import "./globals.css";
 
@@ -26,13 +26,23 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0d0c0b",
-  colorScheme: "dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0c0d0f" },
+    { media: "(prefers-color-scheme: light)", color: "#ece1d3" },
+  ],
+  colorScheme: "dark light",
 };
+
+// Runs before the first paint, so a creator who chose a theme never sees the
+// other one flash. No choice stored: the system setting decides (globals.css).
+const THEME_BOOT = `try{var t=localStorage.getItem("dastango-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${titleFont.variable} ${uiFont.variable} ${monoFont.variable}`}>
+    <html lang="en" className={`${titleFont.variable} ${uiFont.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

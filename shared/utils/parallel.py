@@ -7,10 +7,12 @@ pipeline must stay at one.
 """
 from __future__ import annotations
 import contextvars
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, List, Sequence, Tuple
 
+from shared import progress_hook
 from shared.utils.logging import get_logger
 
 log = get_logger("parallel")
@@ -18,8 +20,29 @@ log = get_logger("parallel")
 Job = Tuple[Callable[..., Any], Sequence[Any]]
 
 
-def run_jobs(jobs: List[Job], workers: int, label: str = "") -> List[Any]:
-    """Run (fn, args) jobs with at most `workers` at a time, keeping their order."""
+def run_jobs(jobs: List[Job], workers: int, label: str = "", step: str = "") -> List[Any]:
+    """Run (fn, args) jobs with at most `workers` at a time, keeping their order.
+
+    `step` names what the jobs are for ("shots", "voices"): each finished one is
+    reported to whoever is following the job (shared/progress_hook.py).
+    """
+    total = len(jobs)
+    if step:
+        done_count = [0]
+        lock = threading.Lock()
+        inner = jobs
+
+        def counted(fn: Callable[..., Any]) -> Callable[..., Any]:
+            def run(*args: Any) -> Any:
+                result = fn(*args)
+                with lock:
+                    done_count[0] += 1
+                    progress_hook.report(step, done_count[0], total)
+                return result
+            return run
+
+        jobs = [(counted(fn), args) for fn, args in inner]
+        progress_hook.report(step, 0, total)
     if workers <= 1 or len(jobs) <= 1:
         return [fn(*args) for fn, args in jobs]
     started = time.monotonic()

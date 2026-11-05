@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from mcp.tool_executor import ToolExecutor
-from shared import providers, video_quality
+from shared import progress_hook, providers, stand_in, video_quality
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, PHASE_VIDEO
 from shared.languages import canonical
 from shared.schemas.audio import AudioSegment, SceneTiming
@@ -155,7 +155,7 @@ class VideoAgent:
                                            state.script.story,
                                            self.reusable_portrait(state, c, pic_w, pic_h)))
                  for c in state.script.characters.characters],
-                workers=providers.concurrency("image"), label="portraits",
+                workers=providers.concurrency("image"), label="portraits", step="portraits",
             )
             frames = run_jobs(
                 [(self._generate_scene_frame,
@@ -163,7 +163,7 @@ class VideoAgent:
                    state.script.story,
                    self.reusable_preview(state, scene, pic_w, pic_h)))
                  for scene in state.script.scenes],
-                workers=providers.concurrency("image"), label="scene images",
+                workers=providers.concurrency("image"), label="scene images", step="pictures",
             )
 
             lang = canonical(subtitle_language)
@@ -238,7 +238,9 @@ class VideoAgent:
         log.info("composition: %d scene(s) rendered, %d reused",
                  len(clips), len(plans) - len(clips))
 
+        progress_hook.report("cut", 0, 1)
         final = self._compose_final(state)
+        progress_hook.report("cut", 1, 1)
         video.final_video_path = str(final)
         video.duration_ms = int(round(sum(t.duration_ms for t in timings.values())
                                       / video.speed_factor))
@@ -538,6 +540,7 @@ class VideoAgent:
                     and Path(reusable_preview).exists()):
                 shutil.copyfile(reusable_preview, out)
                 bank.append(str(out))
+                stand_in.mark(out, False)
                 log.info("  scene %s wide shot -> %s (reused the storyboard preview)",
                          scene.scene_id, out.name)
                 continue
@@ -547,6 +550,12 @@ class VideoAgent:
                 negative_prompt=negative, seed=_seed(prompt, seed_salt),
             )
             bank.append(_ensure_image(res, out, prompt, width, height))
+            # Told to the creator when the film is done: a placeholder in place of a picture.
+            # (A placeholder chosen on purpose, as offline runs do, is not a stand-in:
+            # it is the placeholder answering after the real providers failed that is.)
+            meta = res.metadata or {}
+            stand_in.mark(out, not res.success or (meta.get("provider") == "placeholder"
+                                                   and bool(meta.get("fallback"))))
             log.info("  scene %s %s shot -> %s (%s)", scene.scene_id, tag, out.name,
                      res.metadata.get("provider") if res.success else res.error)
         return bank
@@ -654,7 +663,8 @@ class VideoAgent:
             timing.start_ms, timing.end_ms, lines, getattr(scene, "tone", "") or "",
             nominal_ms=scene.duration_ms, scene_index=scene.index,
             has_portrait=lambda cid: portrait_of(cid) is not None,
-            has_cutaway=len(bank) > 1)
+            has_cutaway=len(bank) > 1, scene_id=scene.scene_id,
+            overrides=scene.shot_overrides)
 
         planned: List[PlannedShot] = []
         for j, c in enumerate(covers):
@@ -667,7 +677,7 @@ class VideoAgent:
             kind = {"wide": "establishing", "close": "character", "cutaway": "broll"}.get(
                 c.framing, "character" if c.speakers else "establishing")
             planned.append(PlannedShot(
-                shot_id=f"{frame.scene_id}_est" if j == 0 else f"{frame.scene_id}_s{j + 1}",
+                shot_id=coverage.shot_id_at(frame.scene_id, j),
                 kind=kind, source=source, start_ms=c.start_ms, end_ms=c.end_ms,
                 nominal_frames=span_frames(c.start_ms, c.end_ms, video.fps),
                 render_frames=span_frames(c.start_ms, c.end_ms, video.fps),
@@ -833,7 +843,7 @@ class VideoAgent:
                 jobs.append((render_shot, (rs, shot_dir / f"{p.shot_id}.mp4",
                                            video.width, video.height, video.fps,
                                            video.cinematic_post, video.cinematic_post)))
-        paths = iter(run_jobs(jobs, workers=shot_workers(), label="shots"))
+        paths = iter(run_jobs(jobs, workers=shot_workers(), label="shots", step="shots"))
 
         clips: Dict[str, Path] = {}
         for scene_id, planned in scenes:

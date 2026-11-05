@@ -87,6 +87,8 @@ not enough).
 | Timeline | `shared/timeline.py` | **Single source of truth for timing.** Audio places lines on it, video cuts on its boundaries (absolute ms → frames), subtitles read it. Never time video or audio independently. |
 | Phase 2 | `agents/audio_agent/` | `render_line` (TTS) → `retime` (timeline) → `remix` (per-scene BGM + master with lines placed at `start_ms`). Edits reuse these. |
 | Coverage | `agents/video_agent/coverage.py` | **How a scene is shot (DST-36):** 2 to 4 shots per scene, a wide that opens, a cut to whoever speaks, a pull-out that closes it. Pure planning, called by the renderer and by the storyboard cards, so both show the same shots. A medium is a crop of the wide picture, a close-up the speaker's portrait; only a long scene draws one more picture. Numbers in `config/video.yaml` (`coverage`, `handheld`). |
+| Shot overrides | `shared/schemas/story.py` (`Scene.shot_overrides`), `coverage.apply_overrides`, `PipelineOrchestrator.set_shot`, `EditAgent.set_shot` | **The creator's own camera (DST-38).** A move and/or framing per shot id, laid over the coverage plan by the same code the storyboard and the renderer both call. A close-up needs a face and is otherwise ignored. After a render it is a `shot` job that composes again, re-rendering only the scene whose plan changed. |
+| Render progress | `shared/progress_hook.py`, `shared/stand_in.py` | Agents report finished units (`voices`, `pictures`, `shots`, `cut`) through a context variable, which the orchestrator turns into `step` events; a picture drawn by the placeholder after every provider failed gets a `.standin` marker beside it, and the film says which scenes. |
 | Camera | `agents/video_agent/camera.py` | Camera moves and the grade over them. The picture is enlarged once with Lanczos and the move is computed at ~3x the output size (both set in `config/video.yaml`, DST-35), then scaled down, which is what makes pans smooth enough to use; moves ease in and out; `move_for` picks it from the shot's job and the scene's tone, `grade_for` from the story's own `visual_style`. |
 | Phase 3 | `agents/video_agent/` | `run`: portraits + 3-image shot bank per scene. `compose`: cover each scene (`coverage.plan_coverage`, from the timeline) → render changed scenes only (`plan_signature`) → scene crossfades → master mux → speed → soft-sub tracks. Edits call `compose`. Output is 1080p; pictures stay 1280x720; every quality setting (picture size, upscale filter, easing, sharpen, intermediate vs final CRF/preset) lives in `config/video.yaml` with its reason, read through `shared/video_quality.py`. |
 | Phase 5 | `agents/edit_agent/` | `intent_classifier.py` (LLM or regex; matches character names) → `planner.py` (steps) → `executor.py` (reuses Phase 2/3 primitives) → snapshot. Runs as an `edit` job; starts from, and on failure returns to, the saved version's files. `describe.py` says what a request was understood as. Scene-only voices live in `AudioOutput.scene_voices`. |
@@ -676,6 +678,14 @@ Using it found two bugs:
   the image, each half of the fix is shown to be needed, and CI runs it there.
 - The translation log named the first provider in the chain ("via
   llm:gemini") when Gemini had 503'd and Groq translated.
+
+## DST-38 results (6 Nov 2026): the interface
+
+The creator interface was rebuilt to the design in `docs/UI_DESIGN.md` (Chillax and Synonym, a dark and a light palette, the storyboard as a
+sheet, a render screen read from real events) and the friction points behind it were closed: F3, F4, F8, F10, F11, F12, F13, F15, F16, F17,
+F22. The back end gained what the screens needed and nothing speculative: step events from the render, a per-shot camera stored on the scene,
+a stand-in marker, version numbers the creator can read, and the library's working state. Measured, not claimed: a shot change on a finished
+film re-rendered only that scene (2 shots, 19.6 s locally on the offline providers); a whole render of the same three-scene film was 118 s.
 
 ## Known issues / next milestones
 

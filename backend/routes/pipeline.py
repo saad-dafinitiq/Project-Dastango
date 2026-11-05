@@ -14,7 +14,8 @@ from auth import accounts
 from auth.deps import require_project, require_user
 from auth.accounts import User
 from agents.story_agent import current_length_check
-from shared import voices
+from agents.orchestrator import RENDER_DESCRIPTIONS as RENDERS
+from shared import stand_in, voices
 from agents.orchestrator.storyboard_view import cast, cast_note, image_budget, scene_cards
 from shared.assets import asset_url
 from shared.languages import iso639_1, supported_names
@@ -114,6 +115,12 @@ class SceneEdit(BaseModel):
     dialogue: Optional[Dict[str, str]] = None   # line_id -> new text
 
 
+class ShotChange(BaseModel):
+    move: Optional[str] = None
+    framing: Optional[str] = None
+    reset: bool = False
+
+
 class RenderRequest(BaseModel):
     with_bgm: bool = True
     with_subtitles: bool = True
@@ -204,6 +211,61 @@ def edit_storyboard(project_id: str, scene_id: str, edit: SceneEdit):
     return board
 
 
+@router.get("/shot-options")
+def shot_options():
+    """The camera moves and framings a creator can choose for a shot (DST-38)."""
+    from agents.video_agent import camera
+    return {
+        "moves": [{"id": k, "label": k.replace("_", " "), "about": m.description}
+                  for k, m in camera.MOVES.items()],
+        "framings": [{"id": "wide", "about": "the whole picture"},
+                     {"id": "medium", "about": "closer on part of the picture, no new image"},
+                     {"id": "close", "about": "the speaker's face, from their portrait"}],
+    }
+
+
+@router.patch("/storyboard/{project_id}/{scene_id}/shots/{shot_id}",
+              dependencies=[Depends(require_project)])
+def edit_shot(project_id: str, scene_id: str, shot_id: str, change: ShotChange,
+              user: User = Depends(require_user)):
+    """Choose one shot's camera move and/or framing (DST-38, F4).
+
+    Before a render this is a storyboard edit and answers at once with the
+    storyboard. On a finished film the film has to be cut again, which is a job
+    like any change: the answer is `{job_id, ...}` and progress streams as usual.
+    """
+    if not (change.reset or change.move or change.framing):
+        raise HTTPException(400, "choose a camera move, a framing, or reset")
+    busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done]
+    if busy:
+        raise HTTPException(409, f"This film is being worked on right now ({busy[0].kind}); "
+                                 "try again when it has finished.")
+    state = sm.latest(project_id)
+    if not state or not state.script:
+        raise HTTPException(404, f"no storyboard for {project_id}")
+    from agents.video_agent import camera
+    if change.move is not None and change.move not in camera.MOVES:
+        raise HTTPException(400, f"unknown camera move {change.move!r}")
+    if change.framing is not None and change.framing not in ("wide", "medium", "close"):
+        raise HTTPException(400, f"unknown framing {change.framing!r}")
+    if state.video and state.video.final_video_path:
+        # Refuse a scene or shot that is not there now, rather than queue a job that fails.
+        frame = next((f for f in state.video.frames if f.scene_id == scene_id), None)
+        if frame is None or (frame.shots and shot_id not in {s.shot_id for s in frame.shots}):
+            raise HTTPException(404, f"unknown shot '{shot_id}' in {scene_id}")
+        run = _accepted("shot", project_id, "queued", user, max_attempts=1,
+                        scene_id=scene_id, shot_id=shot_id, move=change.move,
+                        framing=change.framing, reset=change.reset or None)
+        return run.model_dump()
+    try:
+        pipeline_service.orchestrator().set_shot(
+            project_id, scene_id, shot_id, move=change.move, framing=change.framing,
+            reset=change.reset)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return get_storyboard(project_id)
+
+
 @router.post("/render/{project_id}", response_model=RunResponse)
 def start_render(project_id: str, req: RenderRequest,
                  user: User = Depends(require_project)):
@@ -255,6 +317,11 @@ def film(project_id: str):
                 for f in (state.storyboard.frames if state.storyboard else [])}
     stills = {f.scene_id: f.image_path for f in (video.frames or [])}
 
+    # Which cut this is, counting from the first render (the storyboard is not a cut).
+    rows = sm.history(project_id)
+    first = next((i for i, r in enumerate(rows) if r.get("description") in RENDERS), None)
+    cut = (len(rows) - first) if first is not None else 1
+
     chapters = []
     for scene in (state.script.scenes if state.script else []):
         t = timings.get(scene.scene_id)
@@ -277,6 +344,9 @@ def film(project_id: str):
         "duration_ms": video.duration_ms,
         "width": video.width, "height": video.height, "fps": video.fps,
         "version": state.version,
+        "cut": cut,
+        # Scenes drawn with a placeholder because every image service was at its limit.
+        "stand_in_scenes": stand_in.scenes_with_stand_ins(video.frames or []),
         "chapters": chapters,
         "subtitles": subtitle_tracks(project_id),
     }

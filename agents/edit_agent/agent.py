@@ -17,7 +17,7 @@ from state_manager.state_manager import StateManager
 
 from .executor import EditExecutor
 from .intent_classifier import IntentClassifier
-from .planner import plan as plan_steps
+from .planner import EditStep, plan as plan_steps
 
 log = get_logger("edit_agent")
 
@@ -114,6 +114,66 @@ class EditAgent:
                          intent.model_dump(mode="json"),
                          result.model_dump(mode="json"))
         return result
+
+    def set_shot(self, project_id: str, scene_id: str, shot_id: str,
+                 move: Optional[str] = None, framing: Optional[str] = None,
+                 reset: bool = False,
+                 on_progress: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> EditResult:
+        """Change one shot of a finished film and cut it again (DST-38).
+
+        Not a sentence the classifier has to read: the creator picked a camera move
+        or a framing, so there is nothing to interpret. The choice is stored on the
+        scene (`Scene.shot_overrides`) and the film is composed again, which
+        re-renders only the scene whose plan changed. Same guarantees as `edit`:
+        starts from the saved version's files, and on failure or cancel puts them
+        back, so a half-made change never reaches the next one.
+        """
+        from shared.schemas.story import ShotOverride
+
+        progress = on_progress or (lambda _kind, _info: None)
+        state = self.sm.latest(project_id)
+        intent = EditIntent(intent="shot_camera", target="video", scope=f"scene:{scene_id}",
+                            parameters={"shot_id": shot_id, "move": move,
+                                        "framing": framing, "reset": reset})
+        if not state or not state.script:
+            return EditResult(success=False, intent=intent,
+                              error=f"no project state for {project_id}")
+        scene = next((s for s in state.script.scenes if s.scene_id == scene_id), None)
+        if scene is None:
+            return EditResult(success=False, intent=intent, error=f"unknown scene '{scene_id}'")
+        progress("understood", {"intent": intent.model_dump(mode="json"),
+                                "steps": ["recompose_video"]})
+        self._put_back(state)
+        try:
+            if reset:
+                scene.shot_overrides.pop(shot_id, None)
+            else:
+                current = scene.shot_overrides.get(shot_id) or ShotOverride()
+                scene.shot_overrides[shot_id] = ShotOverride(
+                    move=move if move is not None else current.move,
+                    framing=framing if framing is not None else current.framing)
+            progress("step", {"name": "recompose_video", "index": 0, "total": 1})
+            affected = self.executor.execute(state, EditStep("recompose_video", "video", "global"))
+        except BaseException as e:  # noqa: BLE001 — a cancelled job stops here too
+            self._put_back(state)
+            if not isinstance(e, Exception):
+                raise
+            log.exception("shot change failed")
+            return EditResult(success=False, intent=intent, error=f"{type(e).__name__}: {e}")
+        number = next((i + 1 for i, s in enumerate(state.script.scenes)
+                       if s.scene_id == scene_id), 1)
+        if reset:
+            what = "camera as planned"
+        else:
+            what = ", ".join(x for x in (move.replace("_", " ") if move else "",
+                                         f"{framing} framing" if framing else "") if x)
+        version = self.sm.snapshot(
+            state, asset_paths=self._collect_assets(state),
+            description="edit: shot_camera (video)",
+            edit_intent={**intent.model_dump(mode="json"), "query": f"Scene {number}: {what}"})
+        return EditResult(success=True, intent=intent, new_version=version.version,
+                          affected_assets=list(set(affected)),
+                          message=f"changed shot {shot_id}")
 
     def revert(self, project_id: str, version: int) -> PipelineState:
         return self.sm.revert(project_id, version)

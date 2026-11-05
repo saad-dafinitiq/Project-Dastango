@@ -1,6 +1,6 @@
 """Phase 1 schemas — story, characters, and scene-by-scene script."""
 from __future__ import annotations
-from typing import List, Optional, Literal
+from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -42,6 +42,18 @@ class DialogueLine(BaseModel):
     duration_ms: int = Field(default=2500, ge=500)
 
 
+class ShotOverride(BaseModel):
+    """What the creator chose for one shot, over what the coverage plan picked (DST-38).
+
+    Both fields are optional: an absent one means "as planned". Keyed on the scene
+    by shot id (`<scene>_est`, `<scene>_s2`, ...), which is stable while the scene
+    keeps the same number of shots; an override whose shot no longer exists is
+    ignored rather than applied to a different one.
+    """
+    move: Optional[str] = None       # a key of agents.video_agent.camera.MOVES
+    framing: Optional[Literal["wide", "medium", "close"]] = None
+
+
 class Scene(BaseModel):
     """One narrative scene — visual + dialogue + timing."""
     scene_id: str
@@ -60,6 +72,9 @@ class Scene(BaseModel):
     dialogue: List[DialogueLine] = Field(default_factory=list)
     music_mood: str = Field(default="ambient", description="mood for BGM selection")
     transition_in: str = Field(default="fade", description="cut/fade/slide/zoom")
+    shot_overrides: Dict[str, ShotOverride] = Field(
+        default_factory=dict,
+        description="the creator's own camera move / framing per shot, by shot id")
 
     @field_validator("dialogue")
     @classmethod

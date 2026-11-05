@@ -99,6 +99,16 @@ days, **L**arge: a week or more). "Evidence" says how sure we are.
 | F16 | J1 step 5 | The render bar carries "Open-source (Apache-2.0), runs offline on the CPU. No key, no GPU.", a note about the voice engine written for engineers, next to the button the creator is about to press. | [Walked] | **L** to **M** | **S** |
 | F17 | J2 step 4 | A change by sentence takes 95 to 135 s even for a colour change on one scene, and the only text is "Regrading the pictures" with elapsed seconds. What it understood is shown at once (a strength). | [Walked] | **M** | **S** (say what is happening and about how long) to **M** (faster) |
 
+**Added after Hashim's review of 5 Nov** (his concerns, taken as given; the evidence column says "Review" where we have not measured them):
+
+| ID | Where | Friction | Evidence | Impact | Effort |
+|---|---|---|---|---|---|
+| F18 | J2 step 4 | A creator cannot change one object in a picture (a character's coat, a prop) without the scene being drawn again. | Review | **H** | **L**. Needs an image-editing model; the free providers do not offer one, so it needs a paid key and a decision. |
+| F19 | J2 step 4 | The range of changes after a render is narrow (colour, voice, speed, scene text). Creators will ask for more. | Review | **M** to **H** | **M** to **L** |
+| F20 | J1 step 7 | The picture quality of the DST-35 (1080p) and DST-36 (camera coverage) films has not been judged by anyone but the team. | Review | **H** | **S** (watch and judge; no code) |
+| F21 | J1 step 6 | Renders take about 10 to 12 s per second of film on the 2-core Oracle VM (5 to 6 minutes for 30 s), against about 6.7 s measured in M9. | [Walked], Review | **H** | **M**. A larger render machine (for example an AWS worker) costs money, so it needs a decision. |
+| F22 | all | The look and feel falls short of ChatGPT and Higgsfield. | Review | **H** | **M** to **L**. This ticket's visual pass: [UI_DESIGN.md](UI_DESIGN.md). |
+
 ---
 
 ## 5. Compared with others
@@ -143,6 +153,16 @@ listed because it is the biggest gap against the nearest competitor.
 | 8 (larger) | **F4** Let the creator edit each shot's move, framing and length in the strip. | The biggest gap against ImagineArt, and what the DST-36 review asked for. |
 
 **Backlog:** F2 password reset, F5 apply-or-cancel before a change, F6 compare versions, F7 share link, F9, F12, F14, F15, F17.
+
+### 6a. Updated order after Hashim's review (5 Nov)
+
+| When | Items |
+|---|---|
+| **Now (DST-38, built 6 Nov 2026, see CLAUDE.md)** | F3 render stages, typical time and "you can leave this page" · F16 replace the engineer's note with the render button's own line · F10 explain scenes and length · F13 "Try again" on a failed render · F11 an example film beside sign-in · F8 tell the creator when stand-in pictures were used · **F22** the visual pass, with F12, F15 and F17 folded in because the same screens change |
+| **Next** | F18 and F19 (post-render changes) |
+| **Judge** | F20 (watch the DST-35 and DST-36 films and decide) |
+| **Needs Hashim's decision** | F1 (who may sign up) · F21 (a larger render machine and its cost) |
+| **Later** | F4 per-shot controls (the largest part of this ticket's design; needs a back-end change), F2, F5, F6, F7, F9, F14 |
 
 ---
 

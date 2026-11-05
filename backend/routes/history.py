@@ -42,6 +42,9 @@ def film_versions(project_id: str):
     out = []
     for i, row in enumerate(rows[first:]):
         out.append({"version": row["version"], "created_at": row["created_at"],
+                    # What the creator calls it: the first render is cut 1. The storyboard
+                    # before it took version 1, which is why `version` starts at 2 (F15).
+                    "number": i + 1,
                     "current": row["version"] == latest,
                     **_in_words(row, names, first_render=i == 0)})
     return out

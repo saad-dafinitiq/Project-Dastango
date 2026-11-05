@@ -40,7 +40,10 @@ back to one is itself a new version, so trying it costs nothing.
 | `lib/api.ts` | Every call to the server. Typed; same-origin cookies. |
 | `lib/useProgress.ts` | Follows a project's current job. The server replays the whole job on connect, so a reload or a dropped socket loses nothing; events are de-duplicated by row id. |
 | `lib/copy.ts` | Pipeline phases in a creator's words: "Recording the voices", not `phase2_audio`. |
-| `lib/fonts.ts` | The one place the title face is chosen. `docs/mockups/fonts.html` shows all eight candidates set in place. |
+| `lib/fonts.ts`, `app/fonts/` | The two faces (Chillax Semibold for headings, Synonym Regular for text), self-hosted from the supplied `.woff2` files with their licences beside them. Do not modify, subset or convert them. |
+| `app/globals.css` | Every token, in a dark and a light palette (system by default; Auto/Light/Dark in the account menu), the buttons, the status dots and the grain-and-dust layer. Design rules: `docs/UI_DESIGN.md` section 7. |
+| `components/studio/Sheet.tsx`, `Dock.tsx`, `RenderProgress.tsx` | Review (the storyboard as a sheet, with the shot editor), what rendering will spend, and the render screen read from the job's real step events (`lib/renderProgress.ts`). |
+| `public/examples/` | Three frames and an 18 s silent sample shown on sign-in and behind Create until you have films of your own. |
 | `components/studio/Studio.tsx` | Decides which moment you're in purely from server state. |
 | `components/studio/EditPanel.tsx`, `Versions.tsx` | Editing a finished film in a sentence, and going back. Edits are jobs, followed over the same socket as a render. |
 | `app/docs/`, `components/docs/`, `lib/docs.ts` | The public user guide at `/docs`: one registry drives the sidebar, titles, filter and previous/next links; page bodies are in `components/docs/pages/`. |
@@ -50,7 +53,6 @@ back to one is itself a new version, so trying it costs nothing.
 
 - **No Tailwind, no component library.** Three CSS modules and a token file are
   the whole design system; fewer dependencies, smaller attack surface, faster CI.
-- **Fonts are self-hosted at build time** through `next/font`, so a page load
-  never calls Google.
+- **Fonts are self-hosted** through `next/font/local`, so a page load never calls a font service.
 - **TypeScript is pinned to 5.9.** 6.x/7.x are the native-compiler transition,
   and Next 16's type-check path is proven on 5.9.

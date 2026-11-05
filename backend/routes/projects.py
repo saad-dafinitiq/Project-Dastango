@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+import jobs
+
 from auth import accounts
 from auth.accounts import User
 from auth.deps import require_user
@@ -25,12 +27,17 @@ def list_projects(user: User = Depends(require_user)):
         state = sm.latest(pid)
         if not state:
             continue
+        job = jobs.latest_for_project(pid)
         out.append({
             "project_id": pid,
+            # What is happening to the film right now, if anything (DST-38): the
+            # library shows "Rendering" instead of a stale "Storyboard".
+            "working": job.kind if job is not None and not job.done else None,
             "title": state.script.story.title if state.script else "(untitled)",
             "prompt": state.user_prompt,
             "version": state.version,
             "updated_at": state.updated_at,
+            "created_at": getattr(state, "created_at", None),
             "video_url": asset_url(
                 state.video.final_video_path if state.video else None),
             "poster_url": asset_url(_poster(state)),

@@ -9,6 +9,7 @@ import type {
   FilmVersion,
   JobSnapshot,
   RunResponse,
+  ShotOptions,
   Storyboard,
   User,
   VoiceCatalogue,
@@ -72,6 +73,12 @@ export type SceneEdit = {
   dialogue?: Record<string, string>;
 };
 
+export type ShotChange = {
+  move?: string;
+  framing?: "wide" | "medium" | "close";
+  reset?: boolean;
+};
+
 export const api = {
   // accounts
   authStatus: () => request<AuthStatus>("/api/auth/status"),
@@ -95,6 +102,14 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(edit),
     }),
+  shotOptions: () => request<ShotOptions>("/api/pipeline/shot-options"),
+  /** Before a render this answers with the storyboard; on a finished film the film
+   *  is cut again, so it answers with a job to follow. */
+  editShot: (pid: string, sceneId: string, shotId: string, change: ShotChange) =>
+    request<Storyboard | RunResponse>(
+      `/api/pipeline/storyboard/${pid}/${sceneId}/shots/${shotId}`,
+      { method: "PATCH", body: JSON.stringify(change) },
+    ),
   render: (pid: string, opts: RenderOptions) =>
     post<RunResponse>(`/api/pipeline/render/${pid}`, opts),
   film: (pid: string) => request<FilmPlayback>(`/api/pipeline/film/${pid}`),

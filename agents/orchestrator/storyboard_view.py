@@ -41,14 +41,23 @@ def shot_cards(scene, people: Dict) -> List[Dict]:
     its own); a close-up is the speaker's portrait; a cutaway is drawn at render.
     """
     cards = []
+    # Which lines each shot carries, by the same estimated times the plan was cut on.
+    _total, est = coverage.estimated_lines(scene.dialogue, people)
     for i, c in enumerate(coverage.plan_for_script(scene, people,
                                                    has_portrait=lambda cid: cid in people)):
         who = people.get(c.character_id) if c.character_id else None
         cards.append({
-            "shot_id": f"{scene.scene_id}_est" if i == 0 else f"{scene.scene_id}_s{i + 1}",
+            "line_ids": [ln.line_id for ln, e in zip(scene.dialogue, est)
+                         if c.start_ms <= e.start_ms < c.end_ms],
+            "shot_id": coverage.shot_id_at(scene.scene_id, i),
             "framing": c.framing,
             "source": c.source,
             "move": c.move.replace("_", " "),
+            "move_id": c.move,
+            # The creator's own choice over the plan (DST-38): shown, and resettable.
+            "overridden": coverage.shot_id_at(scene.scene_id, i) in (scene.shot_overrides or {}),
+            # A close-up needs a face: only a shot that someone speaks in can have one.
+            "can_close": bool(c.character_id or c.speakers),
             "character_id": c.character_id,
             "character": who.name if who else None,
             "start_ms": c.start_ms,

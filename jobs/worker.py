@@ -35,6 +35,7 @@ METHODS = {
     "rerun_phase": "re_run_phase",
     "edit": "edit",
     "revert": "revert",
+    "shot": "set_shot",
 }
 
 HEARTBEAT_S = 15.0
