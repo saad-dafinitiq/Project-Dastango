@@ -22,13 +22,13 @@ export function Versions({ versions, locked, restoring, now, onGoBack }: Props) 
 
   return (
     <section className={styles.versions} aria-labelledby="versions-heading">
-      <h2 id="versions-heading" className="label">
+      <h2 id="versions-heading">
         Versions
       </h2>
       <ol className={styles.versionList}>
         {newestFirst.map((v) => (
           <li key={v.version} className={`${styles.version} ${v.current ? styles.versionOn : ""}`}>
-            <span className={`meta ${styles.versionNum}`}>v{v.version}</span>
+            <span className={`meta ${styles.versionNum}`}>v{v.number}</span>
             <span className={styles.versionBody}>
               <span className={styles.versionLabel}>
                 {v.kind === "edit" ? `“${v.label}”` : v.label}
@@ -39,7 +39,7 @@ export function Versions({ versions, locked, restoring, now, onGoBack }: Props) 
               </span>
             </span>
             {v.current ? (
-              <span className={`label ${styles.playing}`}>Playing</span>
+              <span className={styles.playing}><i className="dot" /> Playing</span>
             ) : (
               <button
                 className="btn quiet small"

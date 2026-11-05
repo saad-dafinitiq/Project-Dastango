@@ -1,0 +1,198 @@
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 56px;
+  padding: 48px var(--gutter) 40px;
+  max-width: 1480px;
+  margin: 0 auto;
+  width: 100%;
+}
+.main h1 {
+  margin: 0;
+  font-size: clamp(30px, 3.8vw, 46px);
+  letter-spacing: -0.03em;
+}
+.lede {
+  margin: 14px 0 32px;
+  color: var(--mu);
+  font-size: 16px;
+  max-width: 58ch;
+}
+.bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+  overflow: hidden;
+  margin: -12px 0 30px;
+  max-width: 58ch;
+}
+.bar b {
+  display: block;
+  height: 100%;
+  background: var(--ac);
+  transition: width 0.6s var(--ease);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 22px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pic {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--s1);
+}
+.pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.scan::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(var(--fg-rgb), 0.1) 50%, transparent 80%);
+  background-size: 220% 100%;
+  animation: sweep 2.4s linear infinite;
+}
+@keyframes sweep {
+  to {
+    background-position: -220% 0;
+  }
+}
+.cap {
+  margin-top: 9px;
+}
+.cap h3 {
+  margin: 0;
+  font: 600 16px / 1.25 var(--title);
+}
+.side {
+  align-self: start;
+}
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.ledger li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--fa);
+}
+.ledger li[data-state="done"],
+.ledger li[data-state="now"],
+.ledger li[data-state="bad"] {
+  color: var(--fg);
+}
+.ledger b {
+  font-weight: 400;
+  display: block;
+}
+.ledger small {
+  display: block;
+  color: var(--mu);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.gl {
+  padding-top: 7px;
+  display: flex;
+}
+.tm {
+  color: var(--mu);
+  font-size: 13px;
+  padding-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.note {
+  margin: 20px 0 0;
+  font-size: 14px;
+  color: var(--mu);
+}
+.note b {
+  color: var(--fg);
+  font-weight: 600;
+  font-family: var(--title);
+}
+.problem {
+  color: var(--bad);
+}
+
+.dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 14px var(--gutter);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+.strip {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  min-width: 160px;
+}
+.strip i {
+  display: block;
+  width: 56px;
+  height: 32px;
+  border-radius: 3px;
+  background: var(--line2);
+  overflow: hidden;
+}
+.strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cta {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cta p {
+  margin: 0;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--mu);
+}
+.cta .clock {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+@media (max-width: 960px) {
+  .work {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+    padding-top: 28px;
+  }
+  .strip {
+    display: none;
+  }
+  .cta p {
+    text-align: left;
+  }
+}

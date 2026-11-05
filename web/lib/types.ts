@@ -37,6 +37,19 @@ export type CardShot = {
   end_ms: number;
   /** For a medium shot: the part of the wide picture it keeps. */
   crop: { w: number; x: number; y: number } | null;
+  /** Which of the scene's lines this shot carries, by the estimated cut times. */
+  line_ids: string[];
+  /** The camera move's id (`pan_left`), where `move` is the same in words. */
+  move_id: string;
+  /** The creator chose this move or framing, over what the plan picked. */
+  overridden: boolean;
+  /** A close-up needs a face: only a shot someone speaks in can have one. */
+  can_close: boolean;
+};
+
+export type ShotOptions = {
+  moves: { id: string; label: string; about: string }[];
+  framings: { id: "wide" | "medium" | "close"; about: string }[];
 };
 
 /** One scene card. Streamed during planning, read back from the storyboard. */
@@ -104,6 +117,7 @@ export type Film = {
   prompt: string;
   version: number;
   updated_at: string;
+  created_at?: string;
   video_url: string | null;
   poster_url: string | null;
   stage: string;
@@ -138,6 +152,10 @@ export type FilmPlayback = {
   height: number;
   fps: number;
   version: number;
+  /** Which cut this is for the creator: the first render is 1. */
+  cut: number;
+  /** Scenes drawn with a placeholder because every image service was at its limit. */
+  stand_in_scenes: string[];
   chapters: Chapter[];
   subtitles: SubtitleTrack[];
 };
@@ -157,6 +175,8 @@ export type ProgressEvent = {
 /** One version of a finished film, in the creator's words. */
 export type FilmVersion = {
   version: number;
+  /** What the creator calls it: the first render is cut 1 (`version` counts the storyboard). */
+  number: number;
   created_at: string;
   current: boolean;
   kind: "render" | "edit" | "revert" | "rerun" | "other";
@@ -168,7 +188,7 @@ export type FilmVersion = {
 export type JobSnapshot = {
   project_id: string;
   job_id?: string;
-  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert";
+  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert" | "shot";
   prompt?: string | null;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
   phase?: string;

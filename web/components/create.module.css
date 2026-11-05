@@ -1,0 +1,369 @@
+/* Create: one sentence in. No overlay, vignette or shadow: the pictures are laid
+   at a flat strength (--pic) and everything that must be read sits on a solid
+   surface. Light mode multiplies them onto the sand so they keep their colour
+   instead of looking like a white veil. */
+.app {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+.stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 60px;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+:global(:root[data-theme="light"]) .stage {
+  bottom: auto;
+  height: 720px;
+  background: var(--bg);
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+}
+:global(:root[data-theme="light"]) .stage img {
+  mix-blend-mode: multiply;
+  filter: sepia(0.3) saturate(1.1);
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme="dark"])) .stage {
+    bottom: auto;
+    height: 720px;
+    background: var(--bg);
+    -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+  }
+  :global(:root:not([data-theme="dark"])) .stage img {
+    mix-blend-mode: multiply;
+    filter: sepia(0.3) saturate(1.1);
+  }
+}
+.stage img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  filter: saturate(0.8);
+  will-change: transform, opacity;
+}
+.stage img:nth-child(1) {
+  animation: pushin 42s linear infinite;
+}
+.stage img:nth-child(2) {
+  animation: panleft 42s linear infinite 14s;
+}
+.stage img:nth-child(3) {
+  animation: pullout 42s linear infinite 28s;
+}
+@keyframes pushin {
+  0% {
+    opacity: var(--pic);
+    transform: scale(1);
+  }
+  33% {
+    opacity: var(--pic);
+  }
+  38% {
+    opacity: 0;
+    transform: scale(1.13);
+  }
+  95% {
+    opacity: 0;
+    transform: scale(1.13);
+  }
+  100% {
+    opacity: var(--pic);
+    transform: scale(1);
+  }
+}
+@keyframes panleft {
+  0% {
+    opacity: 0;
+    transform: scale(1.1) translateX(2.5%);
+  }
+  5% {
+    opacity: var(--pic);
+  }
+  33% {
+    opacity: var(--pic);
+  }
+  38% {
+    opacity: 0;
+    transform: scale(1.1) translateX(-2.5%);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1) translateX(-2.5%);
+  }
+}
+@keyframes pullout {
+  0% {
+    opacity: 0;
+    transform: scale(1.13);
+  }
+  5% {
+    opacity: var(--pic);
+  }
+  33% {
+    opacity: var(--pic);
+  }
+  38% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage img {
+    animation: none !important;
+  }
+  .stage img:nth-child(1) {
+    opacity: var(--pic);
+  }
+}
+
+.top {
+  position: relative;
+  z-index: 2;
+}
+.hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 88px var(--gutter) 0;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+.hello {
+  font-size: 20px;
+  color: var(--mu);
+  min-height: 30px;
+}
+:global(:root[data-theme="light"]) .hello {
+  color: var(--fg);
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme="dark"])) .hello {
+    color: var(--fg);
+  }
+}
+.hero h1 {
+  margin: 12px 0 40px;
+  font: 600 clamp(40px, 7vw, 78px) / 1 var(--title);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.write {
+  width: 100%;
+  text-align: left;
+  background: rgba(var(--s1-rgb), 0.92);
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  padding: 22px 26px 18px;
+}
+.write textarea {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  resize: none;
+  color: var(--fg);
+  font: 400 26px / 1.4 var(--ui);
+  padding: 0;
+  min-height: 96px;
+  text-align: left;
+}
+.write textarea::placeholder {
+  color: var(--mu);
+}
+.write:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.ctl {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ctl .select {
+  min-height: 40px;
+  font-size: 14px;
+}
+.help {
+  font: inherit;
+  font-size: 14px;
+  color: var(--mu);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 4px;
+  margin-left: 6px;
+  padding: 6px 0;
+}
+.help:hover {
+  color: var(--fg);
+}
+.go {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+.eta {
+  font-size: 13px;
+  color: var(--mu);
+}
+.explain {
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: rgba(var(--bg-rgb), 0.6);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--mu);
+}
+.explain b {
+  font-family: var(--title);
+  font-weight: 600;
+  color: var(--fg);
+}
+.explain p {
+  margin: 0 0 6px;
+}
+.explain p:last-child {
+  margin: 0;
+}
+.note {
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: var(--mu);
+  max-width: 62ch;
+  background: rgba(var(--s1-rgb), 0.92);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+.error {
+  color: var(--bad);
+}
+.ideas {
+  margin-top: 28px;
+  width: 100%;
+  text-align: left;
+  background: rgba(var(--s1-rgb), 0.92);
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  padding: 2px 24px;
+}
+.idea {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  width: 100%;
+  padding: 15px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  font: 400 20px / 1.35 var(--ui);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.idea:last-child {
+  border-bottom: 0;
+}
+.idea svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--mu);
+}
+.idea:hover svg {
+  color: var(--fg);
+}
+
+/* Your films, under the box. */
+.reel {
+  position: relative;
+  z-index: 1;
+  max-width: 1360px;
+  margin: 96px auto 0;
+  padding: 0 var(--gutter) 72px;
+  width: 100%;
+}
+.rh {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+.rh h2 {
+  margin: 0;
+  font: 600 28px var(--title);
+  letter-spacing: -0.015em;
+}
+.more {
+  font-size: 14px;
+  color: var(--mu);
+}
+.more:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding-top: 40px;
+  }
+  .hero h1 {
+    margin-bottom: 24px;
+  }
+  .write {
+    padding: 16px 16px 14px;
+  }
+  .write textarea {
+    font-size: 20px;
+    min-height: 84px;
+  }
+  .idea {
+    font-size: 17px;
+  }
+  .go {
+    width: 100%;
+  }
+  .go :global(.btn) {
+    flex: 1;
+    white-space: nowrap;
+  }
+  .eta {
+    display: none;
+  }
+  :global(:root[data-theme="light"]) .stage {
+    height: 430px;
+  }
+}

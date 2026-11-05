@@ -49,10 +49,12 @@ the OpenAPI schema at `/api/openapi.json` (`/docs` is the product's own guide).
 | POST | `/plan` | `{prompt, target_duration_s=45, scene_count=4, with_preview=true}` | Queue a storyboard: script, one portrait per character and one preview per scene |
 | GET | `/storyboard/{project_id}?engine=` | none | Scene cards (tone, camera move, `characters` who speak in the scene, lines and the voice that will speak each), the cast (per character: `name`, `role`, `description`, `voice`, `portrait_url`, `drawn`; `drawn` is false when the picture is only a stand-in), image budget, and the script's length check (`length`) |
 | PATCH | `/storyboard/{project_id}/{scene_id}` | `{title?, setting?, visual_prompt?, dialogue?: {line_id: text}}` | Edit one scene; a new `visual_prompt` redraws only that scene's preview (one image). The words are saved as a version even if the picture could not be drawn: the answer then has `redraw: {ok: false, message}` and the previous picture is kept (`redraw: {ok: true}` otherwise, absent for a words-only edit). `409` while a plan, render or edit is running for the film. Preview addresses end in `?v=` and change only when the picture does |
+| GET | `/shot-options` | none | The camera moves (`id`, `label`, `about`) and framings a creator can choose for a shot |
+| PATCH | `/storyboard/{project_id}/{scene_id}/shots/{shot_id}` | `{move?, framing?: wide\|medium\|close, reset?}` | Choose one shot's camera move and/or framing (DST-38). Before a render it saves a storyboard version and answers with the storyboard. On a finished film the film must be cut again, so it queues a `shot` job and answers `{job_id, …}` (progress streams like an edit; only the changed scene is re-rendered, no images are drawn). A framing the shot cannot have (a close-up with nobody speaking) is ignored. `400` for an unknown move or framing, `409` while the film is being worked on |
 | POST | `/render/{project_id}` | `{with_bgm, with_subtitles, subtitle_language, burn_subtitles, tts_engine?}` | Queue the render of an approved storyboard |
 | POST | `/run` | `{prompt, target_duration_s, scene_count, with_bgm, with_subtitles, subtitle_language, tts_engine?}` | Plan and render in one job |
 | POST | `/rerun` | `{project_id, phase: story\|audio\|video}` | Re-run a phase and everything after it, keeping the film's settings |
-| GET | `/film/{project_id}` | none | What the player needs: `video_url`, duration, size, version, and scenes as chapters with `start_ms`/`end_ms` and a poster |
+| GET | `/film/{project_id}` | none | What the player needs: `video_url`, duration, size, version, `cut` (which cut this is for the creator: the first render is 1), `stand_in_scenes` (scene ids drawn with a placeholder because every image service was at its limit), and scenes as chapters with `start_ms`/`end_ms` and a poster |
 | GET | `/subtitles/{project_id}` | none | The film's WebVTT tracks for the player: language, URL, and which one is burned in |
 | GET | `/languages` | none | The 14 subtitle languages |
 | GET | `/state/{project_id}` | none | The full `PipelineState` |
@@ -71,7 +73,7 @@ this machine cannot run is `409` with the reason ("run
 | POST | `/api/edit/apply` | `{project_id, query}` | Queue an edit and wait for it (kept for scripts and the classic page) |
 | GET | `/api/edit/log/{project_id}` | none | Every edit with its intent and result |
 | GET | `/api/history/{project_id}` | none | The version list |
-| GET | `/api/history/{project_id}/film` | none | Versions that produced a film, in the creator's words, with which is current |
+| GET | `/api/history/{project_id}/film` | none | Versions that produced a film, in the creator's words, with which is current; `number` is the creator's count (the first render is 1) where `version` also counts the storyboard |
 | POST | `/api/history/{project_id}/revert/{version}` | none | Go back: restores that version's state and files as a **new** version |
 
 ## Jobs: `/api/jobs`
@@ -125,6 +127,7 @@ reconnect is seamless.
 | `storyboard` / `frame` | One preview is drawn: payload has `scene_id`, `preview_url` |
 | `storyboard` / `portrait` | One character's portrait is drawn: payload has `character_id`, `portrait_url`, `drawn` (false for a stand-in, which the render replaces) |
 | `audio`, `video` / `started`, `complete` | Render phases |
+| `audio`, `video` / `step` | A unit of render work finished (DST-38): payload `{step: voices\|portraits\|pictures\|shots\|cut, done, total}`, e.g. shot 7 of 18 |
 | `edit` / `understood` | What a change was taken to mean: payload has `summary` |
 | `edit` / `step` | Each edit step, in words ("Recording the voices") |
 | `complete` / `complete` | Done: payload has the new `version` |

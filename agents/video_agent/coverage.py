@@ -23,7 +23,8 @@ Every number is in config/video.yaml with its reason.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Tuple
+from dataclasses import replace
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from agents.video_agent import camera
 from shared import video_quality
@@ -63,6 +64,56 @@ class Cover:
     @property
     def duration_ms(self) -> int:
         return self.end_ms - self.start_ms
+
+
+def shot_id_at(scene_id: str, index: int) -> str:
+    """The id of a scene's `index`-th shot: the one every plan, card and clip uses."""
+    return f"{scene_id}_est" if index == 0 else f"{scene_id}_s{index + 1}"
+
+
+def apply_overrides(covers: List[Cover], scene_id: str, scene_index: int,
+                    overrides: Optional[Mapping[str, object]],
+                    has_portrait: Callable[[str], bool] = lambda _id: True) -> List[Cover]:
+    """The plan with the creator's own choices laid over it (DST-38).
+
+    A move is taken as given when the camera knows it. A framing is taken when the
+    shot can have it: a close-up needs someone's face, so it is only honoured for a
+    shot that speaks and whose speaker has a portrait; a medium is a crop of the
+    wide picture and always possible; a cutaway is drawn at render time and is left
+    alone. Anything that cannot be honoured is ignored, never half-applied.
+    """
+    if not overrides:
+        return covers
+    q = video_quality.get()
+    out: List[Cover] = []
+    mediums = 0
+    for j, c in enumerate(covers):
+        if c.framing == "medium":
+            mediums += 1
+        ov = overrides.get(shot_id_at(scene_id, j))
+        if ov is None or c.framing == "cutaway":
+            out.append(c)
+            continue
+        get = (lambda k: ov.get(k)) if isinstance(ov, Mapping) else (lambda k: getattr(ov, k, None))
+        move, framing = get("move"), get("framing")
+        new = c
+        if framing and framing != c.framing:
+            if framing == "wide":
+                new = replace(new, framing="wide", source="wide", crop=None, character_id=None)
+            elif framing == "medium":
+                x = MEDIUM_X[(mediums + scene_index) % 2]
+                mediums += 1
+                new = replace(new, framing="medium", source="wide",
+                              crop=(q.medium_crop, x, MEDIUM_Y), character_id=None)
+            elif framing == "close":
+                who = c.character_id or next((s for s in c.speakers if has_portrait(s)), None)
+                if who and has_portrait(who):
+                    new = replace(new, framing="close", source="portrait", crop=None,
+                                  character_id=who)
+        if move and move in camera.MOVES:
+            new = replace(new, move=move)
+        out.append(new)
+    return out
 
 
 # ---- how many shots, and whether a cutaway picture ------------------------------
@@ -192,8 +243,12 @@ def _grow(runs: List[_Run], n: int, min_ms: int, cutaway: bool) -> None:
 def plan_coverage(scene_start_ms: int, scene_end_ms: int, lines: Sequence[CoverLine],
                   tone: str, nominal_ms: int, scene_index: int = 0,
                   has_portrait: Callable[[str], bool] = lambda _id: True,
-                  has_cutaway: bool = False) -> List[Cover]:
+                  has_cutaway: bool = False, scene_id: str = "",
+                  overrides: Optional[Mapping[str, object]] = None) -> List[Cover]:
     """The shots of one scene, covering [scene_start_ms, scene_end_ms) exactly.
+
+    `overrides` are the creator's own camera move / framing per shot id
+    (`apply_overrides`); without a `scene_id` there is nothing to key them on.
 
     `nominal_ms` is the script's length for the scene, which fixes how many shots
     there are; the line times decide where the cuts fall. Whoever is speaking is
@@ -244,6 +299,8 @@ def plan_coverage(scene_start_ms: int, scene_end_ms: int, lines: Sequence[CoverL
             character_id=character, speakers=r.speakers, crop=crop,
             move=camera.move_for_role(move_role, tone, r.emotional, scene_index, i),
             emotional=r.emotional))
+    if overrides and scene_id:
+        covers = apply_overrides(covers, scene_id, scene_index, overrides, has_portrait)
     return covers
 
 
@@ -278,4 +335,6 @@ def plan_for_script(scene, people, has_portrait: Callable[[str], bool] = lambda 
     return plan_coverage(0, total, lines, getattr(scene, "tone", "") or "",
                          nominal_ms=scene.duration_ms, scene_index=scene.index,
                          has_portrait=has_portrait,
-                         has_cutaway=needs_cutaway(scene.duration_ms))
+                         has_cutaway=needs_cutaway(scene.duration_ms),
+                         scene_id=getattr(scene, "scene_id", ""),
+                         overrides=getattr(scene, "shot_overrides", None))

@@ -1,28 +1,27 @@
-// Fonts are downloaded at build time and served with the app — nothing is
-// fetched from Google when a page loads.
+// The two faces, self-hosted from the files the kit supplied (Fontshare, ITF FFL:
+// self-hosting and commercial use are allowed; the files must not be modified,
+// subset or converted, so they are the supplied .woff2 exactly, licence text
+// beside them in app/fonts/). Nothing is fetched from a font service at runtime.
 //
-// The title face is the one design decision still open (see
-// docs/mockups/fonts.html for all eight candidates set in place), so it is
-// chosen here and nowhere else. Swapping it is this one import.
-import { Fraunces, JetBrains_Mono, Outfit } from "next/font/google";
+// Chillax Semibold: every heading, large or small.  Synonym Regular: all other
+// text. Each comes in one weight, so `font-synthesis: none` (globals.css) keeps
+// the browser from faking a bold or an italic the kit does not have.
+import localFont from "next/font/local";
 
-export const titleFont = Fraunces({
-  subsets: ["latin"],
+export const titleFont = localFont({
+  src: "../app/fonts/Chillax-Semibold.woff2",
+  weight: "600",
+  style: "normal",
   variable: "--font-title",
-  // SOFT rounds the terminals, WONK gives the italic-leaning n/m/h their lean;
-  // together they are what makes it read as storytelling rather than software.
-  axes: ["SOFT", "WONK", "opsz"],
   display: "swap",
+  fallback: ["system-ui", "sans-serif"],
 });
 
-export const uiFont = Outfit({
-  subsets: ["latin"],
+export const uiFont = localFont({
+  src: "../app/fonts/Synonym-Regular.woff2",
+  weight: "400",
+  style: "normal",
   variable: "--font-ui",
   display: "swap",
-});
-
-export const monoFont = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
+  fallback: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
 });

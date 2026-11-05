@@ -4,6 +4,7 @@ Composes Phase 1 -> 2 -> 3 with progress events suitable for SSE/WebSocket
 streaming, and snapshots the final state via StateManager.
 """
 from __future__ import annotations
+import contextlib
 import functools
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,7 +15,7 @@ from agents.edit_agent import EditAgent
 from agents.edit_agent.describe import STEP_WORDS, describe
 from agents.story_agent import StoryAgent, current_length_check
 from agents.video_agent import VideoAgent
-from shared import providers
+from shared import progress_hook, providers, stand_in
 from shared.assets import asset_url
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, film_length_tolerance
 
@@ -45,6 +46,26 @@ def _noting_daily_quotas(method):
         with providers.noting_daily_quotas():
             return method(*args, **kwargs)
     return wrapper
+
+
+# Which phase each reported step belongs to, for the progress event it becomes.
+STEP_PHASE = {"voices": "audio", "portraits": "video", "pictures": "video",
+              "shots": "video", "cut": "video"}
+
+
+@contextlib.contextmanager
+def _following_steps(emit, project_id):
+    """Turn the agents' step reports into progress events while a job runs, so the
+    creator sees "shots 7 of 12" rather than one sentence for four minutes (DST-38)."""
+    def sink(step, done, total):
+        emit(ProgressEvent(phase=STEP_PHASE.get(step, "video"), status="step",
+                           project_id=project_id, message=step,
+                           progress=0.0, payload={"step": step, "done": done, "total": total}))
+    token = progress_hook.listen(sink)
+    try:
+        yield
+    finally:
+        progress_hook.stop(token)
 
 
 # How a version that produced a film is described in the history. The film's
@@ -318,11 +339,12 @@ class PipelineOrchestrator:
                          tts_engine=tts_engine,
                          use_text_to_video=use_text_to_video, use_lip_sync=use_lip_sync)
         try:
-            self._render_graph().run(
-                ctx,
-                on_node=lambda name, _c: emit(self._node_event(name, project_id, done=False)),
-                on_node_done=lambda name, _c: emit(self._node_event(name, project_id, done=True)),
-            )
+            with _following_steps(emit, project_id):
+                self._render_graph().run(
+                    ctx,
+                    on_node=lambda name, _c: emit(self._node_event(name, project_id, done=False)),
+                    on_node_done=lambda name, _c: emit(self._node_event(name, project_id, done=True)),
+                )
         except Exception as e:  # noqa: BLE001
             emit(ProgressEvent(phase="error", status="failed", project_id=project_id,
                                message=str(e), progress=1.0))
@@ -409,6 +431,82 @@ class PipelineOrchestrator:
         return state
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
+
+    def set_shot(self, project_id: str, scene_id: str, shot_id: str,
+                 move: Optional[str] = None, framing: Optional[str] = None,
+                 reset: bool = False,
+                 on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
+        """Change one shot's camera move or framing (DST-38, F4).
+
+        Before a render it is a storyboard edit: saved as a new version, nothing
+        drawn. After one, the film is cut again from the same pictures, and only
+        the scene that changed is re-rendered (the scene's plan signature is what
+        decides), so it costs seconds and no images. Either way the creator's
+        choice is stored on the scene and survives later edits.
+        """
+        from agents.video_agent import camera, coverage
+        from shared.schemas.story import ShotOverride
+
+        emit = on_event or (lambda _e: None)
+        state = self.sm.latest(project_id)
+        if not state or not state.script:
+            raise ValueError(f"no storyboard for {project_id}")
+        scene = next((s for s in state.script.scenes if s.scene_id == scene_id), None)
+        if not scene:
+            raise ValueError(f"unknown scene '{scene_id}'")
+        people = {c.id: c for c in state.script.characters.characters}
+        planned = {coverage.shot_id_at(scene_id, i)
+                   for i in range(len(coverage.plan_for_script(scene, people)))}
+        if state.video:
+            for f in state.video.frames:
+                if f.scene_id == scene_id and f.shots:
+                    planned = {s.shot_id for s in f.shots}
+        if shot_id not in planned:
+            raise ValueError(f"unknown shot '{shot_id}' in {scene_id}")
+        if move is not None and move not in camera.MOVES:
+            raise ValueError(f"unknown camera move '{move}'")
+        if framing is not None and framing not in ("wide", "medium", "close"):
+            raise ValueError(f"unknown framing '{framing}'")
+
+        film = state.video is not None and bool(state.video.final_video_path)
+        if film:
+            emit(ProgressEvent(phase="edit", status="started", project_id=project_id,
+                               message="Changing the shot", progress=0.05,
+                               payload={"query": "Change a shot"}))
+
+            def hear(kind, info):
+                if kind == "step":
+                    emit(ProgressEvent(
+                        phase="edit", status="step", project_id=project_id,
+                        message=STEP_WORDS.get(info["name"], "Working on it"),
+                        progress=0.1 + 0.85 * info["index"] / max(info["total"], 1),
+                        payload=info))
+
+            result = self.editor.set_shot(project_id, scene_id, shot_id, move=move,
+                                          framing=framing, reset=reset, on_progress=hear)
+            if not result.success:
+                raise EditFailed(result.error or "the shot could not be changed")
+            emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
+                               message=f"Shot changed (version {result.new_version})",
+                               progress=1.0,
+                               payload={"version": result.new_version, "kind": "edit",
+                                        "result": result.model_dump(mode="json")}))
+            return self.sm.latest(project_id)
+
+        if reset:
+            scene.shot_overrides.pop(shot_id, None)
+        else:
+            current = scene.shot_overrides.get(shot_id) or ShotOverride()
+            scene.shot_overrides[shot_id] = ShotOverride(
+                move=move if move is not None else current.move,
+                framing=framing if framing is not None else current.framing)
+        self.story.serialize(state)
+        self.sm.snapshot(state, asset_paths=self._collect_assets(state),
+                         description=f"storyboard edit: {shot_id}")
+        emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
+                           message="Shot changed", progress=1.0,
+                           payload={"version": state.version, "kind": "shot"}))
+        return state
 
     @_noting_daily_quotas
     def edit(self, project_id: str, query: str,
@@ -553,6 +651,12 @@ class PipelineOrchestrator:
                     r["name"] for r in state.metadata["cast_check"]["removed"]
                     if r.get("named_in_prompt")]
             return note, payload
+        stand_ins = stand_in.scenes_with_stand_ins(video.frames)
+        if stand_ins:
+            numbers = {s.scene_id: i + 1 for i, s in enumerate(state.script.scenes)}
+            note += (" · stand-in pictures in scene "
+                     + ", ".join(str(numbers.get(sid, sid)) for sid in stand_ins))
+            payload["stand_in_scenes"] = stand_ins
         if video.subtitles_skipped:
             note += f" · subtitles skipped, translation failed: {', '.join(video.subtitles_skipped)}"
             payload["subtitles_skipped"] = list(video.subtitles_skipped)

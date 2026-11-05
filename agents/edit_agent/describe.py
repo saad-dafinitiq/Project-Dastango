@@ -54,6 +54,13 @@ def _what(intent: Mapping[str, Any]) -> str:
         return "faster" if name == "speed_up" else "slower"
     if name in ("regenerate_script", "change_genre"):
         return f"a rewritten {p['genre']} script" if p.get("genre") else "a rewritten script"
+    if name == "shot_camera":
+        if p.get("reset"):
+            return "the camera as planned"
+        parts = [str(p["move"]).replace("_", " ")] if p.get("move") else []
+        if p.get("framing"):
+            parts.append(f"{p['framing']} framing")
+        return ", ".join(parts) or "a different shot"
     if name == "regenerate_audio":
         return "the voices recorded again"
     return name.replace("_", " ") or "a change"

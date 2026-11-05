@@ -117,7 +117,7 @@ class AudioAgent:
                   (state.project_id, scene.scene_id, line.line_id, line.text,
                    cfg_by_char.get(line.character_id), line.duration_ms))
                  for scene, line in lines],
-                workers=providers.concurrency("tts"), label="tts lines",
+                workers=providers.concurrency("tts"), label="tts lines", step="voices",
             )
             segments: List[AudioSegment] = [
                 AudioSegment(

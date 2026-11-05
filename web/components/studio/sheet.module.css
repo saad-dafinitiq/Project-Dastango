@@ -1,0 +1,670 @@
+/* Review: the storyboard as a sheet. Scenes are rows, shots are cards, the script
+   sits under each shot. Selection is a ring + a check + the word "Editing",
+   never colour alone. */
+.page {
+  padding: 44px var(--gutter) 40px;
+  max-width: 1480px;
+  margin: 0 auto;
+  width: 100%;
+}
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 40px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.head h1 {
+  margin: 0;
+  font-size: clamp(32px, 4vw, 46px);
+  letter-spacing: -0.03em;
+}
+.meta {
+  margin: 12px 0 0;
+  color: var(--mu);
+  font-size: 15px;
+  max-width: 64ch;
+}
+.cast {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cast li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--mu);
+}
+.cast img,
+.stand {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 22%;
+  background: var(--s2);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--fg);
+}
+.castNote {
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: var(--mu);
+}
+.problem {
+  color: var(--bad);
+  margin: 16px 0 0;
+  font-size: 14px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: var(--mu);
+  flex-wrap: wrap;
+}
+
+.scene {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 30px;
+  padding: 34px 0;
+  border-bottom: 1px solid var(--line);
+}
+.rail h2 {
+  margin: 0;
+  font: 600 56px / 1 var(--title);
+  letter-spacing: -0.04em;
+  color: var(--fa);
+}
+.rail h3 {
+  margin: 14px 0 0;
+  font: 600 22px / 1.2 var(--title);
+  letter-spacing: -0.01em;
+}
+.rail p {
+  margin: 6px 0 0;
+  color: var(--mu);
+  font-size: 14px;
+}
+.railActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+}
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 26px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shot {
+  min-width: 0;
+}
+.frame {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--s1);
+  display: grid;
+  place-items: center;
+}
+.frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pending::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(var(--fg-rgb), 0.07) 50%, transparent 80%);
+  background-size: 220% 100%;
+  animation: sweep 2.1s linear infinite;
+}
+@keyframes sweep {
+  to {
+    background-position: -220% 0;
+  }
+}
+.later {
+  font-size: 13px;
+  color: var(--fa);
+  padding: 8px;
+  text-align: center;
+}
+.tc {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+}
+/* The selected shot: a ring offset from the picture, plus the word in its caption. */
+.shot[aria-current="true"] .frame {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 13px;
+}
+.line b {
+  font-weight: 600;
+  font-family: var(--title);
+  font-size: 16px;
+}
+.mv {
+  color: var(--fa);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.own {
+  color: var(--mu);
+}
+.edit {
+  font: inherit;
+  font-size: 14px;
+  color: var(--mu);
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.edit:hover {
+  color: var(--fg);
+}
+.edit svg {
+  width: 15px;
+  height: 15px;
+}
+.shot[aria-current="true"] .edit {
+  color: var(--fg);
+}
+.say {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.say b {
+  display: block;
+  font-weight: 600;
+  font-family: var(--title);
+  font-size: 13px;
+  color: var(--mu);
+  margin-bottom: 1px;
+}
+.say + .say {
+  margin-top: 10px;
+}
+.none {
+  color: var(--fa);
+}
+
+/* The editor opens in place under the scene's shots. */
+.ed {
+  grid-column: 2;
+  margin-top: 6px;
+  background: var(--s1);
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  padding: 26px 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 34px;
+}
+.ed h3 {
+  margin: 0;
+  font: 600 24px / 1.15 var(--title);
+  letter-spacing: -0.01em;
+}
+.editing {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--fg);
+  margin-left: 10px;
+  vertical-align: middle;
+}
+.editing svg {
+  width: 14px;
+  height: 14px;
+}
+.sub {
+  margin: 6px 0 20px;
+  color: var(--fa);
+  font-size: 14px;
+}
+.grp {
+  margin-top: 20px;
+}
+.grp > b {
+  display: block;
+  font-weight: 600;
+  font-family: var(--title);
+  font-size: 13px;
+  color: var(--fa);
+  margin: 0 0 6px;
+}
+.opts {
+  border-top: 1px solid var(--line);
+}
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 44px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--mu);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.opt:hover:not(:disabled) {
+  color: var(--fg);
+}
+.opt:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.opt .glyph {
+  width: 26px;
+  height: 17px;
+  flex: none;
+}
+.opt .ck {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+}
+.opt[aria-checked="true"] {
+  color: var(--fg);
+}
+.opt[aria-checked="true"] .ck {
+  opacity: 1;
+}
+.opt small {
+  color: var(--fa);
+  font-size: 13px;
+}
+.fr {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip {
+  font: inherit;
+  font-size: 15px;
+  color: var(--mu);
+  background: none;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  cursor: pointer;
+}
+.chip:hover:not(:disabled) {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chip[aria-checked="true"] {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.chip .ck {
+  width: 14px;
+  height: 14px;
+  display: none;
+}
+.chip[aria-checked="true"] .ck {
+  display: block;
+}
+.acts {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--fa);
+}
+.preview {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--s1);
+}
+.preview .moving {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  animation-duration: 4.5s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+.preview .moving img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.moving[data-move="push_in"] {
+  animation-name: mv-push;
+}
+.moving[data-move="pull_out"] {
+  animation-name: mv-pull;
+}
+.moving[data-move="pan_left"] {
+  animation-name: mv-panl;
+}
+.moving[data-move="pan_right"] {
+  animation-name: mv-panr;
+}
+.moving[data-move="tilt_up"] {
+  animation-name: mv-tiltu;
+}
+.moving[data-move="tilt_down"] {
+  animation-name: mv-tiltd;
+}
+.moving[data-move="drift"] {
+  animation-name: mv-drift;
+}
+.moving[data-move="handheld"] {
+  animation-name: mv-hand;
+  animation-duration: 2.2s;
+}
+@keyframes mv-push {
+  from { transform: scale(1); }
+  to { transform: scale(1.14); }
+}
+@keyframes mv-pull {
+  from { transform: scale(1.14); }
+  to { transform: scale(1); }
+}
+@keyframes mv-panl {
+  from { transform: scale(1.12) translateX(3%); }
+  to { transform: scale(1.12) translateX(-3%); }
+}
+@keyframes mv-panr {
+  from { transform: scale(1.12) translateX(-3%); }
+  to { transform: scale(1.12) translateX(3%); }
+}
+@keyframes mv-tiltu {
+  from { transform: scale(1.12) translateY(3%); }
+  to { transform: scale(1.12) translateY(-3%); }
+}
+@keyframes mv-tiltd {
+  from { transform: scale(1.12) translateY(-3%); }
+  to { transform: scale(1.12) translateY(3%); }
+}
+@keyframes mv-drift {
+  from { transform: scale(1.1) translate(-2%, 2%); }
+  to { transform: scale(1.1) translate(2%, -2%); }
+}
+@keyframes mv-hand {
+  0% { transform: scale(1.05) translate(0, 0); }
+  35% { transform: scale(1.05) translate(0.6%, -0.5%); }
+  70% { transform: scale(1.05) translate(-0.5%, 0.4%); }
+  100% { transform: scale(1.05) translate(0.3%, 0.5%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview .moving {
+    animation: none !important;
+  }
+}
+.tline {
+  display: flex;
+  gap: 4px;
+  margin-top: 18px;
+}
+.tline i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line2);
+}
+.tline i[data-on="true"] {
+  background: var(--fg);
+}
+.tlabels {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fa);
+}
+.tlabels span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tlabels span[data-on="true"] {
+  color: var(--fg);
+}
+.sayline {
+  margin: 20px 0 0;
+  font-size: 15px;
+  color: var(--fg);
+}
+.sayline b {
+  display: block;
+  font-weight: 600;
+  font-family: var(--title);
+  font-size: 13px;
+  color: var(--mu);
+  margin-bottom: 1px;
+}
+
+/* A scene marked as looking right folds to one line. */
+.scene.folded {
+  padding: 18px 0;
+  align-items: center;
+}
+.folded .rail {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+.folded .rail h2 {
+  font-size: 32px;
+}
+.folded .rail h3 {
+  font-size: 18px;
+  margin: 0;
+}
+.folded .rail p {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+.mini {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.mini img {
+  width: 92px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.mini .sum {
+  margin-left: 16px;
+  color: var(--mu);
+  font-size: 14px;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mini .reopen {
+  margin-left: auto;
+}
+
+/* Words and picture of a whole scene */
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.words .field span {
+  font-size: 13px;
+}
+
+/* The dock: what rendering will spend, and the one button that spends it. */
+.dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  padding: 16px var(--gutter);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+.tot {
+  color: var(--mu);
+  font-size: 15px;
+}
+.tot b {
+  color: var(--fg);
+  font-weight: 600;
+  font-family: var(--title);
+}
+.cta {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cta p {
+  margin: 0;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--mu);
+  max-width: 34ch;
+}
+.optsBox {
+  position: relative;
+}
+.optsBox summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--mu);
+  font-size: 14px;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 4px;
+}
+.optsBox summary::-webkit-details-marker {
+  display: none;
+}
+.optsPanel {
+  position: absolute;
+  right: 0;
+  bottom: 36px;
+  width: min(360px, 90vw);
+  background: var(--s1);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.inline {
+  display: flex;
+  gap: 8px;
+}
+.inline .select {
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .scene {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 24px 0;
+  }
+  .rail {
+    display: flex;
+    gap: 16px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .rail h2 {
+    font-size: 36px;
+  }
+  .rail h3 {
+    margin: 0;
+  }
+  .railActions {
+    flex-direction: row;
+    margin: 0;
+  }
+  .ed {
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+  .dock {
+    padding: 14px var(--gutter);
+  }
+  .cta p {
+    text-align: left;
+  }
+  .mini .sum {
+    display: none;
+  }
+}

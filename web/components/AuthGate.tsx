@@ -142,83 +142,137 @@ function SignIn({
   }
 
   return (
-    <main className={styles.gate}>
-      <form className={`${styles.card} rise`} onSubmit={submit}>
-        <Logo size={34} />
-        <h1 className={`title ${styles.heading}`}>
-          {setup ? "Make the first account" : registering ? "Make an account" : "Welcome back"}
-        </h1>
-        <p className={styles.lede}>
-          {setup
-            ? "Nobody has signed up yet, so this account runs the place."
-            : registering
-              ? `Any address, and a password of at least ${status.min_password_length} characters.`
-              : "One sentence in, a short film out."}
-        </p>
+    <div className={styles.gate}>
+      <div className={styles.stage} aria-hidden="true">
+        {[1, 2, 3].map((n) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={n} src={`/examples/frame-${n}.jpg`} alt="" />
+        ))}
+      </div>
+      <header className={styles.bar}>
+        <Logo />
+        <a href="/docs/">How it works</a>
+      </header>
 
-        {withGitHub && (
-          <>
-            {/* A plain link: GitHub's page has to be a full navigation, not a fetch. */}
-            <a className={`btn ${styles.github}`} href="/api/auth/github/start">
-              <GitHubMark />
-              Continue with GitHub
-            </a>
-            <p className={styles.or}>
-              <span>or with an email</span>
+      <main className={styles.hero}>
+        <div className={styles.pitch}>
+          <h1>Turn one sentence into a short film.</h1>
+          <p className={styles.lede}>
+            Write an idea, review the storyboard, render it with voices and music, then change it by asking.
+          </p>
+          <ExampleFilm />
+        </div>
+
+        <form className={styles.card} onSubmit={submit}>
+          <h2>{setup ? "Make the first account" : registering ? "Make an account" : "Sign in"}</h2>
+          <p className={styles.cardLede}>
+            {setup
+              ? "Nobody has signed up yet, so this account runs the place."
+              : registering
+                ? `Any address, and a password of at least ${status.min_password_length} characters.`
+                : "Welcome back."}
+          </p>
+
+          {withGitHub && (
+            <>
+              {/* A plain link: GitHub's page has to be a full navigation, not a fetch. */}
+              <a className={`btn ${styles.github}`} href="/api/auth/github/start">
+                <GitHubMark />
+                Continue with GitHub
+              </a>
+              <p className={styles.or}>
+                <span>or with an email</span>
+              </p>
+            </>
+          )}
+
+          <label className="field">
+            <span className="label">Email</span>
+            <input
+              className="input"
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="label">Password</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete={registering ? "new-password" : "current-password"}
+              minLength={registering ? status.min_password_length : undefined}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+
+          {error && (
+            <p className={styles.error} role="alert">
+              {error}
             </p>
+          )}
+
+          <button className="btn primary" type="submit" disabled={busy}>
+            {busy ? "One moment" : registering ? "Make the account" : "Sign in"}
+          </button>
+
+          {!setup && status.signups_allowed && (
+            <button
+              type="button"
+              className="btn quiet"
+              onClick={() => {
+                setMode(registering ? "login" : "register");
+                setError(null);
+              }}
+            >
+              {registering ? "I already have an account" : "Make an account instead"}
+            </button>
+          )}
+          {!setup && !status.signups_allowed && !registering && (
+            <p className={styles.small}>
+              No account yet? Accounts are by invitation: ask whoever runs this server, or{" "}
+              <a href="/docs/">read how it works</a>.
+            </p>
+          )}
+        </form>
+      </main>
+    </div>
+  );
+}
+
+/** A short sample, so a visitor sees what comes out before being asked for an account (F11).
+ *  It is made the way the product makes films (pictures, camera moves, cuts) from frames of a real
+ *  one; it has no sound, and says so. */
+function ExampleFilm() {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <figure className={styles.example}>
+      <div className={styles.frame}>
+        {playing ? (
+          <video src="/examples/example.mp4" controls autoPlay playsInline poster="/examples/frame-2.jpg" />
+        ) : (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/examples/frame-2.jpg" alt="A frame from an example film: a hooded stranger offers a boy beans" />
+            <button className={styles.play} onClick={() => setPlaying(true)} aria-label="Play the example film">
+              <span>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </span>
+            </button>
+            <span className={styles.tcn}>0:18</span>
           </>
         )}
-
-        <label className="field">
-          <span className="label">Email</span>
-          <input
-            className="input"
-            type="email"
-            autoComplete="username"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span className="label">Password</span>
-          <input
-            className="input"
-            type="password"
-            autoComplete={registering ? "new-password" : "current-password"}
-            minLength={registering ? status.min_password_length : undefined}
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
-
-        <button className="btn primary" type="submit" disabled={busy}>
-          {busy ? "One moment" : registering ? "Make the account" : "Sign in"}
-        </button>
-
-        {!setup && status.signups_allowed && (
-          <button
-            type="button"
-            className="btn quiet"
-            onClick={() => {
-              setMode(registering ? "login" : "register");
-              setError(null);
-            }}
-          >
-            {registering ? "I already have an account" : "Make an account instead"}
-          </button>
-        )}
-        <p className={styles.docs}>
-          New here? <a href="/docs/">Read how it works</a>
-        </p>
-      </form>
-    </main>
+      </div>
+      <figcaption>
+        Made from &ldquo;A boy trades the family cow for beans that are not what they seem.&rdquo; A short sample of the look,
+        without sound.
+      </figcaption>
+    </figure>
   );
 }

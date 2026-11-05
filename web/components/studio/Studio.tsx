@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { api, ApiError, versioned, type SceneEdit } from "@/lib/api";
+import { Dust } from "@/components/Dust";
+import { TopBar, type Stage } from "@/components/TopBar";
+import { api, ApiError, versioned, type SceneEdit, type ShotChange } from "@/lib/api";
 import { describe, elapsedSeconds } from "@/lib/copy";
 import type {
   Card,
@@ -12,24 +14,27 @@ import type {
   FilmPlayback,
   FilmVersion,
   ImageBudget,
+  RunResponse,
+  ShotOptions,
   Storyboard,
 } from "@/lib/types";
 import { useProgress } from "@/lib/useProgress";
 
-import { CastRow } from "./CastRow";
+import { Dock, type RenderChoice } from "./Dock";
 import { EditPanel } from "./EditPanel";
 import { Player } from "./Player";
-import { RenderBar, type RenderChoice } from "./RenderBar";
-import { SceneCard } from "./SceneCard";
+import { RenderProgress } from "./RenderProgress";
+import { Sheet } from "./Sheet";
 import { Versions } from "./Versions";
+import sheet from "./sheet.module.css";
 import styles from "./studio.module.css";
 
 type Followed = { id: string; kind: string };
 
 /** Jobs that change a finished film rather than make one. */
-const CHANGES = new Set(["edit", "revert"]);
+const CHANGES = new Set(["edit", "revert", "shot"]);
 
-/** What the strip shows while a plan is still being drawn, built from events. */
+/** What the sheet shows while a plan is still being drawn, built from events. */
 type Streamed = {
   prompt?: string;
   title: string;
@@ -39,6 +44,8 @@ type Streamed = {
   cast_note?: string | null;
   images?: ImageBudget;
 };
+
+const isJob = (r: Storyboard | RunResponse): r is RunResponse => "job_id" in r;
 
 export function Studio() {
   const router = useRouter();
@@ -56,6 +63,8 @@ export function Studio() {
   const [now, setNow] = useState(() => Date.now());
   const [versions, setVersions] = useState<FilmVersion[]>([]);
   const [restoring, setRestoring] = useState<number | null>(null);
+  const [options, setOptions] = useState<ShotOptions | null>(null);
+  const [lastChoice, setLastChoice] = useState<RenderChoice>({ engine: null, subtitles: "English" });
   // A finished change whose outcome no longer describes what's playing.
   const [settled, setSettled] = useState<string | null>(null);
 
@@ -98,6 +107,10 @@ export function Studio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
 
+  useEffect(() => {
+    api.shotOptions().then(setOptions).catch(() => undefined);
+  }, []);
+
   // When the job we're following ends, read back what it settled into.
   useEffect(() => {
     if (finished) void refresh();
@@ -108,10 +121,11 @@ export function Studio() {
     if (signedOut) window.location.assign("/");
   }, [signedOut]);
 
+  const last = events[events.length - 1];
+  const failed = last?.phase === "error" && last.status === "failed";
   const running = job !== null && !finished;
   const changing = job !== null && CHANGES.has(job.kind);
-  // A second-by-second clock while something runs; otherwise enough to keep
-  // "4 min ago" honest.
+  // A second-by-second clock while something runs; otherwise enough to keep "4 min ago" honest.
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), running ? 1000 : 30_000);
     return () => clearInterval(t);
@@ -149,14 +163,12 @@ export function Studio() {
     };
   }, [events]);
 
-  const last = events[events.length - 1];
-  const failed = last?.phase === "error" && last.status === "failed";
-
-  type Mode = "loading" | "planning" | "storyboard" | "rendering" | "watch" | "missing";
+  type Mode = "loading" | "planning" | "storyboard" | "rendering" | "stopped" | "watch" | "missing";
   let mode: Mode;
   if (!loaded) mode = "loading";
   else if (running && job?.kind === "plan") mode = "planning";
   else if (running && !changing) mode = "rendering";
+  else if (job?.kind === "render" && failed) mode = "stopped";
   // An edit keeps you with the film: it plays on while the change is made.
   else if (film && (!showBoard || running)) mode = "watch";
   else if (board || streamed) mode = "storyboard";
@@ -168,16 +180,13 @@ export function Studio() {
   const images = board?.images ?? streamed?.images;
   const castMembers = board?.cast ?? streamed?.cast ?? [];
   const castNote = board?.cast_note ?? streamed?.cast_note ?? null;
-  // The close-ups in each scene's shot strip are these portraits.
-  const portraitUrls = Object.fromEntries(
-    castMembers.filter((m) => m.portrait_url).map((m) => [m.character_id, m.portrait_url as string]),
-  );
-  // The scene being drawn right now: the first one without a frame.
-  const drawingIndex = mode === "planning" ? cards.findIndex((c) => !c.preview_url) : -1;
-  const elapsed = elapsedSeconds(events, now);
+  // A render that stopped reports how long it ran, not how long ago it started.
+  const elapsed = elapsedSeconds(events, failed && last?.created_at ? Date.parse(`${last.created_at}Z`) : now);
+  const seconds = cards.reduce((n, c) => n + (c.estimated_ms ?? 0), 0) / 1000 || board?.length?.target_s || 30;
 
   async function render(choice: RenderChoice) {
     if (!pid) return;
+    setLastChoice(choice);
     setStarting(true);
     setProblem(null);
     try {
@@ -207,6 +216,23 @@ export function Studio() {
     } catch (err) {
       setProblem(err instanceof ApiError ? err.message : "That edit didn't save.");
       throw err;
+    }
+  }
+
+  async function changeShot(sceneId: string, shotId: string, change: ShotChange) {
+    if (!pid) return;
+    setProblem(null);
+    try {
+      const answer = await api.editShot(pid, sceneId, shotId, change);
+      if (isJob(answer)) {
+        // A finished film is cut again: follow that like any change to it.
+        setShowBoard(false);
+        setJob({ id: answer.job_id, kind: "shot" });
+      } else {
+        await refresh();
+      }
+    } catch (err) {
+      setProblem(err instanceof ApiError ? err.message : "That shot change didn't save.");
     }
   }
 
@@ -240,121 +266,201 @@ export function Studio() {
     }
   }
 
-  if (mode === "loading") return <div className={styles.loading} aria-busy="true" />;
+  if (mode === "loading")
+    return (
+      <>
+        <TopBar />
+        <div className={styles.loading} aria-busy="true" />
+      </>
+    );
 
   if (mode === "missing") {
     return (
-      <section className={styles.missing}>
-        <h1 className="title">This film isn&rsquo;t here.</h1>
-        <p>It may belong to another account, or it was never made.</p>
-        <Link className="btn" href="/">
-          Start a new one
-        </Link>
-      </section>
+      <>
+        <TopBar />
+        <section className={styles.missing}>
+          <h1 className="title">This film isn&rsquo;t here.</h1>
+          <p>It may belong to another account, or it was never made.</p>
+          <Link className="btn" href="/">
+            Start a new one
+          </Link>
+        </section>
+      </>
     );
   }
 
+  const stage: Stage = mode === "planning" ? "write" : mode === "storyboard" ? "review" : mode === "watch" ? "watch" : "render";
+  const stageFilm = title || undefined;
+
   return (
-    <div className={styles.studio}>
-      <header className={styles.head}>
-        <p className="label">{title || " "}</p>
-        <h1 className={`title ${styles.prompt}`}>{prompt || title || "Writing the script"}</h1>
+    <div className={styles.shell}>
+      <Dust />
+      <TopBar stage={stage} film={stageFilm} />
 
-        {/* A change to a finished film reports beside the film instead. */}
-        {!changing && (running || failed || (finished && last)) && (
-          <p className={styles.status} aria-live="polite">
-            {running && <span className="pip" />}
-            <span className={failed ? styles.statusFailed : undefined}>
-              {failed ? `${describe(last)}: ${last?.message}` : describe(last)}
-            </span>
-            {running && elapsed != null && <span className="meta">· {elapsed}s</span>}
-            {running && (
-              <button className="btn quiet small" onClick={stop}>
-                Stop
-              </button>
+      <div className={styles.body}>
+        {(mode === "rendering" || mode === "stopped") && (
+          <RenderProgress
+            cards={cards}
+            events={events}
+            now={now}
+            elapsed={elapsed}
+            failed={mode === "stopped"}
+            failure={failed ? last?.message : undefined}
+            filmSeconds={seconds}
+            onStop={stop}
+            onTryAgain={() => render(lastChoice)}
+            onBack={() => {
+              setJob(null);
+              setShowBoard(true);
+            }}
+          />
+        )}
+
+        {(mode === "planning" || mode === "storyboard") && (
+          <main className={sheet.page}>
+            <header className={sheet.head}>
+              <div>
+                <h1 className="title">{title || prompt || "Writing the script"}</h1>
+                <p className={sheet.meta}>
+                  {mode === "planning"
+                    ? prompt
+                    : [`${cards.length} scenes`, `about ${Math.round(seconds)} s`, streamed?.logline || board?.logline].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+              {castMembers.length > 0 && (
+                <ul className={sheet.cast} aria-label="Cast">
+                  {castMembers.map((m) => (
+                    <li key={m.character_id}>
+                      {m.portrait_url && m.drawn !== false ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.portrait_url} alt="" />
+                      ) : (
+                        <span className={sheet.stand}>{(m.name.trim()[0] ?? "?").toUpperCase()}</span>
+                      )}
+                      {m.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </header>
+            {castNote && <p className={sheet.castNote}>{castNote}</p>}
+            {mode === "planning" && (
+              <p className={sheet.status} aria-live="polite">
+                <span className="pip" /> {describe(last)}
+                {elapsed != null && <span className="meta">· {elapsed}s</span>}
+                <button className="btn quiet small" onClick={stop}>
+                  Stop
+                </button>
+              </p>
             )}
-          </p>
-        )}
-        {problem && (
-          <p className={styles.problem} role="alert">
-            {problem}
-          </p>
-        )}
-      </header>
+            {failed && mode === "planning" && (
+              <p className={sheet.problem} role="alert">
+                {last?.message}
+              </p>
+            )}
+            {problem && (
+              <p className={sheet.problem} role="alert">
+                {problem}
+              </p>
+            )}
 
-      {mode === "watch" && film ? (
-        <>
-          {/* Keyed by version: a new cut reloads the player and its tracks. */}
-          <Player key={film.version} film={film} />
-          <div className={styles.watchActions}>
-            <a className="btn primary" href={versioned(film.video_url, film.version)} download>
-              Download
-            </a>
-            <button className="btn" onClick={() => setShowBoard(true)} disabled={running}>
-              Back to the storyboard
-            </button>
-            <span className="meta">
-              {film.width}×{film.height} · {film.fps}fps · v{film.version}
-            </span>
-          </div>
-          <div className={styles.afterRender}>
-            <EditPanel
-              film={film}
-              cast={board?.cast ?? []}
-              events={changing && job?.id !== settled ? events : []}
-              running={running && changing}
-              elapsed={changing ? elapsed : null}
-              onSubmit={change}
-              onStop={stop}
+            <Sheet
+              cards={cards}
+              cast={castMembers}
+              planning={mode === "planning"}
+              editable={mode === "storyboard" && Boolean(board)}
+              hasFilm={Boolean(film)}
+              options={options}
+              onSaveScene={saveScene}
+              onShot={changeShot}
             />
-            <Versions
-              versions={versions}
-              locked={running}
-              restoring={restoring}
-              now={now}
-              onGoBack={goBack}
-            />
-          </div>
-        </>
-      ) : (
-        <>
-          <CastRow cast={castMembers} note={castNote} planning={mode === "planning"} />
-          <div
-            className={styles.strip}
-            style={{ "--count": Math.max(1, cards.length) } as React.CSSProperties}
-          >
-            {cards.map((card, i) => (
-              <SceneCard
-                key={`${card.scene_id}-${card.preview_url ?? "pending"}-${board?.version ?? 0}`}
-                card={card}
-                number={i + 1}
-                delay={i * 90}
-                active={i === drawingIndex}
-                editable={mode === "storyboard" && Boolean(board)}
-                onSave={(edit) => saveScene(card.scene_id, edit)}
-                portraits={portraitUrls}
+            {mode === "storyboard" && film && (
+              <p style={{ marginTop: 22 }}>
+                <button className="btn quiet" onClick={() => setShowBoard(false)}>
+                  Back to the film
+                </button>
+              </p>
+            )}
+          </main>
+        )}
+
+        {mode === "watch" && film && (
+          <main className={styles.page}>
+            <header className={styles.head}>
+              <h1 className="title">{title || prompt}</h1>
+              {prompt && title && <p className={styles.sub}>{prompt}</p>}
+              {problem && (
+                <p className={styles.problem} role="alert">
+                  {problem}
+                </p>
+              )}
+            </header>
+            {/* Keyed by version: a new cut reloads the player and its tracks. */}
+            <Player key={film.version} film={film} />
+
+            {film.stand_in_scenes.length > 0 && !running && (
+              <div className={styles.standNote} role="note">
+                <p>
+                  <b>
+                    {film.stand_in_scenes.length === 1 ? "One picture is a stand-in." : `${film.stand_in_scenes.length} pictures are stand-ins.`}
+                  </b>{" "}
+                  The image service was busy while drawing{" "}
+                  {film.stand_in_scenes.map((id) => `scene ${film.chapters.findIndex((c) => c.scene_id === id) + 1}`).join(" and ")}.
+                  Redraw {film.stand_in_scenes.length === 1 ? "it" : "them"} now that it may have caught up.
+                </p>
+                <button
+                  className="btn small"
+                  disabled={running}
+                  onClick={() => {
+                    const n = film.chapters.findIndex((c) => c.scene_id === film.stand_in_scenes[0]) + 1;
+                    void change(`Regenerate scene ${n}`);
+                  }}
+                >
+                  Redraw {film.stand_in_scenes.length === 1 ? "it" : "the first"}
+                </button>
+              </div>
+            )}
+
+            <div className={styles.watchActions}>
+              <a className="btn primary" href={versioned(film.video_url, film.version)} download>
+                Download
+              </a>
+              <button className="btn" onClick={() => setShowBoard(true)} disabled={running}>
+                Edit the shots
+              </button>
+              <span className="meta">
+                {film.width}×{film.height} · {film.fps}fps · version {film.cut}
+              </span>
+            </div>
+            <div className={styles.afterRender}>
+              <EditPanel
+                film={film}
+                cast={board?.cast ?? []}
+                events={changing && job?.id !== settled ? events : []}
+                running={running && changing}
+                elapsed={changing ? elapsed : null}
+                onSubmit={change}
+                onStop={stop}
               />
-            ))}
-          </div>
+              <Versions versions={versions} locked={running} restoring={restoring} now={now} onGoBack={goBack} />
+            </div>
+          </main>
+        )}
+      </div>
 
-          {mode === "storyboard" && board && (
-            <RenderBar
-              images={images}
-              length={board?.length}
-              busy={starting}
-              onEngineChange={(e) => {
-                setEngine(e);
-                void refresh(e);
-              }}
-              onRender={render}
-            />
-          )}
-          {mode === "storyboard" && film && (
-            <button className="btn quiet" onClick={() => setShowBoard(false)}>
-              Back to the film
-            </button>
-          )}
-        </>
+      {mode === "storyboard" && board && (
+        <Dock
+          scenes={cards.length}
+          seconds={seconds}
+          images={images}
+          length={board.length}
+          busy={starting}
+          onEngineChange={(e) => {
+            setEngine(e);
+            void refresh(e);
+          }}
+          onRender={render}
+        />
       )}
     </div>
   );
