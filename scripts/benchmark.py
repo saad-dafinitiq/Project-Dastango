@@ -423,6 +423,7 @@ def to_markdown(report: Dict[str, Any]) -> str:
 
 
 def main() -> int:
+    from shared.constants import DEFAULT_HEIGHT, DEFAULT_WIDTH     # the film's own default size
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--offline", action="store_true",
                         help="force mock LLM / placeholder images / silent voices")
@@ -430,8 +431,8 @@ def main() -> int:
     parser.add_argument("--scenes", type=int, default=3)
     parser.add_argument("--prompts", type=int, default=len(PROMPTS))
     parser.add_argument("--subtitle-lang", default="English")
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
+    parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--no-bgm", action="store_true")
     parser.add_argument("--no-subs", action="store_true")

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared import video_quality
 
 
 class CompositorTool(BaseTool):
@@ -18,9 +19,14 @@ class CompositorTool(BaseTool):
             audio_path: Optional[str] = None,
             transition: str = "fade", transition_ms: float = 400,
             durations_s: Optional[List[float]] = None,
+            quality: str = "final",
             **_) -> ToolResult:
         """`durations_s`, when given, are the exact clip lengths used to place
-        crossfades (otherwise each clip is probed)."""
+        crossfades (otherwise each clip is probed).
+
+        `quality` is "final" when this is the last time the film is encoded, and
+        "intermediate" when a later pass (burned subtitles, a speed change) will
+        encode it again: only the last pass should spend the delivered quality."""
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         if out.suffix.lower() != ".mp4":
@@ -40,7 +46,7 @@ class CompositorTool(BaseTool):
         # Crossfade chain.
         try:
             self._xfade_chain(clips, out, audio_path, transition_ms / 1000.0,
-                              durations_s=durations_s)
+                              durations_s=durations_s, quality=quality)
             return ToolResult(success=True, data=str(out),
                               metadata={"clip_count": len(clips), "transition": transition})
         except subprocess.CalledProcessError as e:
@@ -80,7 +86,8 @@ class CompositorTool(BaseTool):
 
     def _xfade_chain(self, clips: List[str], out: Path,
                      audio: Optional[str], xfade_s: float,
-                     durations_s: Optional[List[float]] = None) -> None:
+                     durations_s: Optional[List[float]] = None,
+                     quality: str = "final") -> None:
         durations: List[float] = list(durations_s or [])
         if len(durations) != len(clips):
             # Probe each clip's duration.
@@ -120,6 +127,5 @@ class CompositorTool(BaseTool):
             cmd += ["-map", f"{len(clips)}:a:0", "-c:a", "aac", "-b:a", "192k"]
         else:
             cmd += ["-an"]
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-                "-pix_fmt", "yuv420p", str(out)]
+        cmd += [*video_quality.x264_args(quality), str(out)]
         subprocess.run(cmd, check=True, capture_output=True)

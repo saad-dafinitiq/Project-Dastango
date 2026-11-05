@@ -12,8 +12,11 @@ STATE_DIR = DATA_DIR / "state_versions"
 DB_PATH = DATA_DIR / "state.db"
 
 DEFAULT_FPS = 24
-DEFAULT_WIDTH = 1280
-DEFAULT_HEIGHT = 720
+# The finished film's size (DST-35): 1080p. The pictures it is cut from are drawn
+# smaller (config/video.yaml, images.long_side: shared/video_quality.image_size)
+# and enlarged once, by the camera. A film saved before this keeps its own size.
+DEFAULT_WIDTH = 1920
+DEFAULT_HEIGHT = 1080
 DEFAULT_SAMPLE_RATE = 22050
 
 # How far a film may be from the length asked for, as a fraction of the target,

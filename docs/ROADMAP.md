@@ -6,10 +6,10 @@ What the MVP does not do well yet, and the order things will be fixed in.
 
 | Limitation | Impact | Workaround today |
 |---|---|---|
-| **Every version copies every file** | Storage grows with each edit; R2's free 10 GB and the VM's disk will eventually fill | Nightly backups hard-link unchanged files, so they cost little; the live store does not |
+| **Every version copies every file** | Storage grows with each edit; R2's free 10 GB and the VM's disk will eventually fill. Since DST-35 (1080p films, finer intermediate clips) the delivered film is ~3.4x and the scene clips ~4x the size they were | Nightly backups hard-link unchanged files, so they cost little; the live store does not |
 | **Free image quotas can all run out at once** (Cloudflare's 10,000 neurons a day, and Agnes' per-minute free tier, a temporary fallback) | A render completes with placeholder images (by design, and logged) | Wait for the daily reset |
 | **Cloudflare's safety filter refuses some innocent prompts** | That image comes from the next provider | Automatic |
-| **Renders are CPU-bound on the free VM** | ~4–5 min for a 45 s film; an A1 core is ~2.8× slower than a laptop's here | `SUPERSAMPLE=2` would trade pan smoothness for speed; not taken |
+| **Renders are CPU-bound on the free VM** | ~4–5 min for a 45 s film before DST-35 (measured); 1080p output doubled render time on the laptop (77 s to 154 s for a 63 s film), so the server's time is expected to grow and is not yet measured. An A1 core is ~2.8× slower than a laptop's here | `SUPERSAMPLE=2` / `upscale.factor` in `config/video.yaml` would trade pan smoothness for speed; not taken |
 | **Kokoro loads its model on a worker's first line** | ~30 s added to the first render after a restart | None |
 | **An edit that rewrites the script starts its voices fresh** | Scene-only voice overrides do not carry over to a different script | Only the voice engine carries over |
 | **Real motion and lip sync are untested end to end** | They are wired and unit-tested with mocked HTTP; every provider costs money per clip | Supersampled camera moves on stills |

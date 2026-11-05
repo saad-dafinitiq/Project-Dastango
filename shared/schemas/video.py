@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+from shared.constants import DEFAULT_HEIGHT, DEFAULT_WIDTH
+
 
 class VisualPrompt(BaseModel):
     """Image-generation request for a single scene."""
@@ -65,8 +67,9 @@ class VideoOutput(BaseModel):
     project_id: str
     frames: List[SceneFrame]
     final_video_path: str
-    width: int = 1280
-    height: int = 720
+    # The film's own size, saved with it: an edit of a film made at 720p keeps 720p.
+    width: int = DEFAULT_WIDTH
+    height: int = DEFAULT_HEIGHT
     fps: int = 24
     has_subtitles: bool = False
     duration_ms: int = 0

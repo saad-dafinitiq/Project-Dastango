@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared import video_quality
 from shared.utils.logging import get_logger
 
 log = get_logger("lip_sync")
@@ -225,8 +226,8 @@ class LipSyncTool(BaseTool):
                 f"s={width}x{height}:fps={fps}[v]"
             ),
             "-map", "[v]", "-map", "1:a",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-            "-pix_fmt", "yuv420p",
+            # The compose passes re-encode this clip: intermediate quality.
+            *video_quality.x264_args("intermediate"),
             "-c:a", "aac", "-b:a", "192k",
             "-shortest", "-t", f"{duration_s:.2f}",
             str(out),

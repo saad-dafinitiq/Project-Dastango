@@ -152,11 +152,13 @@ class PipelineOrchestrator:
         scene_count: int = 4,
         project_id: Optional[str] = None,
         with_preview: bool = True,
-        # The render size, not a thumbnail: a preview drawn at the render size
-        # *is* the scene's wide shot, so the render reuses it instead of paying
-        # for the identical image again. At 512x288 it never matched.
-        preview_width: int = DEFAULT_WIDTH,
-        preview_height: int = DEFAULT_HEIGHT,
+        # The picture size, not a thumbnail: a preview drawn at the size the render
+        # draws its pictures *is* the scene's wide shot, so the render reuses it
+        # instead of paying for the identical image again. At 512x288 it never
+        # matched. None: the size for a film of the default size (the film itself
+        # is bigger; the camera enlarges every picture, config/video.yaml).
+        preview_width: Optional[int] = None,
+        preview_height: Optional[int] = None,
     ) -> PipelineState:
         """Write the script and draw one preview image per scene.
 
@@ -278,8 +280,8 @@ class PipelineOrchestrator:
         failed: List[str] = []
         self.video.generate_storyboard(
             state,
-            width=board.preview_width if board else DEFAULT_WIDTH,
-            height=board.preview_height if board else DEFAULT_HEIGHT,
+            width=board.preview_width if board else None,
+            height=board.preview_height if board else None,
             scene_ids=[scene_id] if redraw else [],
             failed=failed,
             character_ids=[],        # a scene edit never redraws the cast
@@ -373,7 +375,7 @@ class PipelineOrchestrator:
             with_subtitles=v.has_subtitles if v else True,
             subtitle_language=v.subtitle_language if v else "English",
             burn_subtitles=v.burn_subtitles if v else True,
-            width=v.width if v else 1280, height=v.height if v else 720,
+            width=v.width if v else DEFAULT_WIDTH, height=v.height if v else DEFAULT_HEIGHT,
             fps=v.fps if v else 24,
             use_text_to_video=v.used_text_to_video if v else None,
             use_lip_sync=v.used_lip_sync if v else None,

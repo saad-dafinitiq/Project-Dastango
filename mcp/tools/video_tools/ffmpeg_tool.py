@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared import video_quality
 from shared.utils.images import ensure_readable_image
 
 # A looped still is an endless input; see shared/utils/images.py.
@@ -63,8 +64,8 @@ class ImageToClipTool(BaseTool):
             "-vf", vf,
             "-t", f"{dur:.2f}",
             "-r", str(fps),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-            "-pix_fmt", "yuv420p",
+            # A standalone clip, delivered as it is: the final quality.
+            *video_quality.x264_args("final"),
         ]
         if audio_path and Path(audio_path).exists():
             cmd += ["-c:a", "aac", "-b:a", "128k", "-shortest"]

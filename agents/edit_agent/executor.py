@@ -18,6 +18,8 @@ from agents.audio_agent import AudioAgent
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from agents.video_agent import VideoAgent
 from mcp.tool_executor import ToolExecutor
+from shared import video_quality
+from shared.constants import DEFAULT_HEIGHT, DEFAULT_WIDTH
 from shared.schemas.audio import VoiceConfig
 from shared.schemas.pipeline import PipelineState
 from shared.utils.files import project_dir
@@ -191,6 +193,9 @@ class EditExecutor:
         """New shot-bank images (fresh seed per version) for the scenes in scope."""
         video = self._require_video(state)
         scene_ids = set(self._scene_ids_in_scope(state, step.scope))
+        # New pictures are drawn at the picture size, as the first render drew them
+        # (the film itself may be bigger; the camera enlarges them).
+        pic_w, pic_h = video_quality.image_size(video.width, video.height)
         affected: List[str] = []
         for scene in state.script.scenes:
             if scene.scene_id not in scene_ids:
@@ -198,8 +203,8 @@ class EditExecutor:
             frame = next((f for f in video.frames if f.scene_id == scene.scene_id), None)
             if frame is None:
                 continue
-            bank = self.video.generate_shot_bank(state.project_id, scene, video.width,
-                                                 video.height, seed_salt=f"v{state.version + 1}",
+            bank = self.video.generate_shot_bank(state.project_id, scene, pic_w,
+                                                 pic_h, seed_salt=f"v{state.version + 1}",
                                                  story=state.script.story)
             frame.shot_bank, frame.image_path = bank, bank[0]
             frame.t2v_clip = None  # was generated from the old establishing image
@@ -217,6 +222,7 @@ class EditExecutor:
             char_ids = {c.id for c in state.script.characters.characters if c.role != "narrator"}
         affected: List[str] = []
         salt = f"v{state.version + 1}"
+        pic_w, pic_h = video_quality.image_size(video.width, video.height)
         for c in state.script.characters.characters:
             if c.id not in char_ids:
                 continue
@@ -224,7 +230,7 @@ class EditExecutor:
             # quietly restore the old design.
             c.appearance_lock = build_appearance_lock(c, salt)
             c.image_seed = character_seed(c, salt)
-            new = self.video.generate_portrait(state.project_id, c, video.width, video.height,
+            new = self.video.generate_portrait(state.project_id, c, pic_w, pic_h,
                                                story=state.script.story)
             video.portraits = [new if p.character_id == c.id else p for p in video.portraits]
             if not video.portrait_for(c.id):
@@ -272,7 +278,7 @@ class EditExecutor:
             state,
             with_subtitles=v.has_subtitles if v else True,
             subtitle_language=v.subtitle_language if v else "English",
-            width=v.width if v else 1280, height=v.height if v else 720,
+            width=v.width if v else DEFAULT_WIDTH, height=v.height if v else DEFAULT_HEIGHT,
             fps=v.fps if v else 24,
             use_text_to_video=v.used_text_to_video if v else None,
             use_lip_sync=v.used_lip_sync if v else None,
