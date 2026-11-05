@@ -1,0 +1,68 @@
+# How a finished film looks: how the pictures are scaled, how the camera moves,
+# how sharp it is and how it is encoded (DST-35).
+#
+# `shared/video_quality.py` reads this on use and checks every number. Each one
+# has its reason beside it, so the next person can move it knowing what it
+# protects. The figures come from measuring a real film (docs/EVAL.md, DST-35).
+# Override the whole file with VIDEO_CONFIG_FILE=/path/to/video.yaml.
+
+version: 1
+
+images:
+  # The long side, in pixels, the picture files are drawn and stored at. The
+  # camera enlarges every picture itself, so a stored 1920x1080 picture holds no
+  # more detail than a 1280x720 one (the providers' own pictures are 1024 pixels
+  # on the long side, or less after the 16:9 crop) but costs 1.85 times the disk
+  # (32.8 MB against 60.8 MB for the 28 pictures of one film), and every version
+  # snapshot copies them. The film itself is 1080p regardless (shared/constants).
+  long_side: 1280
+
+upscale:
+  # The resampling filter for every enlargement and the reduction after it.
+  # Lanczos keeps edges crisper than bicubic, which is ffmpeg's default; the M6
+  # measurements of a smooth pan were taken with it on the way down.
+  filter: lanczos
+  # How much bigger than the output the camera move is computed at, before
+  # scaling back down. Every enlargement therefore happens here, once, with the
+  # filter above, instead of zoompan enlarging low-resolution pixels. 3x is where
+  # a pan stops shivering (camera.py); at 1080p the cap below lowers it to about 2x.
+  factor: 3.0
+  # The most pixels one working frame may have. 3x of 720p is 8.3 MP; 3x of 1080p
+  # would be 18.7 MP, and the 12 GB server renders up to four shots at once, which
+  # is how ffmpeg gets killed mid-render.
+  max_pixels: 8500000
+
+motion:
+  # smoothstep eases a move in and out (3p^2 - 2p^3 over the shot); linear is a
+  # constant speed, which reads as mechanical and starts and stops abruptly.
+  easing: smoothstep
+
+sharpen:
+  # Strength of an unsharp mask on the luma of every shot, once, after the last
+  # resize, before the encodes. 0 turns it off. Enlarging a 1024-pixel picture
+  # to 1080p softens edges; a light mask restores acuity without ringing. It
+  # cannot add detail the picture never had.
+  luma_amount: 0.4
+
+encode:
+  # Intermediate clips (each shot, each scene, the compose and speed passes
+  # when a later pass follows) are re-encoded by the next stage, and a film
+  # used to be encoded up to four times at CRF 22 with the veryfast preset, which
+  # starved it (782 kb/s for a 720p film). They are written finer than the
+  # delivered film so the passes stop compounding their loss, but not near
+  # lossless: on the same 6 shots at 1080p, CRF 14 scored best (SSIM 0.9814 against
+  # a lossless render) but the clips were 50 MB against 7.7 MB at the old setting,
+  # and every version snapshot copies the scene clips. CRF 18 costs 0.003 SSIM and
+  # is 3.5 times smaller (16.7 MB); 20 and 22 lose another 0.002 and 0.003.
+  intermediate_crf: 18
+  intermediate_preset: veryfast
+  # The delivered film: the last pass only. On the same shots CRF 18 came out at
+  # 5.7 Mb/s and CRF 20 at 3.9 Mb/s (31% less) for 0.001 SSIM, a rate a browser
+  # streams comfortably; the same shots at the old setting were 1.1 Mb/s at 720p.
+  # Medium against slow: the same size to within 2%, in half the time for this pass.
+  final_crf: 20
+  final_preset: medium
+  # High profile with yuv420p plays in every browser and phone; faststart moves
+  # the index to the front so the web player can start and seek at once.
+  final_profile: high
+  pix_fmt: yuv420p

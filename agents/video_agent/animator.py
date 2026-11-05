@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from shared import video_quality
 from shared.utils.images import ensure_readable_image
 from shared.utils.logging import get_logger
 
@@ -142,8 +143,9 @@ def render_shot(shot: Shot, out_path: Path, width: int, height: int, fps: int,
         "-vf", vf,
         "-frames:v", str(frames),
         "-r", str(fps),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-        "-pix_fmt", "yuv420p",
+        # A shot is re-encoded by the scene join and the compose pass after it, so
+        # it is written near-transparent (config/video.yaml, encode).
+        *video_quality.x264_args("intermediate"),
     ]
     if has_audio:
         cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
@@ -230,8 +232,8 @@ def assemble_scene(shots: List[Path], out_path: Path,
         cmd += ["-map", f"{len(shots)}:a:0", "-c:a", "aac", "-b:a", "192k"]
     else:
         cmd += ["-an"]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-            "-pix_fmt", "yuv420p", str(out_path)]
+    # The scene clip is joined again by the compose pass: intermediate quality.
+    cmd += [*video_quality.x264_args("intermediate"), str(out_path)]
     subprocess.run(cmd, check=True, capture_output=True)
     return out_path
 
@@ -250,7 +252,8 @@ def _normalize_video(in_path: str, out_path: Path, width: int, height: int,
     vf_parts = []
     if width and height:
         vf_parts.append(
-            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"scale={width}:{height}:force_original_aspect_ratio=increase:"
+            f"flags={video_quality.get().upscale_filter},"
             f"crop={width}:{height}"
         )
     if fps:
@@ -268,8 +271,7 @@ def _normalize_video(in_path: str, out_path: Path, width: int, height: int,
     if has_audio:
         cmd += ["-i", str(audio_path)]
     cmd += ["-vf", vf, "-frames:v", str(frames),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-            "-pix_fmt", "yuv420p"]
+            *video_quality.x264_args("intermediate")]
     if has_audio:
         cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "192k"]
     else:

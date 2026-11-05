@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from mcp.tool_executor import ToolExecutor
-from shared import providers
+from shared import providers, video_quality
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, PHASE_VIDEO
 from shared.languages import canonical
 from shared.schemas.audio import AudioSegment, SceneTiming
@@ -129,21 +129,27 @@ class VideoAgent:
         if use_lip_sync is None:
             use_lip_sync = premium_lipsync_available()
 
+        # The film is `width` x `height`, but the pictures are drawn at the picture
+        # size: the camera enlarges them itself, so storing them at film size would
+        # only cost disk (config/video.yaml, images). Previews drawn at that size
+        # are still the ones a render reuses.
+        pic_w, pic_h = video_quality.image_size(width, height)
+
         try:
             # Portraits and every scene's shot bank are independent: generate them
             # as concurrently as the active image provider allows.
             portraits = run_jobs(
-                [(self.generate_portrait, (state.project_id, c, width, height, "",
+                [(self.generate_portrait, (state.project_id, c, pic_w, pic_h, "",
                                            state.script.story,
-                                           self.reusable_portrait(state, c, width, height)))
+                                           self.reusable_portrait(state, c, pic_w, pic_h)))
                  for c in state.script.characters.characters],
                 workers=providers.concurrency("image"), label="portraits",
             )
             frames = run_jobs(
                 [(self._generate_scene_frame,
-                  (state.project_id, scene, width, height, fps, use_text_to_video,
+                  (state.project_id, scene, pic_w, pic_h, fps, use_text_to_video,
                    state.script.story,
-                   self.reusable_preview(state, scene, width, height)))
+                   self.reusable_preview(state, scene, pic_w, pic_h)))
                  for scene in state.script.scenes],
                 workers=providers.concurrency("image"), label="scene images",
             )
@@ -317,8 +323,8 @@ class VideoAgent:
         return CharacterPortrait(character_id=c.id,
                                  image_path=_ensure_image(res, out, prompt, width, height))
 
-    def generate_storyboard(self, state: PipelineState, width: int = DEFAULT_WIDTH,
-                            height: int = DEFAULT_HEIGHT,
+    def generate_storyboard(self, state: PipelineState, width: Optional[int] = None,
+                            height: Optional[int] = None,
                             scene_ids: Optional[List[str]] = None,
                             on_frame: Optional[Any] = None,
                             failed: Optional[List[str]] = None,
@@ -342,6 +348,9 @@ class VideoAgent:
         called with (character, path, drawn) as each one finishes.
         """
         script = state.script
+        if width is None or height is None:
+            # Previews are pictures, drawn at the picture size, not at film size.
+            width, height = video_quality.image_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         board = state.storyboard or Storyboard(
             project_id=state.project_id, prompt=state.user_prompt,
             title=script.story.title, logline=script.story.logline,
@@ -777,9 +786,15 @@ class VideoAgent:
 
         out = proj / "final_output.mp4"
         master = state.audio.master_track if state.audio else None
+        # Only the last time the film is encoded gets the delivered quality; a pass
+        # that another one follows (a speed change, burned subtitles) is near
+        # transparent so the passes stop compounding their loss (DST-35).
+        speed = abs(video.speed_factor - 1.0) > 1e-3
+        burn = self._will_burn_subtitles(state)
         compose = self.tools.execute(
             "video.compose", clips=clips, out_path=str(out), audio_path=master,
             transition="fade", transition_ms=scene_x * 1000.0 / fps, durations_s=durations,
+            quality="intermediate" if (speed or burn) else "final",
         )
         if not compose.success:
             raise RuntimeError(f"final compose failed: {compose.error}")
@@ -789,9 +804,10 @@ class VideoAgent:
                         (len(clips) - 1) * scene_x / fps)
 
         final = out
-        if abs(video.speed_factor - 1.0) > 1e-3:
+        if speed:
             final = self._apply_speed(out, proj / "final_output_speed.mp4",
-                                      video.speed_factor, has_audio=bool(master))
+                                      video.speed_factor, has_audio=bool(master),
+                                      quality="intermediate" if burn else "final")
 
         video.subtitle_languages = []
         video.subtitles_skipped = []
@@ -802,7 +818,17 @@ class VideoAgent:
         return final
 
     @staticmethod
-    def _apply_speed(src: Path, dst: Path, factor: float, has_audio: bool) -> Path:
+    def _will_burn_subtitles(state: PipelineState) -> bool:
+        """Will `_embed_subtitles` burn text into the picture (one more encode)?
+        It does when subtitles are on, burning is asked for and there are lines."""
+        video = state.video
+        if not (video.has_subtitles and video.burn_subtitles and state.audio):
+            return False
+        return any(s.kind == "dialogue" and s.text for s in state.audio.manifest.segments)
+
+    @staticmethod
+    def _apply_speed(src: Path, dst: Path, factor: float, has_audio: bool,
+                     quality: str = "final") -> Path:
         """ffmpeg setpts (video) + atempo chain (audio, bounded to [0.5, 2] per stage)."""
         af_chain = []
         atempo = factor
@@ -821,7 +847,7 @@ class VideoAgent:
                     "-c:a", "aac", "-b:a", "192k"]
         else:
             cmd += ["-filter_complex", fc, "-map", "[v]", "-an"]
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", str(dst)]
+        cmd += [*video_quality.x264_args(quality), str(dst)]
         subprocess.run(cmd, check=True, capture_output=True)
         return dst
 

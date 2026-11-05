@@ -5,6 +5,7 @@ import pytest
 
 from agents.orchestrator import PipelineOrchestrator
 from agents.orchestrator.state import RunContext
+from shared import video_quality
 from shared.schemas.pipeline import PipelineState
 from state_manager.state_manager import StateManager
 from state_manager.storage import VersionStore
@@ -31,12 +32,14 @@ def test_a_planned_preview_is_reusable_by_the_render_that_follows(orch):
     `plan` and asks with the size `render` will actually use."""
     state = _plan(orch, [])
     render = RunContext(state=PipelineState(project_id="x", user_prompt="y"))
+    # Since DST-35 the film is 1080p but its pictures are drawn at the picture size
+    # (the camera enlarges them), and that is the size the render asks for them at.
+    pictures = video_quality.image_size(render.width, render.height)
 
     assert (state.storyboard.preview_width,
-            state.storyboard.preview_height) == (render.width, render.height)
+            state.storyboard.preview_height) == pictures == (1280, 720)
     for scene in state.script.scenes:
-        assert orch.video.reusable_preview(state, scene, render.width,
-                                           render.height) is not None, scene.scene_id
+        assert orch.video.reusable_preview(state, scene, *pictures) is not None, scene.scene_id
 
 
 # ---- streaming -----------------------------------------------------------------

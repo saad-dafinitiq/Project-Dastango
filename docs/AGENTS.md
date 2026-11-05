@@ -311,7 +311,7 @@ flowchart LR
     end
 
     planS["Plan shots on the timeline<br/>pre-roll → wide · narrator → bank ·<br/>character → portrait"]
-    move["Camera move per shot<br/>job + tone, computed at 3×"]
+    move["Camera move per shot<br/>job + tone, eased, computed at ~3×"]
     sig{"Scene<br/>unchanged?"}
     keep["Reuse its clip"]
     pool["Render changed shots<br/>one per core, max 4"]
@@ -333,6 +333,15 @@ flowchart LR
   computing the move at 3× and scaling down turns that into a fraction of an
   output pixel. Measured by phase correlation: up to 5.13 px/frame of travel
   with a worst frame-to-frame jump of 0.19 px.
+- **Sharp pictures (DST-35).** Films are 1080p. Pictures stay at 1280x720 (storing
+  them at 1080p cost 1.85x the disk for no extra detail) and are enlarged once,
+  with Lanczos, to well above the output size before the camera moves; moves
+  ease in and out; one light unsharp mask runs per shot; the earlier encodes are
+  CRF 18 and only the last one, the delivered file, is CRF 20 (medium, High,
+  yuv420p, faststart). Every number and the reason for it is in
+  `config/video.yaml` (read by `shared/video_quality.py`); the measurements are
+  in `docs/EVAL.md`. A picture holds about 1024 px of real detail, so this stops
+  the pipeline from losing detail; it cannot add any.
 - **Shots run side by side.** A shot keeps about one core busy (zoompan is
   single-threaded), so shots of every changed scene share one pool: on the
   2-core server a 43 s film went from 6 min 38 s to 4 min 52 s.

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared import video_quality
 from shared.fonts import font_for
 from shared.languages import iso639_2
 
@@ -44,8 +45,10 @@ class SubtitleTool(BaseTool):
               f"BorderStyle=1,Outline=2,Shadow=1,"
               f"Alignment=2,MarginV=40,MarginL=80,MarginR=80,"
               f"Bold=0'")
+        # Burning the subtitles is the last time the film is encoded, so this pass
+        # is the delivered quality (config/video.yaml, encode).
         cmd = ["ffmpeg", "-y", "-i", str(in_p), "-vf", vf,
-               "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+               *video_quality.x264_args("final"),
                "-c:a", "copy", str(out_p)]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:

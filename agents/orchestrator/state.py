@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from shared.constants import DEFAULT_HEIGHT, DEFAULT_WIDTH
 from shared.schemas.pipeline import PipelineState
 
 
@@ -18,8 +19,8 @@ class RunContext:
     with_subtitles: bool = True
     subtitle_language: str = "English"
     burn_subtitles: bool = True
-    width: int = 1280
-    height: int = 720
+    width: int = DEFAULT_WIDTH           # the film's size; pictures are drawn smaller
+    height: int = DEFAULT_HEIGHT
     fps: int = 24
     snapshot_each_phase: bool = True
     final_description: str = "initial pipeline run"

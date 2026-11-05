@@ -18,7 +18,14 @@ the delivered frame. Measured on the same shot:
     4x            0.242 px    0.365 px        5.1 s
 
 3x is the default: everything is comfortably sub-pixel and the cost is about
-1.7 s a shot. SUPERSAMPLE overrides it.
+1.7 s a shot. SUPERSAMPLE overrides it; the default, the pixel cap and the
+enlargement filter are in config/video.yaml (DST-35). At 1080p the cap lowers
+the factor to about 2x.
+
+That enlargement is also where every picture is scaled up, once, with Lanczos:
+the pictures are smaller than the film, and enlarging them inside zoompan would
+stretch the low-resolution pixels. A move eases in and out (smoothstep) rather
+than running at a constant speed.
 """
 from __future__ import annotations
 
@@ -26,12 +33,8 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-# How much bigger than the output the move is computed at.
-DEFAULT_SUPERSAMPLE = 3.0
-# ... but never beyond this many pixels per frame. 3x of 720p is 8.3 MP, which
-# a laptop handles; 3x of 1080p would be 18.7 MP per frame in the filter graph
-# and several of those at once is how ffmpeg gets killed mid-render.
-MAX_SUPERSAMPLED_PIXELS = 8_500_000
+from shared import video_quality
+
 # How far a pan travels, as a fraction of the frame. Beyond this the crop gets
 # tight enough to show the image's own softness.
 PAN_TRAVEL = 0.14
@@ -39,10 +42,13 @@ PUSH_RANGE = 0.16          # 1.00 -> 1.16 over the shot
 
 
 def supersample() -> float:
+    """How much bigger than the output the move is computed at: SUPERSAMPLE from
+    the environment, else the factor in config/video.yaml."""
+    default = video_quality.get().upscale_factor
     try:
-        value = float(os.getenv("SUPERSAMPLE", "") or DEFAULT_SUPERSAMPLE)
+        value = float(os.getenv("SUPERSAMPLE", "") or default)
     except ValueError:
-        return DEFAULT_SUPERSAMPLE
+        return default
     return min(4.0, max(1.0, value))
 
 
@@ -51,8 +57,20 @@ def supersample_for(width: int, height: int,
     """The factor to actually use at this output size, within the pixel cap."""
     wanted = factor if factor is not None else supersample()
     pixels = max(1, width * height)
-    allowed = (MAX_SUPERSAMPLED_PIXELS / pixels) ** 0.5
+    allowed = (video_quality.get().upscale_max_pixels / pixels) ** 0.5
     return max(1.0, min(wanted, allowed))
+
+
+def eased(progress: str) -> str:
+    """An ffmpeg expression for how far a move has gone, from `progress` (0 to 1).
+
+    smoothstep, 3p^2 - 2p^3, starts and ends at rest and is fastest in the middle.
+    A constant speed (the old behaviour, still available as `linear`) starts and
+    stops a move abruptly.
+    """
+    if video_quality.get().easing == "linear":
+        return f"({progress})"
+    return f"(({progress})*({progress})*(3-2*({progress})))"
 
 
 @dataclass(frozen=True)
@@ -151,6 +169,7 @@ def motion_filter(move: str, frames: int, width: int, height: int,
     """
     f = max(1, frames)
     factor = supersample_for(width, height, factor)
+    flt = video_quality.get().upscale_filter
     # Even dimensions: libx264 refuses an odd one.
     sw, sh = int(width * factor) // 2 * 2, int(height * factor) // 2 * 2
 
@@ -160,18 +179,19 @@ def motion_filter(move: str, frames: int, width: int, height: int,
     held = f"{zoom:.5f}"
     centre_x, centre_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
 
-    # `on` is the output frame index, so these are linear over the shot.
-    sweep = f"(iw-iw/zoom)*on/{max(1, f - 1)}"
-    sweep_back = f"(iw-iw/zoom)*(1-on/{max(1, f - 1)})"
-    rise = f"(ih-ih/zoom)*(1-on/{max(1, f - 1)})"
-    fall = f"(ih-ih/zoom)*on/{max(1, f - 1)}"
+    # `on` is the output frame index. How far the move has gone is eased, so it
+    # starts and ends at rest instead of running at a constant speed.
+    gone = eased(f"on/{max(1, f - 1)}")
+    sweep = f"(iw-iw/zoom)*{gone}"
+    sweep_back = f"(iw-iw/zoom)*(1-{gone})"
+    rise = f"(ih-ih/zoom)*(1-{gone})"
+    fall = f"(ih-ih/zoom)*{gone}"
 
     if move == "push_in":
-        z = f"min(zoom+{PUSH_RANGE / f:.6f},{1.0 + PUSH_RANGE:.3f})"
+        z = f"1+{PUSH_RANGE}*{gone}"
         inner = f"zoompan=z='{z}':x='{centre_x}':y='{centre_y}'"
     elif move == "pull_out":
-        z = (f"if(eq(on,0),{1.0 + PUSH_RANGE:.3f},"
-             f"max(zoom-{PUSH_RANGE / f:.6f},1.0))")
+        z = f"1+{PUSH_RANGE}*(1-{gone})"
         inner = f"zoompan=z='{z}':x='{centre_x}':y='{centre_y}'"
     elif move == "pan_right":
         inner = f"zoompan=z={held}:x='{sweep}':y='{centre_y}'"
@@ -184,17 +204,20 @@ def motion_filter(move: str, frames: int, width: int, height: int,
     elif move == "drift":
         # Diagonal, and only across a third of the available travel, so it
         # reads as a float rather than a move.
-        inner = (f"zoompan=z={held}:x='(iw-iw/zoom)*(0.33+0.34*on/{max(1, f - 1)})':"
-                 f"y='(ih-ih/zoom)*(0.33+0.34*on/{max(1, f - 1)})'")
+        inner = (f"zoompan=z={held}:x='(iw-iw/zoom)*(0.33+0.34*{gone})':"
+                 f"y='(ih-ih/zoom)*(0.33+0.34*{gone})'")
     else:   # static_hold and anything unrecognised
         inner = f"zoompan=z={held}:x='{centre_x}':y='{centre_y}'"
 
     return (
-        f"scale=w={sw}:h={sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
+        # The one enlargement: the picture goes up to the working size here, with
+        # the configured filter, before the camera touches it.
+        f"scale=w={sw}:h={sh}:force_original_aspect_ratio=increase:flags={flt},"
+        f"crop={sw}:{sh},"
         f"{inner}:d={f}:s={sw}x{sh}:fps={fps},"
-        # Lanczos averages the upstream whole-pixel step down to a fraction
-        # of an output pixel — this is the line that makes pans usable.
-        f"scale={width}:{height}:flags=lanczos"
+        # Averaging the upstream whole-pixel step down to a fraction of an
+        # output pixel is what makes pans usable.
+        f"scale={width}:{height}:flags={flt}"
     )
 
 
@@ -258,8 +281,15 @@ def grade_for(visual_style: str = "", tone: str = "") -> Grade:
 def post_chain(visual_style: str = "", tone: str = "", add_grain: bool = True,
                add_vignette: bool = True, letterbox: bool = False,
                width: int = 0, height: int = 0) -> str:
-    """Vignette, grain, grade — the pass that makes stills look photographed."""
+    """Sharpen, vignette, grain, grade — the pass that makes stills look photographed."""
     parts: List[str] = []
+    amount = video_quality.get().sharpen_amount
+    if amount > 0:
+        # Once, right after the last resize and before the encodes: enlarging a
+        # small picture softens its edges, and this puts back the acuity (it can
+        # not add detail the picture never had). Luma only, so colour does not ring.
+        parts.append(f"unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount={amount:g}:"
+                     f"chroma_msize_x=5:chroma_msize_y=5:chroma_amount=0")
     if add_vignette:
         parts.append("vignette=PI/5")
     if add_grain:

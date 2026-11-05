@@ -50,6 +50,9 @@ import mcp.tools  # noqa: F401, E402
 # full run (`pytest -q`, which Gate 1 requires before every commit, and the weekly
 # and on-demand full-matrix workflow) runs them. "file::function": every parameter of
 # a function is included. Add a heavy new test here, so it is chosen and not forgotten.
+# DST-35 (5 Nov 2026): films now render at 1080p, which slowed every test that renders
+# at the default size (the whole suite, 598 s to 742 s on that laptop); the six
+# functions below it that crossed 5 s were added then.
 SLOW = frozenset({
     "tests/integration/test_pipeline_end_to_end.py::test_full_pipeline_produces_video",
     "tests/unit/test_eval_testset.py::test_a_testset_run_plans_every_prompt_and_renders_the_subset",
@@ -57,6 +60,12 @@ SLOW = frozenset({
     "tests/unit/test_m1_edits.py::test_edits_keep_multilang_subtitles_and_speed",
     "tests/unit/test_m1_edits.py::test_revert_restores_previous_video",
     "tests/unit/test_m1_edits.py::test_snapshot_contains_every_referenced_file",
+    "tests/unit/test_m1_edits.py::test_voice_edit_keeps_character_voice_and_applies_tone",
+    "tests/unit/test_m3_consistency.py::test_change_character_design_sticks_across_later_renders",
+    "tests/unit/test_m3_storyboard.py::test_benchmark_runs_offline_and_reports",
+    "tests/unit/test_m8_edit_jobs.py::test_a_cancelled_edit_puts_its_files_back",
+    "tests/unit/test_m8_edit_jobs.py::test_a_revert_is_saved_as_the_version_it_is",
+    "tests/unit/test_non_english_voices.py::test_a_film_within_the_tolerance_is_not_flagged",
     "tests/unit/test_m3_storyboard.py::test_edits_before_rendering_reach_the_film",
     "tests/unit/test_m3_storyboard.py::test_render_turns_an_approved_storyboard_into_a_film",
     "tests/unit/test_m3_storyboard.py::test_storyboard_api_round_trip",

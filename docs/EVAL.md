@@ -25,6 +25,8 @@ are reported separately and never averaged together.
 | **L** | `20261103_122339_testset.json` … `20261103_124828_testset.json` (one per prompt), logs `DST-28_dst-NN.log` | 2026-11-03 12:23 to 12:49 | `6fe7842` + DST-28's length check (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run G) | none |
 | **V** | two scripts in the session scratch folder, one result file each | 2026-11-03 12:50 to 13:00 | same | the saved scripts of run L (24 model-written) and of run G (22 model-written), voiced with Kokoro in a throwaway `DATA_DIR`: no images, no music, no video | none | none | Kokoro |
 | **T33** | printed to the console by two scripts in the session scratch folder (no result file) | 2026-11-04 and 2026-11-05 | `545be5a` + DST-33 (uncommitted at run time) | offline, no model: the saved scripts of run G (22 model-written, 3 template) and run L (24 model-written, 1 template) before and after the new trim; the template over the 25 prompts of `eval/testset.jsonl` before and after | none | none | none |
+| **A35** | none (printed by a script in the session scratch folder) | 2026-11-05 | `8e69d3c` + DST-35 (uncommitted at run time) | offline, no model: six shots of film `20261102_103626_58325d` through shot, scene join, compose and burned subtitles under the old settings and 15 candidates, with a lossless reference per graph | the film's own pictures | none | none |
+| **W35** | none (printed by a script in the session scratch folder) | 2026-11-05 | same | the whole of that film (25 shots, 62.79 s, real audio and subtitles) re-rendered in a throwaway data folder, old settings at 720p and shipped settings at 1080p | the film's own pictures | none | its own master audio |
 | **T33b** | `20261105_013451_testset.json` … `20261105_020446_testset.json` (one per prompt), logs `DST-33v1_dst-NN.log` | 2026-11-05 01:34 to 02:05 PKT | `545be5a` + DST-33, first prompt wording (uncommitted at run time) | plan only, all 25, one at a time, 45 s apart, 10 min cap each | forced placeholder | **Groq → OpenRouter → Gemini** → Ollama → mock (as run L) | none |
 | **T33c** | `20261105_020847_testset.json` … `20261105_024347_testset.json` (one per prompt), logs `DST-33v2_dst-NN.log`, plus one plan of the production prompt (not a result file: printed by a script in the session scratch folder) | 2026-11-05 02:08 to 02:54 PKT | `545be5a` + DST-33, final prompt wording (uncommitted at run time) | plan only, all 25, same protocol; then the production prompt at 45 s / 4 scenes, through the usual chain (refused) and Gemini alone | forced placeholder | same chain; Gemini forced for the last plan | none |
 
@@ -604,6 +606,107 @@ silent one would have been dropped without telling the creator.
 - A scene's picture is drawn from the scene text, so it can still show a character who
   is not in the cast.
 - The creator cannot add or edit cast members in the interface.
+
+## DST-35: sharp finished films (runs A35 and W35)
+
+Hashim said in the 3 Nov product review that finished films look blurry and low
+quality. This section records what was measured first, what was changed, and what
+the change costs. `config/video.yaml` holds every setting with its reason.
+
+**Measured first (the baseline).** The film is `20261102_103626_58325d`, the newest
+finished film on the dev laptop (62.79 s, 6 scenes, 25 shots, made on 2 Nov by the
+code before DST-35). Its delivered file is `final_output_subtitled.mp4`:
+
+| What | Measured |
+|---|---|
+| Output | 1280x720, H.264 High, yuv420p, 24 fps, 1507 frames |
+| Size and rate | 6.23 MB; 794 kb/s overall (671 kb/s of video) |
+| Encoder | x264 CRF 22, `veryfast` (`ref=1`, `subme=2`), at every pass |
+| Passes | up to four lossy encodes at that setting: shot, scene join, compose, burned subtitles |
+| Stored pictures | 1280x720 PNG (28 pictures, 32.8 MB). The Cloudflare adapter documents that FLUX returns a square image which is cover-fitted to 16:9, so the real detail is about 1024x576 (each call's tracing records `native_width`; not re-measured here) |
+| Camera | computed at 3x, but the first enlargement used ffmpeg's default filter, bicubic, and every move ran at a constant speed |
+
+So the likely causes Hashim named are right: the pictures hold less detail than the
+output, and the encode starves what they have. What a filter cannot do is add the
+detail a 1024-pixel picture never had.
+
+**The change.** Output 1080p (new films; a saved film keeps its size); pictures stay
+at 1280x720 because storing them at 1920x1080 cost 1.85x the disk for no more detail
+(32.8 MB to 60.8 MB for this film's 28); every enlargement is one Lanczos upscale made
+before the camera moves; moves ease in and out (smoothstep); a light unsharp mask runs
+once per shot; only the last encode is the delivered quality, the earlier passes are
+written finer than the old setting but far smaller than near-lossless.
+
+**Choosing the numbers (run A35).** Six shots from that film's own pictures (scene 1 to
+3 wide, detail and alt framings, 255 frames, 10.6 s) through the real stages (shot, scene
+join, compose, burned subtitles), under the old settings and ten candidates. Fidelity is
+SSIM against a lossless render of the same filter graph (so it measures encode loss, and
+is comparable only between rows with the same graph); edge energy is the mean Laplacian
+variance of the frames at 1280x720.
+
+| Setting | Final | Rate | SSIM | Edge energy | Shot, scene and compose clips | Time |
+|---|---|---|---|---|---|---|
+| Old: 720p, CRF 22 veryfast everywhere, linear, bicubic | 1.43 MB | 1,080 kb/s | 0.9708 | 245.8 | 1.0 + 1.4 + 1.4 MB | 19.1 s |
+| Old settings at 1080p | 3.05 MB | 2,297 kb/s | 0.9754 | 268.0 | 2.1 + 2.7 + 2.9 MB | 39.1 s |
+| Intermediate 12, final 18 | 7.22 MB | 5,434 kb/s | 0.9830 | 331.5 | 33.0 + 28.3 + 25.9 MB | 52.1 s |
+| Intermediate 14, final 18 | 7.55 MB | 5,688 kb/s | 0.9824 | 330.4 | 17.7 + 16.5 + 15.8 MB | 51.5 s |
+| Intermediate 16, final 18 | 7.34 MB | 5,524 kb/s | 0.9813 | 328.0 | 8.8 + 9.3 + 9.3 MB | 46.9 s |
+| Intermediate 14, final 20 | 5.18 MB | 3,898 kb/s | 0.9814 | 328.4 | 17.7 + 16.5 + 15.8 MB | 50.5 s |
+| **Intermediate 18, final 20 (chosen)** | **5.27 MB** | **3,966 kb/s** | **0.9786** | **322.3** | **5.1 + 5.7 + 5.9 MB** | **48.1 s** |
+| Intermediate 20, final 20 | 4.51 MB | 3,394 kb/s | 0.9762 | 316.7 | 3.2 + 4.0 + 4.2 MB | 45.8 s |
+| Intermediate 22, final 20 | 3.97 MB | 2,993 kb/s | 0.9730 | 311.1 | 2.2 + 2.8 + 3.1 MB | 45.1 s |
+| Intermediate 18, final 21 / 22 | 4.71 / 4.17 MB | 3,543 / 3,143 kb/s | 0.9781 / 0.9776 | 321.2 / 319.9 | 5.1 + 5.7 + 5.9 MB | 45.9 / 47.3 s |
+| Final preset fast / slow (intermediate 14, final 18) | 8.51 / 7.41 MB | 6,411 / 5,583 kb/s | 0.9825 / 0.9824 | 329.8 / 331.2 | | 50.0 / 53.6 s |
+| No sharpen / linear easing (intermediate 14, final 18) | 7.45 / 7.73 MB | 5,607 / 5,824 kb/s | 0.9841 / 0.9823 | 299.1 / 329.5 | | 48.4 / 51.3 s |
+
+Reading it: CRF 14 intermediates score best but are about 17 times the old clip storage,
+and every version snapshot copies the scene clips, so the chosen CRF 18 gives up 0.003
+SSIM for clips 3.5 times smaller. The final CRF 20 is 31% smaller than 18 for 0.001 SSIM.
+Medium and slow finish at the same size to 2%, and slow takes about twice as long on the
+subtitle pass. The sharpen adds about 10% edge energy for about 1% size; easing is free.
+
+**The whole film (run W35).** The same film, end to end (its real pictures, audio and
+subtitles), re-rendered in a throwaway data folder (the original is untouched), once with
+the old settings written as config and once with the shipped config at 1080p:
+
+| | The film as made on 2 Nov | Old settings, re-rendered | New settings |
+|---|---|---|---|
+| Size | 1280x720 | 1280x720 | 1920x1080 |
+| File | 6.23 MB | 6.34 MB | 21.55 MB (3.4x) |
+| Rate, overall (video) | 794 (671) kb/s | 808 (686) kb/s | 2,746 (2,624) kb/s |
+| Frames, duration | 1507, 62.79 s | 1507, 62.79 s | 1507, 62.79 s |
+| Render (compose, all 6 scenes forced) | | 77.1 s | 153.9 s (2.0x) |
+
+The old-settings re-render reproduces the original within 2%, which is what makes the
+comparison fair, and the frame count is the same in all three, so sync is unchanged.
+Before and after frame grabs, side-by-side crops and 6 s clips are attached to the PR.
+In the crops the 1080p film holds the fine detail the 720p one smooths away: skin
+wrinkles and pores, window frames, small hardware.
+
+**A metric that did not hold up.** The edge-energy figure rose 31% in the 6-shot sample
+but fell 13% over the whole film (435 before, 430 old settings re-rendered, 377 new, 63
+frames sampled each). It counts film grain and compression artefacts as detail, and the
+720p film's grain is at full strength per pixel while the 1080p film's is averaged when
+reduced to 720p for the comparison. It is not used as evidence of sharpness either way;
+the frame crops are. SSIM is evidence of encode fidelity only.
+
+**What it costs.**
+- **Render time** about doubles on the laptop (77 s to 154 s for this film). On the
+  server, with its slower cores, the video part of a render takes longer in proportion;
+  that is not measured until it is deployed. `SUPERSAMPLE` (and `upscale.max_pixels`)
+  can trade pan smoothness for speed.
+- **Disk:** the delivered film is 3.4x the size, and the scene clips every version copies
+  are about 4x. Free R2 (10 GB) and the server's disk fill faster: the existing roadmap
+  item "every version copies every file" matters more now.
+- **Streaming:** 2.7 Mb/s for this film (about 4 Mb/s for the busier sample) plays in a
+  browser; the index is up front (faststart), so it starts and seeks at once.
+
+**Not measured.** A render on the Oracle server; films of other aspect ratios (DST-34);
+any viewer's own perception beyond the attached crops.
+
+**Known limit.** Pictures hold about 1024 pixels of real detail, so a 1080p film is
+enlarged about 1.9x from them. A higher-resolution image provider or an AI upscaler is
+the only way past that, and is a separate ticket.
 
 ## Findings
 

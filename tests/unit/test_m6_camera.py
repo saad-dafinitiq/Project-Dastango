@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from agents.video_agent import animator, camera
+from shared import video_quality
 
 
 def test_a_move_is_chosen_for_what_the_shot_is_doing():
@@ -71,7 +72,8 @@ def test_the_supersample_factor_is_configurable_and_clamped(monkeypatch):
     monkeypatch.setenv("SUPERSAMPLE", "99")        # 99x would exhaust memory
     assert camera.supersample() == 4.0
     monkeypatch.setenv("SUPERSAMPLE", "nonsense")
-    assert camera.supersample() == camera.DEFAULT_SUPERSAMPLE
+    # The default is the factor in config/video.yaml (DST-35), not a constant here.
+    assert camera.supersample() == video_quality.get().upscale_factor == 3.0
 
 
 @pytest.mark.parametrize("move", sorted(camera.MOVES))
@@ -250,9 +252,10 @@ def test_supersampling_is_capped_so_a_bigger_project_cannot_exhaust_memory():
     """3x of 720p is 8.3 MP a frame, which is fine; 3x of 1080p is 18.7 MP,
     and several of those in flight is how ffmpeg gets killed mid-render."""
     assert camera.supersample_for(1280, 720, 3.0) == 3.0
+    cap = video_quality.get().upscale_max_pixels       # in config/video.yaml since DST-35
     for w, h in ((1920, 1080), (2560, 1440), (3840, 2160)):
         factor = camera.supersample_for(w, h, 3.0)
-        assert w * factor * h * factor <= camera.MAX_SUPERSAMPLED_PIXELS * 1.01
+        assert w * factor * h * factor <= cap * 1.01
         assert factor >= 1.0            # never below the output size
 
 
