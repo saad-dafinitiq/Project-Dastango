@@ -315,7 +315,8 @@ class ImageGenTool(BaseTool):
         from openai import OpenAI
         # The SDK otherwise waits 600 s and retries twice; the chain is the retry.
         client = OpenAI(timeout=spec.timeout_s, max_retries=0)
-        size = "1792x1024" if max(w, h) >= 1024 else "1024x1024"
+        # DALL-E 3 draws only these three shapes: pick the one nearest the frame.
+        size = "1024x1024" if w == h else ("1024x1792" if h > w else "1792x1024")
         resp = client.images.generate(model=spec.model or "dall-e-3", prompt=prompt,
                                       size=size, n=1)
         import requests

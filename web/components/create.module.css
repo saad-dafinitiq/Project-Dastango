@@ -193,6 +193,14 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+.look {
+  display: flex;
+  gap: 18px 34px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
 .row {
   display: flex;
   justify-content: space-between;
@@ -337,6 +345,17 @@
 }
 
 @media (max-width: 640px) {
+  .look {
+    flex-direction: column;
+  }
+  .look button {
+    flex: 1;
+    min-width: 0;
+    padding: 0 10px;
+  }
+  .look small {
+    display: none;
+  }
   .hero {
     padding-top: 40px;
   }

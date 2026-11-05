@@ -35,6 +35,15 @@ from shared.timeline import SCENE_PREROLL_MS, estimate_line_ms, LINE_GAP_MS, SCE
 # mediums do not frame the same part.
 MEDIUM_X = (0.28, 0.72)
 MEDIUM_Y = 0.42
+# On a tall picture (9:16) there is no room to alternate sideways, so a medium keeps the
+# centre line and alternates up and down instead, around where a face sits (DST-34).
+MEDIUM_TALL_Y = (0.34, 0.58)
+
+
+def medium_window(count: int, scene_index: int, tall: bool) -> Tuple[float, float]:
+    """(x, y) of a medium shot's centre in its picture: the `count`-th medium of the film."""
+    k = (count + scene_index) % 2
+    return (0.5, MEDIUM_TALL_Y[k]) if tall else (MEDIUM_X[k], MEDIUM_Y)
 
 
 @dataclass(frozen=True)
@@ -73,7 +82,8 @@ def shot_id_at(scene_id: str, index: int) -> str:
 
 def apply_overrides(covers: List[Cover], scene_id: str, scene_index: int,
                     overrides: Optional[Mapping[str, object]],
-                    has_portrait: Callable[[str], bool] = lambda _id: True) -> List[Cover]:
+                    has_portrait: Callable[[str], bool] = lambda _id: True,
+                    tall: bool = False) -> List[Cover]:
     """The plan with the creator's own choices laid over it (DST-38).
 
     A move is taken as given when the camera knows it. A framing is taken when the
@@ -101,10 +111,10 @@ def apply_overrides(covers: List[Cover], scene_id: str, scene_index: int,
             if framing == "wide":
                 new = replace(new, framing="wide", source="wide", crop=None, character_id=None)
             elif framing == "medium":
-                x = MEDIUM_X[(mediums + scene_index) % 2]
+                x, y = medium_window(mediums, scene_index, tall)
                 mediums += 1
                 new = replace(new, framing="medium", source="wide",
-                              crop=(q.medium_crop, x, MEDIUM_Y), character_id=None)
+                              crop=(q.medium_crop, x, y), character_id=None)
             elif framing == "close":
                 who = c.character_id or next((s for s in c.speakers if has_portrait(s)), None)
                 if who and has_portrait(who):
@@ -244,7 +254,8 @@ def plan_coverage(scene_start_ms: int, scene_end_ms: int, lines: Sequence[CoverL
                   tone: str, nominal_ms: int, scene_index: int = 0,
                   has_portrait: Callable[[str], bool] = lambda _id: True,
                   has_cutaway: bool = False, scene_id: str = "",
-                  overrides: Optional[Mapping[str, object]] = None) -> List[Cover]:
+                  overrides: Optional[Mapping[str, object]] = None,
+                  tall: bool = False) -> List[Cover]:
     """The shots of one scene, covering [scene_start_ms, scene_end_ms) exactly.
 
     `overrides` are the creator's own camera move / framing per shot id
@@ -289,18 +300,18 @@ def plan_coverage(scene_start_ms: int, scene_end_ms: int, lines: Sequence[CoverL
         else:
             framing, source = "medium", "wide"
             role = "dialogue" if r.speakers else "narration"
-            x = MEDIUM_X[(mediums + scene_index) % 2]
-            crop = (q.medium_crop, x, MEDIUM_Y)
+            x, y = medium_window(mediums, scene_index, tall)
+            crop = (q.medium_crop, x, y)
             mediums += 1
         # A scene closes on a pull-out, whatever the shot is; a lone shot just opens.
         move_role = "ending" if (i == last and len(runs) > 1) else role
         covers.append(Cover(
             framing=framing, role=role, source=source, start_ms=r.start_ms, end_ms=r.end_ms,
             character_id=character, speakers=r.speakers, crop=crop,
-            move=camera.move_for_role(move_role, tone, r.emotional, scene_index, i),
+            move=camera.move_for_role(move_role, tone, r.emotional, scene_index, i, tall=tall),
             emotional=r.emotional))
     if overrides and scene_id:
-        covers = apply_overrides(covers, scene_id, scene_index, overrides, has_portrait)
+        covers = apply_overrides(covers, scene_id, scene_index, overrides, has_portrait, tall)
     return covers
 
 
@@ -326,8 +337,8 @@ def estimated_lines(dialogue, people) -> Tuple[int, List[CoverLine]]:
     return cursor + SCENE_TAIL_MS, out
 
 
-def plan_for_script(scene, people, has_portrait: Callable[[str], bool] = lambda _id: True
-                    ) -> List[Cover]:
+def plan_for_script(scene, people, has_portrait: Callable[[str], bool] = lambda _id: True,
+                    tall: bool = False) -> List[Cover]:
     """A scene's shots as the storyboard shows them (estimated times)."""
     total, lines = estimated_lines(scene.dialogue, people)
     if not lines:
@@ -337,4 +348,4 @@ def plan_for_script(scene, people, has_portrait: Callable[[str], bool] = lambda 
                          has_portrait=has_portrait,
                          has_cutaway=needs_cutaway(scene.duration_ms),
                          scene_id=getattr(scene, "scene_id", ""),
-                         overrides=getattr(scene, "shot_overrides", None))
+                         overrides=getattr(scene, "shot_overrides", None), tall=tall)

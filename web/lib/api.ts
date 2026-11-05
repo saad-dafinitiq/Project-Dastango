@@ -57,6 +57,8 @@ export type PlanOptions = {
   prompt: string;
   target_duration_s: number;
   scene_count: number;
+  format: "16:9" | "9:16" | "1:1";
+  style: "realistic" | "anime";
 };
 
 export type RenderOptions = {
@@ -102,6 +104,9 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(edit),
     }),
+  /** Change a storyboard's format and/or style: every picture is drawn again, so it is a job. */
+  respec: (pid: string, change: { format?: string; style?: string }) =>
+    request<RunResponse>(`/api/pipeline/spec/${pid}`, { method: "PATCH", body: JSON.stringify(change) }),
   shotOptions: () => request<ShotOptions>("/api/pipeline/shot-options"),
   /** Before a render this answers with the storyboard; on a finished film the film
    *  is cut again, so it answers with a job to follow. */

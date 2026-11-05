@@ -100,6 +100,11 @@ class StoryOutput(BaseModel):
         description="three-act / hero-journey / loop / experimental",
     )
     target_duration_s: int = Field(default=45, ge=15, le=600)
+    # DST-34: chosen before planning, kept with the script so every image, shot and
+    # edit that reads the story reads them. A film made before has the defaults:
+    # 16:9, and style "" (the look its genre gave it).
+    format: Literal["16:9", "9:16", "1:1"] = "16:9"
+    style: Literal["", "realistic", "anime"] = ""
 
 
 class ScriptOutput(BaseModel):

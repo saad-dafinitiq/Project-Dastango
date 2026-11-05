@@ -15,7 +15,7 @@ from auth.deps import require_project, require_user
 from auth.accounts import User
 from agents.story_agent import current_length_check
 from agents.orchestrator import RENDER_DESCRIPTIONS as RENDERS
-from shared import stand_in, voices
+from shared import film_format, stand_in, voices
 from agents.orchestrator.storyboard_view import cast, cast_note, image_budget, scene_cards
 from shared.assets import asset_url
 from shared.languages import iso639_1, supported_names
@@ -33,8 +33,10 @@ sm = StateManager()
 
 class RunRequest(BaseModel):
     prompt: str = Field(..., min_length=4)
-    target_duration_s: int = 45
-    scene_count: int = 4
+    target_duration_s: int = Field(45, ge=15, le=600)
+    scene_count: int = Field(4, ge=1, le=12)
+    format: str = "16:9"          # DST-34: 16:9, 9:16 or 1:1
+    style: str = "realistic"      # realistic or anime
     with_bgm: bool = True
     with_subtitles: bool = True
     subtitle_language: str = "English"
@@ -81,10 +83,11 @@ def _accepted(kind: str, project_id: str, status: str, owner: User,
 def start_run(req: RunRequest, user: User = Depends(require_user)):
     """Queue a full pipeline run; progress streams over /ws/progress/{project_id}."""
     _check_engine(req.tts_engine)
+    fmt, style = _check_spec(req.format, req.style)
     return _accepted(
         "run_full", new_project_id(), "queued", user,
         prompt=req.prompt, target_duration_s=req.target_duration_s,
-        scene_count=req.scene_count, with_bgm=req.with_bgm,
+        scene_count=req.scene_count, format=fmt, style=style, with_bgm=req.with_bgm,
         with_subtitles=req.with_subtitles, subtitle_language=req.subtitle_language,
         tts_engine=req.tts_engine,
     )
@@ -101,10 +104,25 @@ def rerun_phase(req: PhaseRerunRequest, user: User = Depends(require_user)):
     return _accepted("rerun_phase", req.project_id, "queued", user, phase=req.phase)
 
 
+def _check_spec(format: str, style: str):
+    """The creator's format and style, or a 400 that names what is accepted."""
+    try:
+        return film_format.check_format(format), film_format.check_style(style)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class SpecChange(BaseModel):
+    format: Optional[str] = None
+    style: Optional[str] = None
+
+
 class PlanRequest(BaseModel):
     prompt: str = Field(..., min_length=4)
-    target_duration_s: int = 45
-    scene_count: int = 4
+    target_duration_s: int = Field(45, ge=15, le=600)
+    scene_count: int = Field(4, ge=1, le=12)
+    format: str = "16:9"          # DST-34: 16:9, 9:16 or 1:1
+    style: str = "realistic"      # realistic or anime
     with_preview: bool = True
 
 
@@ -132,10 +150,11 @@ class RenderRequest(BaseModel):
 @router.post("/plan", response_model=RunResponse)
 def start_plan(req: PlanRequest, user: User = Depends(require_user)):
     """Write the script + preview images only; render is a separate, approved step."""
+    fmt, style = _check_spec(req.format, req.style)
     return _accepted(
         "plan", new_project_id(), "planning", user,
         prompt=req.prompt, target_duration_s=req.target_duration_s,
-        scene_count=req.scene_count, with_preview=req.with_preview,
+        scene_count=req.scene_count, format=fmt, style=style, with_preview=req.with_preview,
     )
 
 
@@ -171,6 +190,11 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
     board["length"] = current_length_check(state)
     board["stage"] = state.stage
     board["version"] = state.version
+    story = state.script.story if state.script else None
+    board["spec"] = {"format": story.format if story else film_format.DEFAULT_FORMAT,
+                     "style": (story.style if story else "") or "",
+                     # What the scene-count check found: the creator asked for `asked` scenes.
+                     "scene_check": state.metadata.get("scene_check")}
     return board
 
 
@@ -266,6 +290,29 @@ def edit_shot(project_id: str, scene_id: str, shot_id: str, change: ShotChange,
     return get_storyboard(project_id)
 
 
+@router.patch("/spec/{project_id}", response_model=RunResponse,
+              dependencies=[Depends(require_project)])
+def change_spec(project_id: str, change: SpecChange, user: User = Depends(require_user)):
+    """Change a storyboard's format and/or style (DST-34). Every picture is drawn again, so
+    this uses image quota; it is only offered before the render (a finished film is not
+    converted: the ticket leaves that out, and it would need every shot again as well)."""
+    if change.format is None and change.style is None:
+        raise HTTPException(400, "choose a format, a style, or both")
+    state = sm.latest(project_id)
+    if not state or not state.script:
+        raise HTTPException(404, f"no storyboard for {project_id}")
+    if state.video and state.video.final_video_path:
+        raise HTTPException(409, "This film is already rendered, so its format and style are fixed. "
+                                 "Make a new film to try another look.")
+    fmt, style = _check_spec(change.format if change.format is not None else state.script.story.format,
+                             change.style if change.style is not None else (state.script.story.style or "realistic"))
+    busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done]
+    if busy:
+        raise HTTPException(409, f"This film is being worked on right now ({busy[0].kind}); "
+                                 "try again when it has finished.")
+    return _accepted("respec", project_id, "queued", user, max_attempts=1, format=fmt, style=style)
+
+
 @router.post("/render/{project_id}", response_model=RunResponse)
 def start_render(project_id: str, req: RenderRequest,
                  user: User = Depends(require_project)):
@@ -345,6 +392,8 @@ def film(project_id: str):
         "width": video.width, "height": video.height, "fps": video.fps,
         "version": state.version,
         "cut": cut,
+        "format": state.script.story.format if state.script else film_format.format_of_size(video.width, video.height),
+        "style": (state.script.story.style if state.script else "") or "",
         # Scenes drawn with a placeholder because every image service was at its limit.
         "stand_in_scenes": stand_in.scenes_with_stand_ins(video.frames or []),
         "chapters": chapters,

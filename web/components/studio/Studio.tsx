@@ -8,10 +8,12 @@ import { Dust } from "@/components/Dust";
 import { TopBar, type Stage } from "@/components/TopBar";
 import { api, ApiError, versioned, type SceneEdit, type ShotChange } from "@/lib/api";
 import { describe, elapsedSeconds } from "@/lib/copy";
+import { formatVars } from "@/lib/format";
 import type {
   Card,
   CastMember,
   FilmPlayback,
+  FilmSpec,
   FilmVersion,
   ImageBudget,
   RunResponse,
@@ -25,6 +27,7 @@ import { EditPanel } from "./EditPanel";
 import { Player } from "./Player";
 import { RenderProgress } from "./RenderProgress";
 import { Sheet } from "./Sheet";
+import { SpecBar } from "./SpecBar";
 import { Versions } from "./Versions";
 import sheet from "./sheet.module.css";
 import styles from "./studio.module.css";
@@ -113,7 +116,16 @@ export function Studio() {
 
   // When the job we're following ends, read back what it settled into.
   useEffect(() => {
-    if (finished) void refresh();
+    if (finished) {
+      const undone = events[events.length - 1]?.payload?.restyle_failed as string[] | undefined;
+      if (undone?.length) {
+        setProblem(
+          `${undone.length === 1 ? "One picture" : `${undone.length} pictures`} could not be redrawn just now (the image services may be at their limit). ` +
+            "They keep their old look on this page and are drawn fresh when you render.",
+        );
+      }
+      void refresh();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finished]);
 
@@ -166,7 +178,7 @@ export function Studio() {
   type Mode = "loading" | "planning" | "storyboard" | "rendering" | "stopped" | "watch" | "missing";
   let mode: Mode;
   if (!loaded) mode = "loading";
-  else if (running && job?.kind === "plan") mode = "planning";
+  else if (running && (job?.kind === "plan" || job?.kind === "respec")) mode = "planning";
   else if (running && !changing) mode = "rendering";
   else if (job?.kind === "render" && failed) mode = "stopped";
   // An edit keeps you with the film: it plays on while the change is made.
@@ -174,10 +186,13 @@ export function Studio() {
   else if (board || streamed) mode = "storyboard";
   else mode = "missing";
 
-  const cards: Card[] = board?.frames ?? streamed?.cards ?? [];
+  const redrawing = job?.kind === "respec" && running;
+  const cards: Card[] = (redrawing ? streamed?.cards : undefined) ?? board?.frames ?? streamed?.cards ?? [];
   const title = board?.title || streamed?.title || film?.title || "";
   const prompt = board?.prompt || streamed?.prompt || askedFor || "";
   const images = board?.images ?? streamed?.images;
+  const spec = board?.spec ?? (film ? { format: film.format, style: film.style } : undefined);
+  const format = spec?.format ?? "16:9";
   const castMembers = board?.cast ?? streamed?.cast ?? [];
   const castNote = board?.cast_note ?? streamed?.cast_note ?? null;
   // A render that stopped reports how long it ran, not how long ago it started.
@@ -233,6 +248,18 @@ export function Studio() {
       }
     } catch (err) {
       setProblem(err instanceof ApiError ? err.message : "That shot change didn't save.");
+    }
+  }
+
+  async function redraw(change: { format?: string; style?: string }) {
+    if (!pid) return;
+    setProblem(null);
+    try {
+      const run = await api.respec(pid, change);
+      setJob({ id: run.job_id, kind: "respec" });
+    } catch (err) {
+      setProblem(err instanceof ApiError ? err.message : "Couldn't change the look.");
+      throw err;
     }
   }
 
@@ -293,7 +320,7 @@ export function Studio() {
   const stageFilm = title || undefined;
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} style={formatVars(format) as React.CSSProperties}>
       <Dust />
       <TopBar stage={stage} film={stageFilm} />
 
@@ -326,6 +353,15 @@ export function Studio() {
                     ? prompt
                     : [`${cards.length} scenes`, `about ${Math.round(seconds)} s`, streamed?.logline || board?.logline].filter(Boolean).join(" · ")}
                 </p>
+                {spec && mode === "storyboard" && (
+                  <SpecBar
+                    spec={spec as FilmSpec}
+                    scenes={cards.length}
+                    cast={castMembers.length}
+                    canChange={!film}
+                    onRedraw={redraw}
+                  />
+                )}
               </div>
               {castMembers.length > 0 && (
                 <ul className={sheet.cast} aria-label="Cast">

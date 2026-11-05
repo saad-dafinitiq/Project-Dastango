@@ -42,6 +42,7 @@ export function statusLine(f: Film & { working?: string | null }, now = Date.now
   const kind = kindOf(f);
   const when = shortDate(f.updated_at, now);
   if (kind === "working") return { kind, text: WORKING_WORDS[f.working ?? ""] ?? "Working" };
-  if (kind === "ready") return { kind, text: ["Ready", length(f.duration_ms), when].filter(Boolean).join(" · ") };
-  return { kind, text: ["Storyboard", when].filter(Boolean).join(" · ") };
+  const shape = f.format && f.format !== "16:9" ? f.format : "";
+  if (kind === "ready") return { kind, text: ["Ready", length(f.duration_ms), shape, when].filter(Boolean).join(" · ") };
+  return { kind, text: ["Storyboard", shape, when].filter(Boolean).join(" · ") };
 }

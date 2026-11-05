@@ -25,6 +25,9 @@ from shared.timeline import (
 from shared.utils.files import project_dir, write_json
 from shared.utils.logging import get_logger
 
+from shared import film_format
+
+from . import scenes as scene_gov
 from .appearance import lock_appearances
 from .cast import join_names, silent_but_named, speakers, trim_silent_cast
 from .planner import template_script
@@ -50,8 +53,7 @@ Generate a complete script JSON object with this exact structure:
     "logline": "one sentence pitch",
     "synopsis": "one paragraph summary",
     "genre": "...",
-    "visual_style": "how the whole film should look: medium, palette, lighting, lens — "
-                    "e.g. 'gritty cinematic sci-fi, cold teal palette, volumetric light, 35mm'",
+    "visual_style": "{visual_style_example}",
     "themes": ["...", "..."],
     "arc": "three-act",
     "target_duration_s": {duration_s}
@@ -113,11 +115,20 @@ Rules:
   about {scene_words} words per scene (people speak ~{words_per_second} words per second,
   and each scene also needs ~{scene_overhead_s} seconds without speech). This is what makes
   the film land near {duration_s} seconds. Fewer words make a shorter film, so do not stop short.
-- `visual_style` must suit the story you are telling (a horror short and a children's
-  fable should not look the same). Every image in the film is generated with it, so make
-  it concrete about medium, palette and lighting — and do not mention characters in it.
+- {visual_style_rule}
+- The picture frame is {frame_brief}; write every scene's `visual_prompt` for it.
 - Make the dialogue feel natural and specific to the genre.
 - The protagonist should appear in every scene; supporting characters can vary.
+"""
+
+
+SCENE_REPAIR_PROMPT = """Your script has {got} scenes and the film must have exactly {asked}. {how}
+
+Keep the same characters (same ids), the same story and the same arc (intro -> rising -> climax -> resolution), and keep the spoken dialogue to about {words} words in all so the film keeps its length. Scenes are numbered scene_1 to scene_{asked}, with index 0 to {last}. Every scene has at least one line, everyone who speaks keeps at least one line, and every line's character_id must still be one of the characters.
+
+Return the whole script as the same JSON object.
+
+{script}
 """
 
 
@@ -161,6 +172,21 @@ def repair_prompt(script: ScriptOutput, planned_ms: int, target_s: int) -> str:
              else "shorten lines or drop a line where a scene can spare it"),
         script=script.model_dump_json(),
     )
+
+
+def _visual_style_rule(style: str) -> str:
+    """What the story model is told about `visual_style`. With a style chosen the medium
+    is fixed by the code (agents/story_agent/visual_style.py), so the model writes only the
+    palette, light and lens, and is forbidden to name a medium that would fight the lock."""
+    lock = film_format.style_lock(style)
+    if not lock:
+        return ("`visual_style` must suit the story you are telling (a horror short and a children's "
+                "fable should not look the same). Every image in the film is generated with it, so make "
+                "it concrete about medium, palette and lighting, and do not mention characters in it.")
+    return (f"`visual_style` is the palette, lighting and lens only. The film's medium is already fixed as "
+            f"{lock['label'].lower()}: never name a medium or technique (no 'anime', 'photograph', "
+            f"'illustration', 'painted', 'cinematic photography'). It must suit the story (a horror short "
+            f"and a children's fable should not look the same), and do not mention characters in it.")
 
 
 def _cast_size_text(duration_s: int, scene_count: int) -> str:
@@ -251,15 +277,21 @@ class StoryAgent:
     # ---- public ----------------------------------------------------------
 
     def run(self, state: PipelineState, target_duration_s: int = 45,
-            scene_count: int = 4) -> ScriptOutput:
+            scene_count: int = 4, format: str = film_format.DEFAULT_FORMAT,
+            style: str = film_format.DEFAULT_STYLE) -> ScriptOutput:
         log.info("phase 1 start (provider=%s, project=%s)",
                  self.llm.provider, state.project_id)
         state.phase1.status = "running"
         state.phase1.started_at = datetime.utcnow().isoformat()
 
         try:
+            format = film_format.check_format(format)
+            style = film_format.check_style(style)
             script, repairs, written_by = self._generate(
-                state.project_id, state.user_prompt, target_duration_s, scene_count)
+                state.project_id, state.user_prompt, target_duration_s, scene_count,
+                format, style)
+            # The creator's choices are the script's, whatever the model echoed back.
+            script.story.format, script.story.style = format, style
             self._validate(script)
             cast_repairs = 0
             if written_by == "model":
@@ -274,6 +306,10 @@ class StoryAgent:
                          "was" if len(removed) == 1 else "were")
             state.metadata["cast_check"] = cast_check(
                 script, target_duration_s, cast_repairs, removed)
+            state.metadata["film_spec"] = {"format": format, "style": style,
+                                           "length_s": target_duration_s, "scenes": scene_count}
+            state.metadata["scene_check"] = scene_gov.scene_check(
+                scene_count, script, *self._scene_notes)
             state.metadata["length_check"] = length_check(
                 script, target_duration_s, repairs, written_by)
             # Pin each character's look before any image is drawn.
@@ -300,9 +336,11 @@ class StoryAgent:
     # ---- generation ------------------------------------------------------
 
     def _generate(self, project_id: str, prompt: str,
-                  duration_s: int, scene_count: int) -> Tuple[ScriptOutput, int, str]:
+                  duration_s: int, scene_count: int, fmt: str = film_format.DEFAULT_FORMAT,
+                  style: str = film_format.DEFAULT_STYLE) -> Tuple[ScriptOutput, int, str]:
         """The script, how many length repairs it took, and who wrote it
         ("model" or "template")."""
+        self._scene_notes = (0, 0)      # (repairs, merges) of the scene-count check
         # Mock provider -> deterministic template fallback.
         if self.llm.provider == "mock":
             log.info("using template-based fallback (no LLM provider configured)")
@@ -326,6 +364,10 @@ class StoryAgent:
             words_per_second=WORDS_PER_SECOND,
             scene_overhead_s=round(expected_scene_overhead_ms() / 1000, 1),
             project_id=project_id,
+            frame_brief=film_format.get(fmt).brief,
+            visual_style_example=("cold teal palette, volumetric light, 35mm" if style
+                                  else "gritty cinematic sci-fi, cold teal palette, volumetric light, 35mm"),
+            visual_style_rule=_visual_style_rule(style),
         )
         try:
             script = self.llm.generate_structured(
@@ -342,8 +384,49 @@ class StoryAgent:
         # The length check, and the warning built on it, are against what was
         # asked for; the model's own echo of it in the script is not trusted.
         script.story.target_duration_s = duration_s
+        script, scene_repairs, merged = self._fit_scenes(script, scene_count, duration_s)
+        self._scene_notes = (scene_repairs, merged)
         script, repairs = self._fit_length(script, duration_s)
         return script, repairs, "model"
+
+    def _fit_scenes(self, script: ScriptOutput, asked: int,
+                    duration_s: int) -> Tuple[ScriptOutput, int, int]:
+        """Hold the script to the number of scenes asked for (DST-34): one repair by the
+        model, then, for too many, merging the two shortest neighbours. Too few is left and
+        reported. Runs before the length and cast repairs, which keep the scenes they are given."""
+        repairs = merged = 0
+        if len(script.scenes) != asked:
+            repairs = 1
+            got = len(script.scenes)
+            log.info("script has %d scenes, %d were asked for; repair 1 of 1", got, asked)
+            words = sum(len(ln.text.split()) for s in script.scenes for ln in s.dialogue)
+            try:
+                candidate = self.llm.generate_structured(
+                    prompt=SCENE_REPAIR_PROMPT.format(
+                        got=got, asked=asked, last=asked - 1, words=words,
+                        how=("Merge neighbouring scenes" if got > asked else
+                             "Split a long scene, or add a scene the story can bear,"),
+                        script=script.model_dump_json()),
+                    schema=ScriptOutput, system=SYSTEM_PROMPT, temperature=0.5, max_tokens=4000)
+                known = {c.id for c in candidate.characters.characters}
+                same_cast = known == {c.id for c in script.characters.characters}
+                lines_ok = all(ln.character_id in known for s in candidate.scenes for ln in s.dialogue)
+                if len(candidate.scenes) == asked and same_cast and lines_ok:
+                    candidate.story.project_id = script.story.project_id
+                    candidate.story.target_duration_s = duration_s
+                    script = candidate
+                else:
+                    log.warning("scene repair discarded: %d scenes, cast %s", len(candidate.scenes),
+                                "kept" if same_cast else "changed")
+            except Exception as e:  # noqa: BLE001
+                log.warning("scene repair failed (%s); keeping the script as it is", e)
+        if len(script.scenes) > asked:
+            merged = scene_gov.merge_to(script, asked)
+            log.warning("scene repair left %d scenes for %d asked; merged %d", len(script.scenes) + merged,
+                        asked, merged)
+        else:
+            scene_gov.renumber(script)
+        return script, repairs, merged
 
     def _fit_length(self, script: ScriptOutput, duration_s: int) -> Tuple[ScriptOutput, int]:
         """Send a script whose planned length is outside the tolerance back to the

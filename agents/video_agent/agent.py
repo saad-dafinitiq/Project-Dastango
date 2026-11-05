@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from mcp.tool_executor import ToolExecutor
-from shared import progress_hook, providers, stand_in, video_quality
+from shared import film_format, progress_hook, providers, stand_in, video_quality
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, PHASE_VIDEO
 from shared.languages import canonical
 from shared.schemas.audio import AudioSegment, SceneTiming
@@ -364,7 +364,7 @@ class VideoAgent:
         script = state.script
         if width is None or height is None:
             # Previews are pictures, drawn at the picture size, not at film size.
-            width, height = video_quality.image_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+            width, height = video_quality.image_size(*film_format.film_size(script.story.format))
         board = state.storyboard or Storyboard(
             project_id=state.project_id, prompt=state.user_prompt,
             title=script.story.title, logline=script.story.logline,
@@ -664,7 +664,7 @@ class VideoAgent:
             nominal_ms=scene.duration_ms, scene_index=scene.index,
             has_portrait=lambda cid: portrait_of(cid) is not None,
             has_cutaway=len(bank) > 1, scene_id=scene.scene_id,
-            overrides=scene.shot_overrides)
+            overrides=scene.shot_overrides, tall=video.height > video.width)
 
         planned: List[PlannedShot] = []
         for j, c in enumerate(covers):
@@ -990,6 +990,9 @@ class VideoAgent:
                 "video.subtitle", in_path=str(final),
                 out_path=str(proj / "final_output_subtitled.mp4"),
                 lines=tracks[chosen], language=chosen,
+                layout=film_format.subtitle_layout(film_format.format_of_size(video.width, video.height),
+                                                   video.width, video.height),
+                frame=(video.width, video.height),
             )
             if res.success:
                 final, burned = Path(res.data), chosen

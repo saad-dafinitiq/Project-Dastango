@@ -31,7 +31,7 @@ export function FilmCard({ film, delay = 0 }: { film: LibraryFilm; delay?: numbe
   return (
     <li className="rise" style={{ "--delay": `${delay}ms` } as React.CSSProperties}>
       <Link href={`/studio/?id=${encodeURIComponent(film.project_id)}`} className={styles.film}>
-        <div className={styles.poster}>
+        <div className={`${styles.poster} ${film.format === "9:16" ? styles.tall : film.format === "1:1" ? styles.square : ""}`}>
           {film.poster_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={film.poster_url} alt="" loading="lazy" />

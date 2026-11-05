@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from typing import Optional, Tuple
 
+from shared import film_format
 from shared.schemas.story import StoryOutput
 
 # genre -> (style, extra things to avoid)
@@ -69,11 +70,30 @@ def style_for(story: Optional[StoryOutput]) -> Tuple[str, str]:
     if story is None:
         return f"{DEFAULT_STYLE[0]}, {QUALITY}", f"{BASE_NEGATIVE}, {DEFAULT_STYLE[1]}"
 
+    lock = film_format.style_lock(story.style)
+    if lock:
+        # The creator chose the medium: it comes first and is never overridden by the
+        # story's own text, which keeps only what is left of it (palette, light, lens).
+        palette = _palette_only(story.visual_style, lock["forbidden"])
+        style = f"{lock['medium']}, {palette}" if palette else lock["medium"]
+        return (f"{style}, {film_format.composition(story.format)}, {QUALITY}",
+                f"{BASE_NEGATIVE}, {lock['avoid']}")
+
     genre = (story.genre or "").lower()
     preset = next((v for k, v in GENRE_STYLES.items() if k in genre), DEFAULT_STYLE)
     style = story.visual_style.strip() if story.visual_style else preset[0]
     negative = f"{BASE_NEGATIVE}, {preset[1]}"
     return f"{style}, {QUALITY}", negative
+
+
+def _palette_only(text: str, forbidden: str) -> str:
+    """The story's `visual_style` without any clause that names a medium the film is
+    not in. A model told to write palette and lighting only will mostly do so; this is
+    the guarantee for when it does not ("anime, painterly" in a realistic film)."""
+    import re
+    kept = [part.strip() for part in re.split(r"[,;]", text or "")
+            if part.strip() and not re.search(forbidden, part, re.I)]
+    return ", ".join(kept)
 
 
 def scene_style(story: Optional[StoryOutput], tone: str = "") -> Tuple[str, str]:
