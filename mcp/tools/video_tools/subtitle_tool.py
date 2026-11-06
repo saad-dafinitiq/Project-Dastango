@@ -2,7 +2,7 @@
 from __future__ import annotations
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from mcp.base_tool import BaseTool, ToolResult
 from shared import video_quality
@@ -23,7 +23,9 @@ class SubtitleTool(BaseTool):
     category = "video"
 
     def run(self, in_path: str, out_path: str, lines: List[Dict[str, Any]],
-            font_size: int = 22, language: str = "English", **_) -> ToolResult:
+            font_size: int = 22, language: str = "English",
+            layout: Optional[Dict[str, int]] = None, frame: Optional[Tuple[int, int]] = None,
+            **_) -> ToolResult:
         in_p = Path(in_path)
         out_p = Path(out_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -39,11 +41,22 @@ class SubtitleTool(BaseTool):
         # with the right coverage that this machine actually has (the container
         # has no "Segoe UI"). libass handles right-to-left shaping itself.
         font = font_for(language)
+        if layout and frame:
+            # The layout is in the film's own pixels (shared/film_format.subtitle_layout), but
+            # libass reads an SRT's sizes against a 384 x 288 grid of its own and scales that to
+            # the frame, a different scale in each direction on a tall film. So convert pixels
+            # to grid units once, here, and every format lands where it was meant to (DST-34).
+            fy, fx = 288 / frame[1], 384 / frame[0]
+            size, outline = round(layout["font_px"] * fy, 2), round(layout["outline"] * fy, 2)
+            mv, ml, mr = (round(layout["margin_v"] * fy), round(layout["margin_l"] * fx),
+                          round(layout["margin_r"] * fx))
+        else:
+            size, outline, mv, ml, mr = font_size, 2, 40, 80, 80
         vf = (f"subtitles=filename='{srt_arg}':"
-              f"force_style='FontName={font},FontSize={font_size},"
+              f"force_style='FontName={font},FontSize={size},"
               f"PrimaryColour=&Hffffff&,OutlineColour=&H000000&,BackColour=&H80000000&,"
-              f"BorderStyle=1,Outline=2,Shadow=1,"
-              f"Alignment=2,MarginV=40,MarginL=80,MarginR=80,"
+              f"BorderStyle=1,Outline={outline},Shadow=1,"
+              f"Alignment=2,MarginV={mv},MarginL={ml},MarginR={mr},"
               f"Bold=0'")
         # Burning the subtitles is the last time the film is encoded, so this pass
         # is the delivered quality (config/video.yaml, encode).
@@ -56,7 +69,7 @@ class SubtitleTool(BaseTool):
                               metadata={"cmd": " ".join(cmd)})
         return ToolResult(success=True, data=str(out_p),
                           metadata={"srt": str(srt_p), "line_count": len(lines),
-                                    "language": language, "font": font})
+                                    "language": language, "font": font, "layout": layout})
 
     @staticmethod
     def _build_srt(lines: List[Dict[str, Any]]) -> str:

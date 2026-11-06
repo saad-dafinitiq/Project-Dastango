@@ -31,7 +31,7 @@ def _voice_label(engine: str, voice_id: str) -> str:
     return voice_id or ""
 
 
-def shot_cards(scene, people: Dict) -> List[Dict]:
+def shot_cards(scene, people: Dict, tall: bool = False) -> List[Dict]:
     """The shots a scene will be cut into, for the card to show (DST-36).
 
     The same plan the renderer cuts (agents/video_agent/coverage.py), with the line
@@ -43,8 +43,8 @@ def shot_cards(scene, people: Dict) -> List[Dict]:
     cards = []
     # Which lines each shot carries, by the same estimated times the plan was cut on.
     _total, est = coverage.estimated_lines(scene.dialogue, people)
-    for i, c in enumerate(coverage.plan_for_script(scene, people,
-                                                   has_portrait=lambda cid: cid in people)):
+    for i, c in enumerate(coverage.plan_for_script(scene, people, has_portrait=lambda cid: cid in people,
+                                                   tall=tall)):
         who = people.get(c.character_id) if c.character_id else None
         cards.append({
             "line_ids": [ln.line_id for ln, e in zip(scene.dialogue, est)
@@ -88,7 +88,7 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
     cards = []
     for scene in script.scenes:
         tone = getattr(scene, "tone", "") or ""
-        shots = shot_cards(scene, people)
+        shots = shot_cards(scene, people, tall=script.story.format == "9:16")
         # Who is in the scene: whoever speaks in it, in the order they first do.
         # The script records nothing else about who is on screen.
         in_scene: List[str] = []

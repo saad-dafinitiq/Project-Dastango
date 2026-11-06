@@ -36,6 +36,7 @@ METHODS = {
     "edit": "edit",
     "revert": "revert",
     "shot": "set_shot",
+    "respec": "respec",
 }
 
 HEARTBEAT_S = 15.0

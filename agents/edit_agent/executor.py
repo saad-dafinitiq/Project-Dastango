@@ -19,7 +19,7 @@ from agents.story_agent.appearance import build_appearance_lock, character_seed
 from agents.video_agent import VideoAgent
 from mcp.tool_executor import ToolExecutor
 from shared import video_quality
-from shared.constants import DEFAULT_HEIGHT, DEFAULT_WIDTH
+from shared import film_format
 from shared.schemas.audio import VoiceConfig
 from shared.schemas.pipeline import PipelineState
 from shared.utils.files import project_dir
@@ -268,8 +268,11 @@ class EditExecutor:
         params = step.params or {}
         if params.get("genre"):
             state.user_prompt = f"{state.user_prompt} (genre: {params['genre']})"
-        StoryAgent().run(state, target_duration_s=state.script.story.target_duration_s,
-                         scene_count=len(state.script.scenes))
+        story = state.script.story
+        # A rewritten script is still in the format and style the creator chose.
+        StoryAgent().run(state, target_duration_s=story.target_duration_s,
+                         scene_count=len(state.script.scenes), format=story.format,
+                         style=story.style or "realistic")
         return list(state.phase1.artifact_paths)
 
     def _step_rerun_video(self, state: PipelineState, step: EditStep) -> List[str]:
@@ -278,7 +281,8 @@ class EditExecutor:
             state,
             with_subtitles=v.has_subtitles if v else True,
             subtitle_language=v.subtitle_language if v else "English",
-            width=v.width if v else DEFAULT_WIDTH, height=v.height if v else DEFAULT_HEIGHT,
+            width=v.width if v else film_format.film_size(state.script.story.format)[0],
+            height=v.height if v else film_format.film_size(state.script.story.format)[1],
             fps=v.fps if v else 24,
             use_text_to_video=v.used_text_to_video if v else None,
             use_lip_sync=v.used_lip_sync if v else None,

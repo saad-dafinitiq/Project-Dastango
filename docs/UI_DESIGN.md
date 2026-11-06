@@ -203,3 +203,23 @@ how long such a film usually takes and "safe to leave" (F3), and "Try again" wit
 numbers from 1 (F15), a stand-in picture note with a redraw button (F8) and what an edit is doing (F17); the engineer's voice note is gone
 from the render bar (F16). Needing the back end: step events, the per-shot camera (stored on the scene, re-cutting only the scene that
 changed), the stand-in marker, `number` and `cut`, and the library's `working` state.
+
+## 9. Format and style (DST-34, 6 Nov 2026)
+
+Four choices are made on Create, in this order: **Format** (16:9 YouTube, 9:16 Shorts, Reels and TikTok, 1:1 Instagram feed; each a small
+outline of its frame), **Style** (Realistic, Anime), **Length** and **Scenes**. They are the same radio-group pattern as everywhere:
+a ring, a check and the words, never colour alone, with arrow keys moving between them. The last format and style chosen are the next
+defaults in that browser. On a phone the groups stack and the second line of each option is dropped.
+
+- **Review** says what the film was made as under its title ("9:16 · 1080×1920 · Anime") and, before the render only, offers **Change style
+  or format**: an in-place panel that states the cost first ("This redraws all 6 pictures (3 scenes and 3 characters) and uses image quota"),
+  what is kept (words, shot choices, length) and that the choice is fixed after the render. Redraw is the only way through; it is disabled
+  until something is different.
+- **Every screen draws the film's own shape**: shot cards are tall four across for 9:16, the render tiles and the player follow, the player
+  is no taller than the window leaves room for and the scene chapters are as wide as it is, and the Films grid shows each poster in its shape
+  inside the same slot so the grid stays even. A frame's shape is a CSS variable (`--ar`) set once on the screen (`lib/format.ts`).
+- If the script came back with a different number of scenes than were asked for, Review says so in a line ("You asked for 4 scenes; the
+  script has 3"); too many are repaired by the model and, failing that, merged, too few cannot be repaired without inventing a story.
+
+**Rule 10.** A control that changes what will be drawn states the number of pictures first.
+**Rule 11.** Anything that depends on the frame (a crop, a pan, a caption, a poster) reads the format; nothing assumes 16:9.

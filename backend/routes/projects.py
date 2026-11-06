@@ -42,6 +42,7 @@ def list_projects(user: User = Depends(require_user)):
                 state.video.final_video_path if state.video else None),
             "poster_url": asset_url(_poster(state)),
             "stage": state.stage,
+            "format": state.script.story.format if state.script else "16:9",
             "scene_count": len(state.script.scenes) if state.script else 0,
             "duration_ms": state.video.duration_ms if state.video else None,
         })

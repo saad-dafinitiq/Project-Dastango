@@ -245,18 +245,24 @@ def small_project(isolated_dirs):
     from state_manager.state_manager import StateManager
     from state_manager.storage import SqliteStorage
 
+    # A small film in each shape: the same 320-pixel long side as the default 16:9 one.
+    SIZES = {"16:9": (320, 180), "9:16": (180, 320), "1:1": (240, 240)}
+
     def build(project_id="t_small", duration_s=24, scenes=3, subtitle_language="English",
-              with_subtitles=True, with_bgm=False, burn_subtitles=True):
+              with_subtitles=True, with_bgm=False, burn_subtitles=True,
+              format="16:9", style="realistic"):
         sm = StateManager(SqliteStorage(isolated_dirs / "state.db"))
         state = PipelineState(project_id=project_id, user_prompt="A robot learns to paint")
         state.script = template_script(project_id, state.user_prompt,
                                        target_duration_s=duration_s, scene_count=scenes)
+        state.script.story.format, state.script.story.style = format, style
+        film_w, film_h = SIZES[format]
         audio = AudioAgent()
         silence_tts(audio.tools)
         audio.run(state, with_bgm=with_bgm)
         VideoAgent().run(state, with_subtitles=with_subtitles,
                          subtitle_language=subtitle_language,
-                         width=320, height=180, fps=12, burn_subtitles=burn_subtitles,
+                         width=film_w, height=film_h, fps=12, burn_subtitles=burn_subtitles,
                          use_text_to_video=False, use_lip_sync=False, cinematic_post=False)
         # Described the way a real run is, so the history reads it as a film.
         from agents.orchestrator.workflow import INITIAL_RUN

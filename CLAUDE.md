@@ -87,6 +87,7 @@ not enough).
 | Timeline | `shared/timeline.py` | **Single source of truth for timing.** Audio places lines on it, video cuts on its boundaries (absolute ms → frames), subtitles read it. Never time video or audio independently. |
 | Phase 2 | `agents/audio_agent/` | `render_line` (TTS) → `retime` (timeline) → `remix` (per-scene BGM + master with lines placed at `start_ms`). Edits reuse these. |
 | Coverage | `agents/video_agent/coverage.py` | **How a scene is shot (DST-36):** 2 to 4 shots per scene, a wide that opens, a cut to whoever speaks, a pull-out that closes it. Pure planning, called by the renderer and by the storyboard cards, so both show the same shots. A medium is a crop of the wide picture, a close-up the speaker's portrait; only a long scene draws one more picture. Numbers in `config/video.yaml` (`coverage`, `handheld`). |
+| Film format and style | `shared/film_format.py`, `StoryOutput.format` / `.style`, `agents/story_agent/visual_style.py`, `agents/story_agent/scenes.py` | **What the creator chose before planning (DST-34).** Format (16:9, 9:16, 1:1) fixes the film's size (1920x1080, 1080x1920, 1080x1080), the picture size (1280 long side; a square at the providers' own 1024), the subtitle layout and the camera (a tall frame tilts and alternates its medium shots up and down). Style (realistic or anime) is a lock: its medium is said first in every picture prompt and the story's own palette text may not name another medium. Both live on the script's story, which every image path already receives, so previews, portraits, shots, edits that redraw and fallback providers cannot disagree. `scenes.py` holds the script to the scene count asked for. A film made before has the defaults. |
 | Shot overrides | `shared/schemas/story.py` (`Scene.shot_overrides`), `coverage.apply_overrides`, `PipelineOrchestrator.set_shot`, `EditAgent.set_shot` | **The creator's own camera (DST-38).** A move and/or framing per shot id, laid over the coverage plan by the same code the storyboard and the renderer both call. A close-up needs a face and is otherwise ignored. After a render it is a `shot` job that composes again, re-rendering only the scene whose plan changed. |
 | Render progress | `shared/progress_hook.py`, `shared/stand_in.py` | Agents report finished units (`voices`, `pictures`, `shots`, `cut`) through a context variable, which the orchestrator turns into `step` events; a picture drawn by the placeholder after every provider failed gets a `.standin` marker beside it, and the film says which scenes. |
 | Camera | `agents/video_agent/camera.py` | Camera moves and the grade over them. The picture is enlarged once with Lanczos and the move is computed at ~3x the output size (both set in `config/video.yaml`, DST-35), then scaled down, which is what makes pans smooth enough to use; moves ease in and out; `move_for` picks it from the shot's job and the scene's tone, `grade_for` from the story's own `visual_style`. |
@@ -686,6 +687,16 @@ sheet, a render screen read from real events) and the friction points behind it 
 F22. The back end gained what the screens needed and nothing speculative: step events from the render, a per-shot camera stored on the scene,
 a stand-in marker, version numbers the creator can read, and the library's working state. Measured, not claimed: a shot change on a finished
 film re-rendered only that scene (2 shots, 19.6 s locally on the offline providers); a whole render of the same three-scene film was 118 s.
+
+## DST-34 results (6 Nov 2026): format, style and the scene count
+
+Create now asks for format and style as well as length and scenes, and each governs the agents instead of being a request the model may ignore.
+Measured offline (mock model, placeholder pictures): a plan in 9:16 draws 720x1280 previews and a 1:1 plan 1024x1024; the same three-scene film
+renders at exactly 180x320, 240x240 and 320x180 (the small test sizes) with the same frame count as its timeline; a vertical render at the real
+1080x1920 took 74 s here. Found on the way: burned-in subtitles were sized for libass's own 384x288 grid, which scales differently in each
+direction on a tall film, so the layout is now computed in pixels from the format and converted once (a 16:9 film's subtitles are exactly what they
+were); and the scene count was only ever requested in the prompt, never checked. Not done: a real-provider run (no keys here), so the style lock is
+proven on the prompts and sizes every provider receives, not on a live Cloudflare or Agnes picture; a finished film cannot change format or style.
 
 ## Known issues / next milestones
 

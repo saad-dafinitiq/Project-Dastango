@@ -159,6 +159,9 @@ def x264_args(stage: str) -> List[str]:
     raise ValueError(f"unknown encode stage {stage!r}: use 'intermediate' or 'final'")
 
 
+SQUARE_SIDE = 1024
+
+
 def image_size(width: int, height: int) -> Tuple[int, int]:
     """The size the pictures of a film this big are drawn at.
 
@@ -168,6 +171,10 @@ def image_size(width: int, height: int) -> Tuple[int, int]:
     """
     long_side = get().image_long_side
     biggest = max(width, height)
+    if width == height:
+        # Providers' native square is 1024: drawing 1080 or 1280 pixels of it only costs disk.
+        side = min(biggest, SQUARE_SIDE)
+        return side, side
     if biggest <= long_side:
         return width, height
     scale = long_side / biggest

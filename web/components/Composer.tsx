@@ -6,6 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 
+import { formatInfo, type FormatId, type StyleId } from "@/lib/format";
+
+import { FormatChoice, StyleChoice } from "./Choice";
 import { FilmGrid, FilmTabs, useFilms, useFiltered, type Filter } from "./FilmGrid";
 import { TopBar } from "./TopBar";
 import styles from "./create.module.css";
@@ -51,8 +54,22 @@ export function Composer() {
   const [explain, setExplain] = useState(false);
   const [hello, setHello] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [format, setFormat] = useState<FormatId>("16:9");
+  const [style, setStyle] = useState<StyleId>("realistic");
 
   useEffect(() => setHello(greeting()), []);
+
+  // The last format and style chosen on this browser are the next defaults.
+  useEffect(() => {
+    try {
+      const f = localStorage.getItem("dastango-format");
+      const s = localStorage.getItem("dastango-style");
+      if (f === "16:9" || f === "9:16" || f === "1:1") setFormat(f);
+      if (s === "realistic" || s === "anime") setStyle(s);
+    } catch {
+      /* private window: the defaults stand */
+    }
+  }, []);
 
   const own = useMemo(() => (films ?? []).map((f) => f.poster_url).filter((u): u is string => Boolean(u)), [films]);
   const pictures = own.length >= 3 ? own.slice(0, 3) : EXAMPLES;
@@ -69,7 +86,15 @@ export function Composer() {
         prompt: prompt.trim(),
         target_duration_s: seconds,
         scene_count: scenes,
+        format,
+        style,
       });
+      try {
+        localStorage.setItem("dastango-format", format);
+        localStorage.setItem("dastango-style", style);
+      } catch {
+        /* not kept */
+      }
       router.push(`/studio/?id=${encodeURIComponent(run.project_id)}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start. Is the server running?");
@@ -108,6 +133,10 @@ export function Composer() {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void start();
               }}
             />
+            <div className={styles.look}>
+              <FormatChoice value={format} onChange={setFormat} />
+              <StyleChoice value={style} onChange={setStyle} />
+            </div>
             <div className={styles.row}>
               <div className={styles.ctl}>
                 <label className="sr-only" htmlFor="length">
@@ -135,7 +164,9 @@ export function Composer() {
                 </button>
               </div>
               <div className={styles.go}>
-                <span className={styles.eta}>usually under a minute</span>
+                <span className={styles.eta}>
+                  {formatInfo(format).size} · usually under a minute
+                </span>
                 <button className="btn primary" disabled={!ready} onClick={start}>
                   {busy ? "Starting" : "Make the storyboard"}
                   {!busy && <Arrow />}
@@ -164,7 +195,7 @@ export function Composer() {
           ) : (
             <p className={styles.note}>
               You&rsquo;ll see every scene, its lines and a first frame before anything is rendered. {scenes} images to
-              plan, and nothing more until you say so.
+              plan, drawn in the {format} frame and the {style} style you chose, and nothing more until you say so.
             </p>
           )}
 

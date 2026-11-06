@@ -50,6 +50,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         prompt=args.prompt,
         target_duration_s=args.duration,
         scene_count=args.scenes,
+        format=args.format, style=args.style,
         with_bgm=not args.no_bgm,
         with_subtitles=not args.no_subs,
         subtitle_language=args.subtitle_lang,
@@ -101,6 +102,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         prompt=args.prompt,
         target_duration_s=args.duration,
         scene_count=args.scenes,
+        format=args.format, style=args.style,
         with_preview=not args.no_preview,
         on_event=_print_event,
     )
@@ -487,6 +489,10 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("prompt")
     rp.add_argument("--duration", type=int, default=40)
     rp.add_argument("--scenes", type=int, default=4)
+    rp.add_argument("--format", default="16:9", choices=["16:9", "9:16", "1:1"],
+                    help="frame shape: YouTube, Shorts/Reels/TikTok, Instagram feed")
+    rp.add_argument("--style", default="realistic", choices=["realistic", "anime"],
+                    help="the look every picture keeps")
     rp.add_argument("--no-bgm", action="store_true")
     rp.add_argument("--no-subs", action="store_true")
     rp.add_argument("--subtitle-lang", default="English", help="Subtitle language")
@@ -506,6 +512,10 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("prompt")
     pl.add_argument("--duration", type=int, default=40)
     pl.add_argument("--scenes", type=int, default=4)
+    pl.add_argument("--format", default="16:9", choices=["16:9", "9:16", "1:1"],
+                    help="frame shape: YouTube, Shorts/Reels/TikTok, Instagram feed")
+    pl.add_argument("--style", default="realistic", choices=["realistic", "anime"],
+                    help="the look every picture keeps")
     pl.add_argument("--no-preview", action="store_true",
                     help="skip the preview images (script only)")
     pl.set_defaults(fn=cmd_plan)

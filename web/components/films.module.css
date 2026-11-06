@@ -95,3 +95,18 @@
   margin: 0 0 32px;
   color: var(--mu);
 }
+
+/* A vertical or square film sits in the same slot, in its own shape, so the grid stays even. */
+.tall img,
+.square img {
+  inset: 0 auto 0 50%;
+  width: auto;
+  height: 100%;
+  transform: translateX(-50%);
+}
+.tall img {
+  aspect-ratio: 9 / 16;
+}
+.square img {
+  aspect-ratio: 1 / 1;
+}

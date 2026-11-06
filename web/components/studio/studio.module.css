@@ -75,7 +75,7 @@
 }
 .screen {
   /* No taller than the window leaves room for: the chapters stay in view below it. */
-  max-width: min(100%, calc((100dvh - 300px) * 16 / 9));
+  max-width: min(100%, calc((100dvh - 300px) * var(--arn, 1.7778)));
   margin-inline: auto;
   width: 100%;
   border-radius: 12px;
@@ -85,10 +85,14 @@
 }
 .screen video {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--ar, 16 / 9);
   background: #000;
 }
 .chapters {
+  /* As wide as the picture above it, in any format, so a tall film's scenes sit under it. */
+  max-width: min(100%, calc((100dvh - 300px) * var(--arn, 1.7778)));
+  width: 100%;
+  margin-inline: auto !important;
   list-style: none;
   margin: 0;
   padding: 0;

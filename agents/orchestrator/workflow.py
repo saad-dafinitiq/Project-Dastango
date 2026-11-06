@@ -15,9 +15,9 @@ from agents.edit_agent import EditAgent
 from agents.edit_agent.describe import STEP_WORDS, describe
 from agents.story_agent import StoryAgent, current_length_check
 from agents.video_agent import VideoAgent
-from shared import progress_hook, providers, stand_in
+from shared import film_format, progress_hook, providers, stand_in, video_quality
 from shared.assets import asset_url
-from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, film_length_tolerance
+from shared.constants import DEFAULT_FPS, film_length_tolerance
 
 from .storyboard_view import cast, cast_note, image_budget, scene_cards
 from shared.schemas.edit import EditCommand, EditResult
@@ -111,9 +111,11 @@ class PipelineOrchestrator:
         project_id: Optional[str] = None,
         use_text_to_video: Optional[bool] = None,
         use_lip_sync: Optional[bool] = None,
-        width: int = DEFAULT_WIDTH,
-        height: int = DEFAULT_HEIGHT,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         fps: int = DEFAULT_FPS,
+        format: str = film_format.DEFAULT_FORMAT,
+        style: str = film_format.DEFAULT_STYLE,
     ) -> PipelineState:
         project_id = project_id or new_project_id()
         state = PipelineState(project_id=project_id, user_prompt=prompt)
@@ -129,6 +131,7 @@ class PipelineOrchestrator:
             use_text_to_video=use_text_to_video,
             use_lip_sync=use_lip_sync,
             width=width, height=height, fps=fps,
+            format=format, style=style,
         )
 
         graph = self._build_graph()
@@ -180,6 +183,8 @@ class PipelineOrchestrator:
         # is bigger; the camera enlarges every picture, config/video.yaml).
         preview_width: Optional[int] = None,
         preview_height: Optional[int] = None,
+        format: str = film_format.DEFAULT_FORMAT,
+        style: str = film_format.DEFAULT_STYLE,
     ) -> PipelineState:
         """Write the script and draw one preview image per scene.
 
@@ -192,7 +197,8 @@ class PipelineOrchestrator:
         emit(ProgressEvent(phase="story", status="started", project_id=project_id,
                            message="Writing the script", progress=0.1))
         try:
-            self.story.run(state, target_duration_s=target_duration_s, scene_count=scene_count)
+            self.story.run(state, target_duration_s=target_duration_s, scene_count=scene_count,
+                           format=format, style=style)
             emit(ProgressEvent(phase="story", status="complete", project_id=project_id,
                                message="Script ready", progress=0.4))
             # The script exists long before any picture does. Sending it now
@@ -252,7 +258,10 @@ class PipelineOrchestrator:
                            message=f"Storyboard ready: {len(state.script.scenes)} scenes{note}",
                            progress=1.0,
                            payload={"version": version.version,
-                                    "scenes": len(state.script.scenes), **notes}))
+                                    "scenes": len(state.script.scenes),
+                                    # Recorded with the job's result (DST-34).
+                                    "format": state.script.story.format,
+                                    "style": state.script.story.style, **notes}))
         return state
 
     def update_storyboard(self, project_id: str, scene_id: str,
@@ -334,7 +343,9 @@ class PipelineOrchestrator:
         if not state or not state.script:
             raise ValueError(f"no storyboard to render for {project_id}")
         emit = on_event or (lambda _e: None)
-        ctx = RunContext(state=state, with_bgm=with_bgm, with_subtitles=with_subtitles,
+        ctx = RunContext(state=state, format=state.script.story.format,
+                         style=state.script.story.style or film_format.DEFAULT_STYLE,
+                         with_bgm=with_bgm, with_subtitles=with_subtitles,
                          subtitle_language=subtitle_language, burn_subtitles=burn_subtitles,
                          tts_engine=tts_engine,
                          use_text_to_video=use_text_to_video, use_lip_sync=use_lip_sync)
@@ -397,7 +408,8 @@ class PipelineOrchestrator:
             with_subtitles=v.has_subtitles if v else True,
             subtitle_language=v.subtitle_language if v else "English",
             burn_subtitles=v.burn_subtitles if v else True,
-            width=v.width if v else DEFAULT_WIDTH, height=v.height if v else DEFAULT_HEIGHT,
+            width=v.width if v else film_format.film_size(self._spec_kwargs(state)["format"])[0],
+            height=v.height if v else film_format.film_size(self._spec_kwargs(state)["format"])[1],
             fps=v.fps if v else 24,
             use_text_to_video=v.used_text_to_video if v else None,
             use_lip_sync=v.used_lip_sync if v else None,
@@ -410,7 +422,8 @@ class PipelineOrchestrator:
             if step == "story":
                 self.story.run(state, target_duration_s=state.script.story.target_duration_s
                                if state.script else 45,
-                               scene_count=len(state.script.scenes) if state.script else 4)
+                               scene_count=len(state.script.scenes) if state.script else 4,
+                               **self._spec_kwargs(state))
             elif step == "audio":
                 self.audio.run(state, with_bgm=with_bgm, tts_engine=tts_engine)
             else:
@@ -429,6 +442,89 @@ class PipelineOrchestrator:
                            progress=1.0,
                            payload={"version": version.version, **notes}))
         return state
+
+    @_noting_daily_quotas
+    def respec(self, project_id: str, format: str, style: str,
+               on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
+        """Change a storyboard's format and/or style, and draw every picture again (DST-34).
+
+        Only before the render. Previews and portraits are redrawn in the new look at the new
+        shape, streamed like a plan's, and the script, the creator's edits and their shot choices
+        are kept. A picture that could not be drawn keeps what it had and is named in the
+        completion event: its saved signature no longer matches, so the render draws it fresh
+        rather than reusing a picture from the old look.
+        """
+        emit = on_event or (lambda _e: None)
+        format, style = film_format.check_format(format), film_format.check_style(style)
+        state = self.sm.latest(project_id)
+        if not state or not state.script:
+            raise ValueError(f"no storyboard for {project_id}")
+        if state.video and state.video.final_video_path:
+            raise ValueError("this film is already rendered; its format and style are fixed")
+        script = state.script
+        script.story.format, script.story.style = format, style
+        state.metadata["film_spec"] = {**(state.metadata.get("film_spec") or {}), "format": format,
+                                       "style": style}
+        width, height = video_quality.image_size(*film_format.film_size(format))
+        if state.storyboard:
+            state.storyboard.preview_width, state.storyboard.preview_height = width, height
+        emit(ProgressEvent(
+            phase="storyboard", status="script", project_id=project_id,
+            message=f"Redrawing in {film_format.STYLES[style]['label'].lower()}, {format}", progress=0.05,
+            payload={"prompt": state.user_prompt, "title": script.story.title,
+                     "logline": script.story.logline, "scenes": scene_cards(script),
+                     "cast": cast(script, None, state), "cast_note": cast_note(state),
+                     "images": image_budget(script), "format": format, "style": style}))
+        emit(ProgressEvent(phase="storyboard", status="started", project_id=project_id,
+                           message="Drawing the storyboard again", progress=0.1))
+        drawn: List[str] = []
+        failed: List[str] = []
+        total = len(script.scenes) + len(script.characters.characters)
+        position = {s.scene_id: n for n, s in enumerate(script.scenes, start=1)}
+
+        def frame_ready(scene, path):
+            drawn.append(scene.scene_id)
+            emit(ProgressEvent(
+                phase="storyboard", status="frame", project_id=project_id,
+                message=f"Scene {position[scene.scene_id]} drawn: {scene.title}",
+                progress=0.1 + 0.85 * len(drawn) / max(1, total),
+                payload={"scene_id": scene.scene_id, "preview_url": asset_url(path, versioned=True)}))
+
+        def portrait_ready(character, path, ok):
+            drawn.append(character.id)
+            emit(ProgressEvent(
+                phase="storyboard", status="portrait", project_id=project_id,
+                message=f"Portrait drawn: {character.name}",
+                progress=0.1 + 0.85 * len(drawn) / max(1, total),
+                payload={"character_id": character.id, "drawn": ok,
+                         "portrait_url": asset_url(path, versioned=True)}))
+
+        try:
+            self.video.generate_storyboard(state, width=width, height=height, failed=failed,
+                                           on_frame=frame_ready, on_portrait=portrait_ready)
+        except Exception as e:  # noqa: BLE001
+            emit(ProgressEvent(phase="error", status="failed", project_id=project_id,
+                               message=str(e), progress=1.0))
+            raise
+        self.story.serialize(state)
+        version = self.sm.snapshot(state, asset_paths=self._collect_assets(state),
+                                   description=f"storyboard restyle: {format} {style}")
+        note, notes = self._completion_notes(state)
+        if failed:
+            note += f" · {len(failed)} picture(s) could not be redrawn and are drawn when you render"
+            notes["restyle_failed"] = failed
+        emit(ProgressEvent(phase="storyboard", status="complete", project_id=project_id,
+                           message=f"Storyboard redrawn: {format}, {style}{note}", progress=1.0,
+                           payload={"version": version.version, "scenes": len(script.scenes),
+                                    "format": format, "style": style, **notes}))
+        return state
+
+    @staticmethod
+    def _spec_kwargs(state: PipelineState) -> Dict[str, str]:
+        """The creator's format and style, for a step that writes the script again."""
+        story = state.script.story if state.script else None
+        return {"format": story.format if story else film_format.DEFAULT_FORMAT,
+                "style": (story.style if story else "") or film_format.DEFAULT_STYLE}
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
 
@@ -565,7 +661,8 @@ class PipelineOrchestrator:
         g = PipelineGraph()
         g.add("phase1_story",
               lambda c: self.story.run(c.state, target_duration_s=c.target_duration_s,
-                                       scene_count=c.scene_count),
+                                       scene_count=c.scene_count,
+                                       format=c.format, style=c.style),
               next_=["phase2_audio"], entry=True)
         g.add("phase2_audio",
               lambda c: self.audio.run(c.state, with_bgm=c.with_bgm,
@@ -575,7 +672,7 @@ class PipelineOrchestrator:
               lambda c: self.video.run(
                   c.state, with_subtitles=c.with_subtitles,
                   subtitle_language=c.subtitle_language,
-                  width=c.width, height=c.height, fps=c.fps,
+                  width=c.film_size()[0], height=c.film_size()[1], fps=c.fps,
                   use_text_to_video=c.use_text_to_video,
                   use_lip_sync=c.use_lip_sync,
               ),
@@ -593,7 +690,7 @@ class PipelineOrchestrator:
               lambda c: self.video.run(
                   c.state, with_subtitles=c.with_subtitles,
                   subtitle_language=c.subtitle_language,
-                  width=c.width, height=c.height, fps=c.fps,
+                  width=c.film_size()[0], height=c.film_size()[1], fps=c.fps,
                   use_text_to_video=c.use_text_to_video,
                   use_lip_sync=c.use_lip_sync,
                   burn_subtitles=c.burn_subtitles,
@@ -644,6 +741,10 @@ class PipelineOrchestrator:
                          f"{check['target_s']} s target")
                 payload["script_length_warning"] = {
                     k: check[k] for k in ("planned_s", "target_s", "tolerance", "repairs")}
+            sc = state.metadata.get("scene_check")
+            if sc and not sc.get("within", True):
+                note += f" · the script has {sc['got']} scenes for the {sc['asked']} asked"
+                payload["scene_count_warning"] = {k: sc[k] for k in ("asked", "got", "repairs", "merged")}
             said = cast_note(state)
             if said:
                 note += f" · {said}"

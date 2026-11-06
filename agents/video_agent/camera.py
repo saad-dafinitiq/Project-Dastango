@@ -182,7 +182,7 @@ def is_emotional(tone: str, text: str = "") -> bool:
 
 
 def move_for_role(role: str, tone: str = "", emotional: bool = False,
-                  scene_index: int = 0, shot_index: int = 0) -> str:
+                  scene_index: int = 0, shot_index: int = 0, tall: bool = False) -> str:
     """The camera move for a shot, from the job it does in its scene (DST-36).
 
     The job comes first, then the mood:
@@ -198,11 +198,16 @@ def move_for_role(role: str, tone: str = "", emotional: bool = False,
     if role == "ending":
         return "pull_out"
     if role == "establishing":
+        if tall:
+            # A tall frame has little width to pan across: the camera rises and settles instead.
+            return "tilt_up" if scene_index % 2 == 0 else "tilt_down"
         return "pan_right" if scene_index % 2 == 0 else "pan_left"   # shot_index is 0
     if role == "dialogue":
         return "push_in" if emotional else "handheld"
     if role == "narration":
         # The same alternation as the opening pan, so no two pans in a row go the same way.
+        if tall:
+            return "tilt_up" if (scene_index + shot_index) % 2 == 0 else "tilt_down"
         return "pan_right" if (scene_index + shot_index) % 2 == 0 else "pan_left"
     if role == "cutaway":
         return "drift"

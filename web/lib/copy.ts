@@ -11,6 +11,7 @@ export function describe(ev: ProgressEvent | undefined): string {
     case "story:complete":
       return "Script written";
     case "storyboard:script":
+      if (ev.message.startsWith("Redrawing")) return ev.message;
       return `${scenes ?? "The"} scenes written, drawing them now`;
     case "storyboard:started":
       return "Drawing the storyboard";

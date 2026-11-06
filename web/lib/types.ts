@@ -93,6 +93,13 @@ export type LengthCheck = {
   repairs: number;
 };
 
+/** What the creator chose before planning (DST-34), and whether the script held to the scene count. */
+export type FilmSpec = {
+  format: "16:9" | "9:16" | "1:1";
+  style: "" | "realistic" | "anime";
+  scene_check?: { asked: number; got: number; repairs: number; merged: number; within: boolean } | null;
+};
+
 export type Storyboard = {
   project_id: string;
   prompt: string;
@@ -106,6 +113,7 @@ export type Storyboard = {
   length: LengthCheck | null;
   stage: "draft" | "storyboard" | "rendered";
   version: number;
+  spec?: FilmSpec;
   /** Present on the answer to a scene edit that asked for a new picture. When `ok`
    *  is false the words are saved but the picture could not be redrawn. */
   redraw?: { scene_id: string; ok: boolean; message?: string };
@@ -118,6 +126,7 @@ export type Film = {
   version: number;
   updated_at: string;
   created_at?: string;
+  format?: "16:9" | "9:16" | "1:1";
   video_url: string | null;
   poster_url: string | null;
   stage: string;
@@ -154,6 +163,8 @@ export type FilmPlayback = {
   version: number;
   /** Which cut this is for the creator: the first render is 1. */
   cut: number;
+  format: "16:9" | "9:16" | "1:1";
+  style: "" | "realistic" | "anime";
   /** Scenes drawn with a placeholder because every image service was at its limit. */
   stand_in_scenes: string[];
   chapters: Chapter[];
@@ -188,7 +199,7 @@ export type FilmVersion = {
 export type JobSnapshot = {
   project_id: string;
   job_id?: string;
-  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert" | "shot";
+  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert" | "shot" | "respec";
   prompt?: string | null;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
   phase?: string;
