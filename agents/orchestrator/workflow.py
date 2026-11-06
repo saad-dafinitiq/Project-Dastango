@@ -528,81 +528,67 @@ class PipelineOrchestrator:
 
     # ---- edit and undo (jobs, like everything else that writes a version) --
 
-    def set_shot(self, project_id: str, scene_id: str, shot_id: str,
-                 move: Optional[str] = None, framing: Optional[str] = None,
-                 reset: bool = False,
+    def apply_op(self, project_id: str, op: str, params: Dict[str, Any],
                  on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
-        """Change one shot's camera move or framing (DST-38, F4).
+        """Apply one of the shared editing operations (agents/edit_agent/ops.py), DST-39.
 
-        Before a render it is a storyboard edit: saved as a new version, nothing
-        drawn. After one, the film is cut again from the same pictures, and only
-        the scene that changed is re-rendered (the scene's plan signature is what
-        decides), so it costs seconds and no images. Either way the creator's
-        choice is stored on the scene and survives later edits.
+        Before a render it is a storyboard edit: the script changes, a new version is saved,
+        nothing is drawn. After one, the film is cut again from the same pictures and only the
+        scenes whose plan changed are re-rendered, as a job like any change to a finished film.
+        Either way the creator's choice is stored on the script, so later edits keep it.
         """
-        from agents.video_agent import camera, coverage
-        from shared.schemas.story import ShotOverride
+        from agents.edit_agent import ops
 
         emit = on_event or (lambda _e: None)
         state = self.sm.latest(project_id)
         if not state or not state.script:
             raise ValueError(f"no storyboard for {project_id}")
-        scene = next((s for s in state.script.scenes if s.scene_id == scene_id), None)
-        if not scene:
-            raise ValueError(f"unknown scene '{scene_id}'")
-        people = {c.id: c for c in state.script.characters.characters}
-        planned = {coverage.shot_id_at(scene_id, i)
-                   for i in range(len(coverage.plan_for_script(scene, people)))}
-        if state.video:
-            for f in state.video.frames:
-                if f.scene_id == scene_id and f.shots:
-                    planned = {s.shot_id for s in f.shots}
-        if shot_id not in planned:
-            raise ValueError(f"unknown shot '{shot_id}' in {scene_id}")
-        if move is not None and move not in camera.MOVES:
-            raise ValueError(f"unknown camera move '{move}'")
-        if framing is not None and framing not in ("wide", "medium", "close"):
-            raise ValueError(f"unknown framing '{framing}'")
-
+        label = ops.check(state, op, params)          # raises OpError (a ValueError) before anything changes
         film = state.video is not None and bool(state.video.final_video_path)
         if film:
             emit(ProgressEvent(phase="edit", status="started", project_id=project_id,
-                               message="Changing the shot", progress=0.05,
-                               payload={"query": "Change a shot"}))
+                               message="Changing the film", progress=0.05,
+                               payload={"query": label}))
 
             def hear(kind, info):
-                if kind == "step":
+                if kind == "understood":
+                    emit(ProgressEvent(phase="edit", status="understood", project_id=project_id,
+                                       message=f"Understood: {label}", progress=0.1,
+                                       payload={**info, "summary": label}))
+                elif kind == "step":
                     emit(ProgressEvent(
                         phase="edit", status="step", project_id=project_id,
                         message=STEP_WORDS.get(info["name"], "Working on it"),
                         progress=0.1 + 0.85 * info["index"] / max(info["total"], 1),
                         payload=info))
 
-            result = self.editor.set_shot(project_id, scene_id, shot_id, move=move,
-                                          framing=framing, reset=reset, on_progress=hear)
+            result = self.editor.apply_op(project_id, op, params, on_progress=hear)
             if not result.success:
-                raise EditFailed(result.error or "the shot could not be changed")
+                raise EditFailed(result.error or "the change could not be made")
             emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                               message=f"Shot changed (version {result.new_version})",
-                               progress=1.0,
+                               message=f"{label} (version {result.new_version})", progress=1.0,
                                payload={"version": result.new_version, "kind": "edit",
                                         "result": result.model_dump(mode="json")}))
             return self.sm.latest(project_id)
 
-        if reset:
-            scene.shot_overrides.pop(shot_id, None)
-        else:
-            current = scene.shot_overrides.get(shot_id) or ShotOverride()
-            scene.shot_overrides[shot_id] = ShotOverride(
-                move=move if move is not None else current.move,
-                framing=framing if framing is not None else current.framing)
+        ops.apply(state, op, params)
         self.story.serialize(state)
         self.sm.snapshot(state, asset_paths=self._collect_assets(state),
-                         description=f"storyboard edit: {shot_id}")
+                         description=f"storyboard edit: {op}",
+                         edit_intent={"intent": op, "parameters": dict(params), "query": label})
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
-                           message="Shot changed", progress=1.0,
+                           message=label, progress=1.0,
                            payload={"version": state.version, "kind": "shot"}))
         return state
+
+    def set_shot(self, project_id: str, scene_id: str, shot_id: str,
+                 move: Optional[str] = None, framing: Optional[str] = None,
+                 reset: bool = False,
+                 on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
+        """Change one shot's camera move or framing (DST-38, F4): the `set_camera` operation."""
+        return self.apply_op(project_id, "set_camera",
+                             {"scene": scene_id, "shot_id": shot_id, "move": move,
+                              "framing": framing, "reset": reset}, on_event)
 
     @_noting_daily_quotas
     def edit(self, project_id: str, query: str,

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from mcp.tool_executor import ToolExecutor
-from shared import providers
+from shared import music, providers
 from shared.constants import PHASE_AUDIO
 from shared.languages import SPEECH_VOICES, spoken_language
 from shared.schemas.audio import (
@@ -35,8 +35,7 @@ log = get_logger("audio_agent")
 
 DEFAULT_VOICE = "en-US-GuyNeural"
 _SILENT = ProviderSpec(role="tts", provider="silent")
-# Music sits louder than it used to because it ducks under dialogue.
-BGM_VOLUME = 0.32
+# Music's level is AudioOutput.music_volume (0.32: louder than it once was, since it ducks).
 
 # Kokoro voices (open-source engine): af_/am_ are US, bf_/bm_ British.
 KOKORO_VOICES = {
@@ -208,6 +207,7 @@ class AudioAgent:
         """Rebuild the BGM bed (if enabled) and the master track from the timeline."""
         audio = state.audio
         audio.bgm_track = self._render_bgm(state) if audio.bgm_enabled else None
+        audio.ambience_track = self._render_ambience(state)
         out = project_dir(state.project_id) / "audio" / "master.wav"
         placements = [{"path": s.file_path, "start_ms": s.start_ms}
                       for s in audio.manifest.segments if s.kind == "dialogue"]
@@ -217,7 +217,10 @@ class AudioAgent:
             placements=placements,
             total_ms=audio.manifest.total_duration_ms,
             bgm=audio.bgm_track,
-            bgm_volume=BGM_VOLUME,
+            bgm_volume=audio.music_volume,
+            ambience=audio.ambience_track,
+            ambience_volume=audio.ambience_volume,
+            dialogue_volume=audio.voice_volume,
         )
         if not merge.success:
             raise RuntimeError(f"master mix failed: {merge.error}")
@@ -369,29 +372,70 @@ class AudioAgent:
     # ---- BGM -------------------------------------------------------------
 
     def _render_bgm(self, state: PipelineState) -> Optional[str]:
-        """One mood bed per scene, sized to the scene's timeline slot, joined end to end."""
+        """The music under the film: per scene, the track the scene plays, cut from where the
+        film's clock is (so a track carries on across scenes), joined end to end.
+
+        A library track is a real bed (shared/music.py); only if the library is missing or a
+        track cannot be read does it fall back to the old generated tones, so a bare checkout
+        still works.
+        """
+        audio = state.audio
         bgm_dir = project_dir(state.project_id) / "audio" / "bgm"
         bgm_dir.mkdir(exist_ok=True, parents=True)
-        mood_by_scene = {s.scene_id: s.music_mood for s in state.script.scenes}
-        per_scene_paths: List[str] = []
-        for timing in state.audio.manifest.scenes:
+        scenes = {s.scene_id: s for s in state.script.scenes}
+        plan = []
+        for i, timing in enumerate(audio.manifest.scenes):
+            scene = scenes.get(timing.scene_id)
+            choice = music.choice_for_scene(audio, scene, i) if scene else None
+            plan.append((timing, scene, choice))
+        parts: List[Path] = []
+        for i, (timing, scene, choice) in enumerate(plan):
             out_file = bgm_dir / f"{timing.scene_id}_bgm.wav"
-            res = self.tools.execute(
-                "audio.bgm",
-                mood=mood_by_scene.get(timing.scene_id, "ambient"),
-                duration_ms=timing.duration_ms,
-                out_path=str(out_file),
-            )
-            if res.success:
-                per_scene_paths.append(res.data)
-            else:
-                log.warning("bgm failed for %s: %s", timing.scene_id, res.error)
-        if not per_scene_paths:
+            try:
+                if choice is None:
+                    music.silence(timing.duration_ms, out_file)
+                else:
+                    before = plan[i - 1][2] if i else None
+                    after = plan[i + 1][2] if i + 1 < len(plan) else None
+                    length = music.track_seconds(choice, audio.uploads)
+                    offset = int(timing.start_ms % int(length * 1000)) if length else 0
+                    music.cut_bed(music.track_path(choice, audio.uploads), offset, timing.duration_ms,
+                                  out_file, fade_in_ms=350 if choice != before else 20,
+                                  fade_out_ms=350 if choice != after else 20)
+                parts.append(out_file)
+            except (music.MusicError, subprocess.CalledProcessError) as exc:
+                log.warning("music failed for %s (%s); using generated tones", timing.scene_id, exc)
+                res = self.tools.execute("audio.bgm", mood=scene.music_mood if scene else "ambient",
+                                         duration_ms=timing.duration_ms, out_path=str(out_file))
+                if res.success:
+                    parts.append(Path(res.data))
+        if not parts:
             return None
-        merged = bgm_dir / "bgm_full.wav"
-        merge = self.tools.execute("audio.merge", segments=per_scene_paths,
-                                   out_path=str(merged))
-        return merge.data if merge.success else None
+        return str(music.join(parts, bgm_dir / "bgm_full.wav"))
+
+    def _render_ambience(self, state: PipelineState) -> Optional[str]:
+        """The ambience bed (rain, wind, ...) per scene, or None when no scene has any."""
+        audio = state.audio
+        wanted = []
+        for timing in audio.manifest.scenes:
+            kind = audio.ambience.get(timing.scene_id, audio.ambience.get("*"))
+            wanted.append(None if kind in (None, "none") else kind)
+        if not any(wanted):
+            return None
+        amb_dir = project_dir(state.project_id) / "audio" / "ambience"
+        amb_dir.mkdir(exist_ok=True, parents=True)
+        parts: List[Path] = []
+        for i, (timing, kind) in enumerate(zip(audio.manifest.scenes, wanted)):
+            out_file = amb_dir / f"{timing.scene_id}_amb.wav"
+            if kind is None:
+                music.silence(timing.duration_ms, out_file)
+            else:
+                # Fade only where the ambience begins or ends; between two scenes of the same
+                # kind it is a short fade so the join is clean.
+                changes = i == 0 or wanted[i - 1] != kind
+                music.ambience_bed(kind, timing.duration_ms, out_file, fade_ms=300 if changes else 20)
+            parts.append(out_file)
+        return str(music.join(parts, amb_dir / "ambience_full.wav"))
 
     # ---- helpers ---------------------------------------------------------
 

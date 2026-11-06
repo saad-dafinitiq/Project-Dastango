@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from mcp.tool_executor import ToolExecutor
-from shared import film_format, progress_hook, providers, stand_in, video_quality
+from shared import film_format, progress_hook, providers, stand_in, transitions, video_quality
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, PHASE_VIDEO
 from shared.languages import canonical
 from shared.schemas.audio import AudioSegment, SceneTiming
@@ -110,6 +110,11 @@ class PlannedShot:
     is_video: bool = False
     framing: str = ""             # wide | medium | close | cutaway (DST-36)
     crop: Optional[Tuple[float, float, float]] = None   # (width fraction, x, y)
+    # How this shot goes out into the next one (DST-39; set by `_apply_transitions`): the style,
+    # the frames of overlap (already inside `render_frames`), and whether the creator chose it.
+    out_kind: str = "cut"
+    out_frames: int = 0
+    custom_out: bool = False
 
 
 class VideoAgent:
@@ -172,6 +177,7 @@ class VideoAgent:
                             subtitle_language)
             state.video = VideoOutput(
                 project_id=state.project_id,
+                legacy_transitions=False,
                 frames=frames,
                 final_video_path="",
                 width=width, height=height, fps=fps,
@@ -214,14 +220,16 @@ class VideoAgent:
 
         # Plan every scene before rendering any, so the shots of all the scenes
         # that changed render together rather than one scene at a time.
-        plans = []
+        planned_scenes = []
         last_index = len(video.frames) - 1
         for i, frame in enumerate(video.frames):
-            planned = self._plan_scene(state, scene_by_id[frame.scene_id], frame,
-                                       timings[frame.scene_id],
-                                       segs_by_scene.get(frame.scene_id, []),
-                                       is_last_scene=(i == last_index))
-            signature = self._signature(planned, video)
+            planned_scenes.append((frame, self._plan_scene(
+                state, scene_by_id[frame.scene_id], frame, timings[frame.scene_id],
+                segs_by_scene.get(frame.scene_id, []), is_last_scene=(i == last_index))))
+        self._apply_transitions(state, planned_scenes)
+        plans = []
+        for frame, planned in planned_scenes:
+            signature = self._signature(planned, video, scene_by_id[frame.scene_id].effect)
             clip_ok = frame.clip_path and Path(frame.clip_path).exists()
             stale = force or not clip_ok or frame.plan_signature != signature
             plans.append((frame, planned, signature, stale))
@@ -309,6 +317,31 @@ class VideoAgent:
         prompt, style, negative, seed = cls._portrait_request(c, story)
         return hashlib.md5(
             f"{prompt}|{style}|{negative}|{seed}|{width}x{height}".encode()).hexdigest()
+
+    def redraw_picture(self, project_id: str, scene: Scene, index: int, width: int, height: int,
+                       seed_salt: str, story: Optional[StoryOutput] = None) -> str:
+        """Draw one of a scene's pictures again (0 is the wide, 1 the cutaway of a long scene)."""
+        tag, suffix = framings_for(scene)[index]
+        out = project_dir(project_id) / "video" / "frames" / f"{scene.scene_id}_{tag}.png"
+        style, negative = scene_style(story, scene.tone)
+        prompt = f"{scene.visual_prompt}, {suffix}"
+        res = self.tools.execute("vision.generate_image", prompt=prompt, out_path=str(out), width=width,
+                                 height=height, style=style, negative_prompt=negative,
+                                 seed=_seed(prompt, seed_salt))
+        path = _ensure_image(res, out, prompt, width, height)
+        meta = res.metadata or {}
+        stand_in.mark(out, not res.success or (meta.get("provider") == "placeholder" and bool(meta.get("fallback"))))
+        return path
+
+    def redraw_portrait_for_scene(self, project_id: str, c: Character, scene_id: str, width: int,
+                                  height: int, seed_salt: str, story: Optional[StoryOutput] = None) -> str:
+        """A character's portrait drawn again for one scene (the other scenes keep theirs)."""
+        out = project_dir(project_id) / "video" / "portraits" / f"{c.id}__{scene_id}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        prompt, style, negative, seed = self._portrait_request(c, story, seed_salt)
+        res = self.tools.execute("vision.generate_image", prompt=prompt, out_path=str(out), width=width,
+                                 height=height, style=style, negative_prompt=negative, seed=seed)
+        return _ensure_image(res, out, prompt, width, height)
 
     def generate_portrait(self, project_id: str, c: Character, width: int, height: int,
                           seed_salt: str = "", story: Optional[StoryOutput] = None,
@@ -682,21 +715,32 @@ class VideoAgent:
                 nominal_frames=span_frames(c.start_ms, c.end_ms, video.fps),
                 render_frames=span_frames(c.start_ms, c.end_ms, video.fps),
                 motion=c.move, character_id=c.character_id, framing=c.framing, crop=c.crop))
-        return self._extend_for_crossfades(planned, video.fps, is_last_scene)
-
-    @staticmethod
-    def _extend_for_crossfades(planned: List[PlannedShot], fps: int,
-                               is_last_scene: bool) -> List[PlannedShot]:
-        """Extra frames to cover crossfade overlaps: every shot but the last
-        overlaps the next shot; the scene's last shot overlaps the next scene."""
-        shot_x = xfade_frames(SHOT_XFADE_MS, fps)
-        scene_x = xfade_frames(SCENE_XFADE_MS, fps)
-        for k, p in enumerate(planned):
-            if k < len(planned) - 1:
-                p.render_frames = p.nominal_frames + shot_x
-            elif not is_last_scene:
-                p.render_frames = p.nominal_frames + scene_x
         return planned
+
+    def _apply_transitions(self, state: PipelineState,
+                           plans: List[Tuple[SceneFrame, List[PlannedShot]]]) -> None:
+        """Decide how every shot gives way to the next, across the whole film (DST-39).
+
+        A transition starts on the cut and runs past it, so the shot before the cut gets
+        the overlap as extra rendered frames and the film stays exactly the timeline's
+        length (shared/transitions.py). Inside a scene the creator's choice is on the shot
+        that comes in; between scenes it is on the scene (`Scene.cut_in`). Without one, the
+        default: cuts inside a scene and a soft fade between scenes, or, for a film made
+        before this, the 200 ms and 400 ms fades it was cut with.
+        """
+        video = state.video
+        scene_by_id = {s.scene_id: s for s in state.script.scenes}
+        flat = [(si, j, p) for si, (_f, planned) in enumerate(plans) for j, p in enumerate(planned)]
+        for _si, _j, p in flat:
+            p.out_kind, p.out_frames, p.custom_out = "cut", 0, False
+            p.render_frames = p.nominal_frames
+        for (si, _j, a), (sj, jj, b) in zip(flat, flat[1:]):
+            scene = scene_by_id[plans[sj][0].scene_id]
+            spec = coverage.transition_into(scene, jj)
+            kind, ms = transitions.resolve(spec, between_scenes=sj != si, legacy=video.legacy_transitions)
+            n = transitions.overlap_frames(kind, ms, video.fps, a.nominal_frames, b.nominal_frames)
+            a.out_kind, a.out_frames, a.custom_out = (kind if n else "cut"), n, spec is not None
+            a.render_frames = a.nominal_frames + n
 
     def _plan_scene_classic(self, state: PipelineState, scene: Scene, frame: SceneFrame,
                             timing: SceneTiming, segments: List[AudioSegment],
@@ -766,7 +810,7 @@ class VideoAgent:
                     is_video=bool(span.get("video")),
                 ))
 
-        return self._extend_for_crossfades(planned, fps, is_last_scene)
+        return planned
 
     def _lip_sync_clip(self, state: PipelineState, scene_id: str, line_idx: int,
                        portrait: str, seg: AudioSegment) -> Optional[str]:
@@ -784,7 +828,7 @@ class VideoAgent:
             return res.data
         return None
 
-    def _signature(self, planned: List[PlannedShot], video: VideoOutput) -> str:
+    def _signature(self, planned: List[PlannedShot], video: VideoOutput, effect=None) -> str:
         """Fingerprint of a scene's plan + source files; changes when a re-render is needed."""
         def stamp(path: Optional[str]) -> Any:
             if not path:
@@ -800,6 +844,13 @@ class VideoAgent:
             "shots": [[p.kind, stamp(p.source), p.render_frames, p.motion, p.is_video,
                        p.framing, p.crop] for p in planned],
         }
+        if not (video.legacy_transitions and not any(p.custom_out for p in planned)):
+            # A film rendered before DST-39, with the transitions it was cut with, keeps the
+            # fingerprint it had, so editing it does not draw every scene again. Anything else
+            # (a new film, or a transition the creator chose) is part of what a scene looks like.
+            payload["out"] = [[p.out_kind, p.out_frames] for p in planned]
+        if effect:
+            payload["fx"] = [effect.kind, effect.strength]    # a scene with a look is a different scene
         return hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     @staticmethod
@@ -811,6 +862,7 @@ class VideoAgent:
             duration_ms=p.end_ms - p.start_ms, motion=p.motion, audio_path=p.audio_path,
             start_ms=p.start_ms, render_frames=p.render_frames,
             framing=p.framing, crop=list(p.crop) if p.crop else None,
+            out_kind=p.out_kind, out_frames=p.out_frames,
         )
 
     # ---- rendering -------------------------------------------------------
@@ -846,27 +898,42 @@ class VideoAgent:
         paths = iter(run_jobs(jobs, workers=shot_workers(), label="shots", step="shots"))
 
         clips: Dict[str, Path] = {}
+        effects = {sc.scene_id: sc.effect for sc in (state.script.scenes if state.script else [])
+                   if sc.effect}
         for scene_id, planned in scenes:
             clips[scene_id] = assemble_scene(
                 [next(paths) for _ in planned], scene_dir / f"{scene_id}.mp4",
-                crossfade_ms=xfade_frames(SHOT_XFADE_MS, video.fps) * 1000.0 / video.fps,
                 durations_s=[p.render_frames / video.fps for p in planned],
+                boundaries=[(transitions.xfade_name(p.out_kind), p.out_frames / video.fps)
+                            for p in planned[:-1]],
             )
             log.info("  scene %s composed (%d shots)", scene_id, len(planned))
+            if scene_id in effects:
+                # Drawn over the finished scene, frame by frame; same frame count out as in.
+                from shared import finish
+                raw = clips[scene_id]
+                done = finish.apply(raw, scene_dir / f"{scene_id}_fx.mp4", effects[scene_id].kind,
+                                    effects[scene_id].strength, video.fps)
+                done.replace(raw)
+                log.info("  scene %s: %s (%s)", scene_id, effects[scene_id].kind, effects[scene_id].strength)
         return clips
 
     def _compose_final(self, state: PipelineState) -> Path:
         video = state.video
         proj = project_dir(state.project_id)
         fps = video.fps
-        shot_x = xfade_frames(SHOT_XFADE_MS, fps)
-        scene_x = xfade_frames(SCENE_XFADE_MS, fps)
 
-        clips, durations = [], []
+        clips, durations, boundaries = [], [], []
         for f in video.frames:
-            frames = sum(s.render_frames for s in f.shots) - shot_x * (len(f.shots) - 1)
+            # A scene's clip is its shots less the overlaps inside it; its last shot's own
+            # overlap (into the next scene) is what the final join blends.
+            frames = sum(s.render_frames for s in f.shots) - sum(s.out_frames for s in f.shots[:-1])
             clips.append(f.clip_path)
             durations.append(frames / fps)
+            last = f.shots[-1] if f.shots else None
+            boundaries.append((transitions.xfade_name(last.out_kind) if last else None,
+                               (last.out_frames if last else 0) / fps))
+        boundaries = boundaries[:-1]
 
         out = proj / "final_output.mp4"
         master = state.audio.master_track if state.audio else None
@@ -875,31 +942,63 @@ class VideoAgent:
         # transparent so the passes stop compounding their loss (DST-35).
         speed = abs(video.speed_factor - 1.0) > 1e-3
         burn = self._will_burn_subtitles(state)
+        ass = self._graphics_script(state, proj)
+        self._graphics_done = False
         compose = self.tools.execute(
             "video.compose", clips=clips, out_path=str(out), audio_path=master,
-            transition="fade", transition_ms=scene_x * 1000.0 / fps, durations_s=durations,
-            quality="intermediate" if (speed or burn) else "final",
+            transition="fade", durations_s=durations, boundaries=boundaries,
+            quality="intermediate" if (speed or burn or ass) else "final",
         )
         if not compose.success:
             raise RuntimeError(f"final compose failed: {compose.error}")
         if compose.metadata.get("fallback"):
             log.warning("crossfade compose failed; fell back to hard cuts — "
                         "audio may drift by up to %.1fs",
-                        (len(clips) - 1) * scene_x / fps)
+                        sum(d for _n, d in boundaries))
 
         final = out
         if speed:
             final = self._apply_speed(out, proj / "final_output_speed.mp4",
                                       video.speed_factor, has_audio=bool(master),
-                                      quality="intermediate" if burn else "final")
+                                      quality="intermediate" if (burn or ass) else "final")
 
         video.subtitle_languages = []
         video.subtitles_skipped = []
         if video.has_subtitles and state.audio:
-            subbed = self._embed_subtitles(state, final)
+            subbed = self._embed_subtitles(state, final, graphics_ass=ass if burn else None)
             if subbed:
                 final = subbed
+        if ass and not self._graphics_done:
+            # Subtitles are off (or were not burned): the titles get a pass of their own, the
+            # last encode, at the delivered quality.
+            final = self._burn_graphics(final, proj / "final_output_graphics.mp4", ass)
         return final
+
+    def _graphics_script(self, state: PipelineState, proj: Path) -> Optional[Path]:
+        """Write the titles' ASS script for this film, or None when none are switched on."""
+        from shared import graphics
+        if not (getattr(state, "script", None) and getattr(state, "audio", None)):
+            return None
+        video = state.video
+        text = graphics.build_ass(state.script, state.audio.manifest, video.width, video.height,
+                                  speed=video.speed_factor, language=video.subtitle_language or "English")
+        if not text:
+            return None
+        path = proj / "graphics.ass"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _burn_graphics(self, src: Path, dst: Path, ass: Path) -> Path:
+        from shared import graphics
+        # Keep every stream: soft subtitle tracks ride along when the film has them.
+        cmd = ["ffmpeg", "-y", "-i", str(src), "-vf", graphics.filter_for(ass),
+               "-map", "0:v", "-map", "0:a?", "-map", "0:s?",
+               *video_quality.x264_args("final"), "-c:a", "copy", "-c:s", "copy", str(dst)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"burning the titles failed: {proc.stderr[-800:]}")
+        log.info("burned titles into the picture")
+        return dst
 
     @staticmethod
     def _will_burn_subtitles(state: PipelineState) -> bool:
@@ -937,7 +1036,8 @@ class VideoAgent:
 
     # ---- subtitles -------------------------------------------------------
 
-    def _embed_subtitles(self, state: PipelineState, video_path: Path) -> Optional[Path]:
+    def _embed_subtitles(self, state: PipelineState, video_path: Path,
+                         graphics_ass: Optional[Path] = None) -> Optional[Path]:
         """Put subtitles where players will actually show them.
 
         Most players ignore soft `mov_text` tracks inside an MP4 unless the
@@ -993,9 +1093,11 @@ class VideoAgent:
                 layout=film_format.subtitle_layout(film_format.format_of_size(video.width, video.height),
                                                    video.width, video.height),
                 frame=(video.width, video.height),
+                graphics_ass=str(graphics_ass) if graphics_ass else None,
             )
             if res.success:
                 final, burned = Path(res.data), chosen
+                self._graphics_done = bool(graphics_ass)
                 log.info("burned %s subtitles into the picture", chosen)
             else:
                 log.warning("subtitle burn-in failed: %s — falling back to soft tracks only",

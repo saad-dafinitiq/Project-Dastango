@@ -39,12 +39,21 @@ export type CardShot = {
   crop: { w: number; x: number; y: number } | null;
   /** Which of the scene's lines this shot carries, by the estimated cut times. */
   line_ids: string[];
+  /** How this shot comes in (DST-39): null for the first shot of the film. `between` is a cut
+   *  between scenes; `chosen` means the creator set it, otherwise it is the default. */
+  transition: { kind: string; ms: number; chosen: boolean; between: boolean } | null;
   /** The camera move's id (`pan_left`), where `move` is the same in words. */
   move_id: string;
   /** The creator chose this move or framing, over what the plan picked. */
   overridden: boolean;
   /** A close-up needs a face: only a shot someone speaks in can have one. */
   can_close: boolean;
+};
+
+/** The editing operations the server offers, and the choices of the transition one (GET /api/edit/ops). */
+export type TransitionStyle = { id: string; label: string; about: string; main: boolean };
+export type EditCatalogue = {
+  ops: { name: string; summary: string; options: { styles?: TransitionStyle[]; speeds?: Record<string, number>; effects?: { id: string; label: string; about: string }[]; strengths?: string[] } }[];
 };
 
 export type ShotOptions = {
@@ -169,6 +178,38 @@ export type FilmPlayback = {
   stand_in_scenes: string[];
   chapters: Chapter[];
   subtitles: SubtitleTrack[];
+  /** A finishing effect per scene that has one (DST-39). */
+  effects?: Record<string, { kind: string; strength: string }>;
+  /** Which titles are on the picture (DST-39), and their own words if the creator set any. */
+  titles?: {
+    title_card: boolean;
+    title_text: string | null;
+    scene_titles: boolean;
+    lower_thirds: boolean;
+    end_card: boolean;
+    end_text: string | null;
+    credits_text: string | null;
+  } | null;
+  /** The mix (DST-39); empty for a film with no sound recorded. Levels are percent of how it was made. */
+  sound?: {
+    music_on: boolean;
+    music_pct: number;
+    voices_pct: number;
+    ambience_pct: number;
+    music_track: string | null;
+    scene_music: Record<string, string>;
+    moods: Record<string, string>;
+    ambience: Record<string, string>;
+    uploads: { id: string; title: string; seconds: number }[];
+  };
+};
+
+/** GET /api/edit/music: the library, the ambience kinds and what an upload may be. */
+export type MusicCatalogue = {
+  tracks: { id: string; title: string; mood: string | null; seconds: number; licence: string; upload: boolean }[];
+  moods: string[];
+  ambience: { id: string; label: string; about: string }[];
+  limits: { max_mb: number; min_seconds: number; max_seconds: number; extensions: string[] };
 };
 
 export type ProgressEvent = {
@@ -199,7 +240,7 @@ export type FilmVersion = {
 export type JobSnapshot = {
   project_id: string;
   job_id?: string;
-  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert" | "shot" | "respec";
+  kind?: "plan" | "render" | "run_full" | "rerun_phase" | "edit" | "revert" | "shot" | "respec" | "op";
   prompt?: string | null;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
   phase?: string;

@@ -19,44 +19,37 @@ dependencies = [
     # Core
     "pydantic>=2.5,<3",
     "python-dotenv>=1.0.0",
-
     # Web
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "websockets>=12.0",
     "python-multipart>=0.0.9",
-
     # Media
     "Pillow>=10.0",
     "gTTS>=2.4",
     "edge-tts>=7.0.0",
     "requests>=2.31",            # also calls MyMemory, the subtitle fallback (DST-18)
-
     # Model settings layer (config/providers.yaml)
     "PyYAML>=6.0",
-
     # Accounts: argon2id password hashing (never hand-roll this).
     "argon2-cffi>=23.1",
-
     # Database: the version log and the job queue. SQLite by default (no server
     # needed); set DATABASE_URL to a Postgres URL and add the postgres extra.
     "SQLAlchemy>=2.0",
-
     # LLM providers (all optional at run time, installed so any key just works).
     # The openai client also speaks to Groq, OpenRouter and Ollama.
     "google-genai>=1.51",        # Gemini (replaces the deprecated google-generativeai)
     "openai>=1.20",
     "anthropic>=0.25",
-
     # Real video / lip-sync providers (optional at run time)
     "fal-client>=1.0.0",         # fal.ai SVD + SadTalker (set FAL_KEY in .env)
     "replicate>=1.0.0",          # Replicate Wav2Lip + SVD (set REPLICATE_API_TOKEN in .env)
-
     # Optional / nice-to-have
     "pyttsx3>=2.90",             # offline TTS fallback
     # moviepy and opencv-python were listed as optional extras; nothing imports
     # either, and together they put ~265 MB (and a second ffmpeg) in the image.
     "numpy>=1.26",               # used by some optional paths
+    "moviepy>=2.2.1",
 ]
 
 [project.optional-dependencies]

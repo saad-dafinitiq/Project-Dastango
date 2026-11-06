@@ -1,0 +1,159 @@
+/* The Sound panel under a finished film (DST-39). Tokens only: both palettes come for free. */
+.panel {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.panel h2 {
+  font-family: var(--title);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.sub {
+  font-family: var(--title);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 22px 0 10px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.lab {
+  color: var(--mu);
+  font-size: 14px;
+}
+.select {
+  width: auto;
+  min-width: 150px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.chip:hover:not(:disabled) {
+  border-color: var(--fg);
+}
+.chip[aria-checked="true"] {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--ink);
+}
+.chip:focus-visible,
+.listen:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.tracks {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+}
+.tracks li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.tracks li.on {
+  background: var(--s2);
+}
+.name {
+  flex: 1;
+  min-width: 0;
+}
+.name small {
+  color: var(--fa);
+  margin-left: 8px;
+  font-size: 13px;
+}
+.listen {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+.upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.rights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--mu);
+  min-height: 40px;
+}
+.level {
+  display: grid;
+  grid-template-columns: 90px 1fr 52px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.level label {
+  color: var(--mu);
+  font-size: 14px;
+}
+.level input[type="range"] {
+  width: 100%;
+  accent-color: var(--ac);
+  min-height: 40px;
+}
+.level output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-size: 14px;
+}
+.note {
+  color: var(--fa);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+.problem {
+  color: var(--bad);
+  font-size: 14px;
+  margin: 12px 0 0;
+}
+@media (max-width: 560px) {
+  .level {
+    grid-template-columns: 74px 1fr 46px;
+  }
+}

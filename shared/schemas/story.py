@@ -42,6 +42,13 @@ class DialogueLine(BaseModel):
     duration_ms: int = Field(default=2500, ge=500)
 
 
+class TransitionSpec(BaseModel):
+    """How one cut comes in (DST-39): a style from `shared.transitions` and how long it takes.
+    `ms` None means that style's normal length; a cut has none."""
+    kind: str
+    ms: Optional[int] = None
+
+
 class ShotOverride(BaseModel):
     """What the creator chose for one shot, over what the coverage plan picked (DST-38).
 
@@ -52,6 +59,14 @@ class ShotOverride(BaseModel):
     """
     move: Optional[str] = None       # a key of agents.video_agent.camera.MOVES
     framing: Optional[Literal["wide", "medium", "close"]] = None
+    # How this shot comes in from the one before it (a cut inside a scene).
+    transition: Optional[TransitionSpec] = None
+
+
+class EffectSpec(BaseModel):
+    """A finishing effect drawn over a whole scene (DST-39, shared/finish.py)."""
+    kind: str
+    strength: str = "normal"
 
 
 class Scene(BaseModel):
@@ -72,6 +87,11 @@ class Scene(BaseModel):
     dialogue: List[DialogueLine] = Field(default_factory=list)
     music_mood: str = Field(default="ambient", description="mood for BGM selection")
     transition_in: str = Field(default="fade", description="cut/fade/slide/zoom")
+    # How the scene's first shot comes in from the previous scene's last (a cut between
+    # scenes). None = the default. The older `transition_in` is what the story model wrote
+    # and is not read: it was never applied, and starting to would change old films.
+    cut_in: Optional[TransitionSpec] = None
+    effect: Optional[EffectSpec] = None
     shot_overrides: Dict[str, ShotOverride] = Field(
         default_factory=dict,
         description="the creator's own camera move / framing per shot, by shot id")
@@ -80,6 +100,18 @@ class Scene(BaseModel):
     @classmethod
     def _check_durations(cls, v: List[DialogueLine]) -> List[DialogueLine]:
         return v
+
+
+class GraphicsSpec(BaseModel):
+    """Titles drawn over the film (DST-39), all off until the creator asks. They are overlays on
+    the timeline, so none of them changes how long the film is (shared/graphics.py)."""
+    title_card: bool = False
+    title_text: Optional[str] = Field(default=None, description="replaces the story's title on the title card")
+    scene_titles: bool = False
+    lower_thirds: bool = False
+    end_card: bool = False
+    end_text: Optional[str] = Field(default=None, description="replaces 'The End'")
+    credits_text: Optional[str] = Field(default=None, description="a line under the end card")
 
 
 class StoryOutput(BaseModel):
@@ -105,6 +137,7 @@ class StoryOutput(BaseModel):
     # 16:9, and style "" (the look its genre gave it).
     format: Literal["16:9", "9:16", "1:1"] = "16:9"
     style: Literal["", "realistic", "anime"] = ""
+    graphics: GraphicsSpec = Field(default_factory=GraphicsSpec)
 
 
 class ScriptOutput(BaseModel):

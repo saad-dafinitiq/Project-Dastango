@@ -223,7 +223,8 @@ class _Stop(BaseException):
 
 def test_a_cancelled_edit_puts_its_files_back(small_project):
     """Stopped after the music is mixed in and before the film is cut again:
-    the soundtrack on disk has music the saved film doesn't."""
+    the soundtrack on disk has music the saved film doesn't. (The steps are choose the music,
+    mix the sound again, cut the film: step 2 is the cut.)"""
     state, sm = small_project(with_bgm=False)
     master = Path(state.audio.master_track)
     before = master.read_bytes()
@@ -231,7 +232,7 @@ def test_a_cancelled_edit_puts_its_files_back(small_project):
     silence_tts(agent.executor.audio.tools)
 
     def cancel_before_the_cut(kind, info):
-        if kind == "step" and info["index"] == 1:
+        if kind == "step" and info["index"] == 2:
             assert master.read_bytes() != before, "the music step changed nothing"
             raise _Stop()
 

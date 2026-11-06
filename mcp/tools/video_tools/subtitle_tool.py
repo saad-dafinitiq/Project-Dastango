@@ -25,7 +25,7 @@ class SubtitleTool(BaseTool):
     def run(self, in_path: str, out_path: str, lines: List[Dict[str, Any]],
             font_size: int = 22, language: str = "English",
             layout: Optional[Dict[str, int]] = None, frame: Optional[Tuple[int, int]] = None,
-            **_) -> ToolResult:
+            graphics_ass: Optional[str] = None, **_) -> ToolResult:
         in_p = Path(in_path)
         out_p = Path(out_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -58,6 +58,10 @@ class SubtitleTool(BaseTool):
               f"BorderStyle=1,Outline={outline},Shadow=1,"
               f"Alignment=2,MarginV={mv},MarginL={ml},MarginR={mr},"
               f"Bold=0'")
+        if graphics_ass:
+            # Titles go on in the same encode, over the subtitles' own pass (shared/graphics.py).
+            from shared import graphics
+            vf += "," + graphics.filter_for(Path(graphics_ass))
         # Burning the subtitles is the last time the film is encoded, so this pass
         # is the delivered quality (config/video.yaml, encode).
         cmd = ["ffmpeg", "-y", "-i", str(in_p), "-vf", vf,
@@ -68,7 +72,7 @@ class SubtitleTool(BaseTool):
             return ToolResult(success=False, error=proc.stderr[-2000:],
                               metadata={"cmd": " ".join(cmd)})
         return ToolResult(success=True, data=str(out_p),
-                          metadata={"srt": str(srt_p), "line_count": len(lines),
+                          metadata={"srt": str(srt_p), "line_count": len(lines), "graphics": bool(graphics_ass),
                                     "language": language, "font": font, "layout": layout})
 
     @staticmethod

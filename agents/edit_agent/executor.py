@@ -18,13 +18,13 @@ from agents.audio_agent import AudioAgent
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from agents.video_agent import VideoAgent
 from mcp.tool_executor import ToolExecutor
-from shared import video_quality
-from shared import film_format
+from shared import film_format, video_quality
 from shared.schemas.audio import VoiceConfig
 from shared.schemas.pipeline import PipelineState
 from shared.utils.files import project_dir
 from shared.utils.logging import get_logger
 
+from . import ops
 from .planner import EditStep
 
 log = get_logger("edit_executor")
@@ -45,6 +45,11 @@ class EditExecutor:
     def execute(self, state: PipelineState, step: EditStep) -> List[str]:
         log.info("executing step %s (%s/%s) params=%s",
                  step.name, step.target, step.scope, step.params)
+        if step.name in ops.OPS:
+            # The shared editing operations (DST-39): the same code whether a click or a
+            # sentence asked for it. They change the script; the steps after them cut the film.
+            ops.apply(state, step.name, step.params)
+            return []
         handler = getattr(self, f"_step_{step.name}", None)
         if not handler:
             raise ValueError(f"no handler for step '{step.name}'")
@@ -125,24 +130,76 @@ class EditExecutor:
                    for scene in state.script.scenes for ln in scene.dialogue}
         return recorded != written
 
-    def _step_regenerate_bgm(self, state: PipelineState, step: EditStep) -> List[str]:
+    def _step_remix_audio(self, state: PipelineState, step: EditStep) -> List[str]:
+        """The music, ambience or levels changed: rebuild the beds and the master (no voice is
+        recorded again). The film's own picture is not touched; the next step re-joins them."""
         if not state.audio or not state.script:
             return []
-        mood = (step.params or {}).get("mood", "ambient")
-        scene_ids = set(self._scene_ids_in_scope(state, step.scope))
-        for scene in state.script.scenes:
-            if scene.scene_id in scene_ids:
-                scene.music_mood = mood
-        state.audio.bgm_enabled = True
         self._rebuild_audio(state, retime=False)
-        return [p for p in (state.audio.bgm_track, state.audio.master_track) if p]
+        return [p for p in (state.audio.bgm_track, state.audio.ambience_track,
+                            state.audio.master_track) if p]
 
-    def _step_disable_bgm(self, state: PipelineState, step: EditStep) -> List[str]:
-        if not state.audio:
+    def _step_rerecord_line(self, state: PipelineState, step: EditStep) -> List[str]:
+        """One line changed: record just that line again, in the voice it has, then lay the film's
+        sound out again (the scene is longer or shorter now, and what comes after moves)."""
+        audio = state.audio
+        if not audio or not state.script:
             return []
-        state.audio.bgm_enabled = False
-        self._rebuild_audio(state, retime=False)
-        return [state.audio.master_track]
+        _i, scene = ops.find_scene(state, step.params["scene"])
+        _n, line = ops.find_line(scene, step.params["line"])
+        seg = next((s for s in audio.manifest.segments if s.kind == "dialogue" and s.line_id == line.line_id), None)
+        if seg is None:
+            raise ValueError(f"line {line.line_id} was never recorded")
+        out = self.audio.render_line(state.project_id, scene.scene_id, line.line_id, line.text,
+                                     audio.voice_for(scene.scene_id, seg.character_id),
+                                     fallback_ms=line.duration_ms)
+        seg.file_path, seg.duration_ms, seg.text = out.path, out.duration_ms, line.text
+        seg.engine, seg.voice = out.engine, out.voice
+        self._rebuild_audio(state)
+        return [out.path, state.audio.master_track]
+
+    def _step_redraw_shot(self, state: PipelineState, step: EditStep) -> List[str]:
+        """Draw the picture one shot is cut from again, with a fresh seed. Shots cut from the same
+        picture (a medium is a crop of the wide) change together: that is one picture."""
+        video = self._require_video(state)
+        i, scene = ops.find_scene(state, step.params["scene"])
+        frame = next((f for f in video.frames if f.scene_id == scene.scene_id), None)
+        shot = frame.shots[int(step.params["shot"]) - 1] if frame and len(frame.shots) >= int(step.params["shot"]) else None
+        if shot is None:
+            raise ValueError(f"scene {i + 1} has no shot {step.params['shot']}")
+        pic_w, pic_h = video_quality.image_size(video.width, video.height)
+        salt = f"v{state.version + 1}"
+        if shot.image_path in (frame.shot_bank or [frame.image_path]):
+            bank = list(frame.shot_bank or [frame.image_path])
+            idx = bank.index(shot.image_path)
+            bank[idx] = self.video.redraw_picture(state.project_id, scene, idx, pic_w, pic_h,
+                                                  seed_salt=salt, story=state.script.story)
+            frame.shot_bank = bank
+            if idx == 0:
+                frame.image_path = bank[0]
+                frame.t2v_clip = None          # that clip was made from the old establishing picture
+            drawn = bank[idx]
+        elif shot.character_id:
+            # A close-up is the character's portrait; redraw it for this scene only, as a filter does.
+            c = next(c for c in state.script.characters.characters if c.id == shot.character_id)
+            drawn = self.video.redraw_portrait_for_scene(state.project_id, c, scene.scene_id, pic_w, pic_h,
+                                                         seed_salt=salt, story=state.script.story)
+            frame.portrait_overrides[c.id] = drawn
+        else:
+            raise ValueError("that shot has no picture to draw again")
+        return [drawn]
+
+    def _step_restructure(self, state: PipelineState, step: EditStep) -> List[str]:
+        """Scenes were removed or moved: the timeline, the sound and the film follow the script's order."""
+        affected: List[str] = []
+        if state.audio:
+            self._rebuild_audio(state)
+            affected.append(state.audio.master_track)
+        if state.video:
+            order = {s.scene_id: n for n, s in enumerate(state.script.scenes)}
+            state.video.frames = sorted((f for f in state.video.frames if f.scene_id in order),
+                                        key=lambda f: order[f.scene_id])
+        return affected
 
     def _rebuild_audio(self, state: PipelineState, retime: bool = True) -> None:
         if retime:
@@ -270,9 +327,11 @@ class EditExecutor:
             state.user_prompt = f"{state.user_prompt} (genre: {params['genre']})"
         story = state.script.story
         # A rewritten script is still in the format and style the creator chose.
+        titles = story.graphics
         StoryAgent().run(state, target_duration_s=story.target_duration_s,
                          scene_count=len(state.script.scenes), format=story.format,
                          style=story.style or "realistic")
+        state.script.story.graphics = titles          # a rewritten story keeps the titles the creator chose
         return list(state.phase1.artifact_paths)
 
     def _step_rerun_video(self, state: PipelineState, step: EditStep) -> List[str]:

@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from shared import video_quality
+from shared import video_quality, xfade
+from shared.xfade import Boundary
 from shared.utils.images import ensure_readable_image
 from shared.utils.logging import get_logger
 
@@ -189,52 +190,57 @@ def _run_shot(cmd: List[str], check: bool) -> subprocess.CompletedProcess:
 def assemble_scene(shots: List[Path], out_path: Path,
                    crossfade_ms: float = 250,
                    audio_path: Optional[str] = None,
-                   durations_s: Optional[List[float]] = None) -> Path:
-    """Concatenate the sub-clips of a scene with crossfades and (optional) audio.
+                   durations_s: Optional[List[float]] = None,
+                   boundaries: Optional[List[Boundary]] = None) -> Path:
+    """Join the sub-clips of a scene, each cut with its own transition, and (optional) audio.
 
-    Pass `durations_s` (the exact clip lengths) to place crossfades precisely;
-    otherwise each clip is probed.
+    `boundaries[i]` is how clip i gives way to clip i+1: `(xfade name, seconds)`, or
+    `(None, 0)` for a straight cut (shared/xfade.py). Without it every cut is a fade of
+    `crossfade_ms`, as before DST-39. Pass `durations_s` (the exact clip lengths, each
+    including its trailing overlap) to place the transitions precisely; otherwise each clip
+    is probed.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.suffix.lower() != ".mp4":
         out_path = out_path.with_suffix(".mp4")
+    has_audio = bool(audio_path and Path(audio_path).exists())
 
     if len(shots) == 1 and not audio_path:
-        # Single shot — already in the project format, copy it as-is.
+        # Single shot: already in the project format, copy it as-is.
         if Path(shots[0]).resolve() != out_path.resolve():
             shutil.copyfile(shots[0], out_path)
         return out_path
 
+    if boundaries is None:
+        boundaries = [("fade", max(0.04, crossfade_ms / 1000.0))] * max(0, len(shots) - 1)
+
+    if len(shots) > 1 and not has_audio and xfade.all_cuts(boundaries):
+        # Nothing to blend: join the shots without encoding them again. They were all encoded
+        # by the same call, so they share a codec setup and the join is exact to the frame.
+        list_path = out_path.with_suffix(".txt")
+        list_path.write_text(
+            "\n".join(f"file '{Path(s).resolve().as_posix()}'" for s in shots), encoding="utf-8")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
+                            "-c", "copy", str(out_path)], check=True, capture_output=True)
+        finally:
+            list_path.unlink(missing_ok=True)
+        return out_path
+
     if durations_s is None:
         durations_s = [(probe_duration_ms(s) or 1000) / 1000.0 for s in shots]
-    xfade_s = max(0.04, crossfade_ms / 1000.0)
 
     inputs: List[str] = []
     for s in shots:
         inputs += ["-i", str(s)]
-    if audio_path and Path(audio_path).exists():
+    if has_audio:
         inputs += ["-i", str(audio_path)]
 
-    if len(shots) == 1:
-        fc = "[0:v]null[v0]"
-        prev = "v0"
-    else:
-        filter_parts = []
-        prev = "0:v"
-        offset = 0.0
-        for i in range(1, len(shots)):
-            offset += durations_s[i - 1] - xfade_s
-            out_label = f"v{i}"
-            filter_parts.append(
-                f"[{prev}][{i}:v]xfade=transition=fade:duration={xfade_s:.6f}:"
-                f"offset={max(0.0, offset):.6f}[{out_label}]"
-            )
-            prev = out_label
-        fc = ";".join(filter_parts)
+    fc, prev = xfade.build_graph(durations_s, boundaries)
 
     cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", fc,
            "-map", f"[{prev}]"]
-    if audio_path and Path(audio_path).exists():
+    if has_audio:
         cmd += ["-map", f"{len(shots)}:a:0", "-c:a", "aac", "-b:a", "192k"]
     else:
         cmd += ["-an"]

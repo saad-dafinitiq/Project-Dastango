@@ -80,6 +80,15 @@ def shot_id_at(scene_id: str, index: int) -> str:
     return f"{scene_id}_est" if index == 0 else f"{scene_id}_s{index + 1}"
 
 
+def transition_into(scene, shot_index: int):
+    """The creator's choice for how shot `shot_index` of `scene` comes in (a TransitionSpec),
+    or None for the default. The first shot of a scene comes in from the previous scene."""
+    if shot_index == 0:
+        return getattr(scene, "cut_in", None)
+    override = (getattr(scene, "shot_overrides", None) or {}).get(shot_id_at(scene.scene_id, shot_index))
+    return getattr(override, "transition", None)
+
+
 def apply_overrides(covers: List[Cover], scene_id: str, scene_index: int,
                     overrides: Optional[Mapping[str, object]],
                     has_portrait: Callable[[str], bool] = lambda _id: True,

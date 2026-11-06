@@ -31,7 +31,8 @@ class AudioMergerTool(BaseTool):
             bgm: Optional[str] = None, bgm_volume: float = 0.25,
             placements: Optional[List[Dict]] = None,
             total_ms: Optional[int] = None, duck: bool = True,
-            loudness: bool = True, **_) -> ToolResult:
+            loudness: bool = True, ambience: Optional[str] = None,
+            ambience_volume: float = 0.22, dialogue_volume: float = 1.0, **_) -> ToolResult:
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         if out.suffix.lower() not in (".wav", ".mp3", ".m4a"):
@@ -54,9 +55,13 @@ class AudioMergerTool(BaseTool):
             self._concat(segs, dialogue_path)
             count = len(segs)
 
-        if bgm and Path(bgm).exists():
-            self._mix(dialogue_path, Path(bgm), out, bgm_volume=bgm_volume,
-                      duck=duck, loudness=loudness)
+        have_bgm = bool(bgm and Path(bgm).exists())
+        have_amb = bool(ambience and Path(ambience).exists())
+        if have_bgm or have_amb or (dialogue_volume != 1.0 and placements is not None):
+            self._mix(dialogue_path, Path(bgm) if have_bgm else None, out, bgm_volume=bgm_volume,
+                      duck=duck, loudness=loudness,
+                      ambience=Path(ambience) if have_amb else None,
+                      ambience_volume=ambience_volume, dialogue_volume=dialogue_volume)
         elif loudness and placements is not None:
             self._normalize_only(dialogue_path, out)
         else:
@@ -72,7 +77,7 @@ class AudioMergerTool(BaseTool):
             pass
 
         return ToolResult(success=True, data=str(out),
-                          metadata={"segment_count": count, "bgm": bool(bgm),
+                          metadata={"segment_count": count, "bgm": have_bgm, "ambience": have_amb,
                                     "ducked": bool(bgm) and duck, "loudness": loudness,
                                     "mode": "placements" if placements is not None else "concat"})
 
@@ -147,33 +152,55 @@ class AudioMergerTool(BaseTool):
         except Exception:  # noqa: BLE001
             pass
 
-    def _mix(self, dialogue: Path, bgm: Path, out: Path, bgm_volume: float = 0.25,
-             duck: bool = True, loudness: bool = True) -> None:
-        """Mix music under dialogue.
+    def _mix(self, dialogue: Path, bgm: Optional[Path], out: Path, bgm_volume: float = 0.25,
+             duck: bool = True, loudness: bool = True, ambience: Optional[Path] = None,
+             ambience_volume: float = 0.22, dialogue_volume: float = 1.0) -> None:
+        """Mix music and ambience under dialogue.
 
-        With `duck`, the music is side-chained to the dialogue: it drops while
-        someone speaks and returns in the gaps, so the bed can sit louder
-        without ever masking a line. `loudness` applies EBU R128 normalisation
-        (-16 LUFS, the usual streaming/podcast target) so films don't come out
-        at wildly different volumes.
+        With `duck`, the bed (music + ambience) is side-chained to the dialogue: it drops
+        while someone speaks and returns in the gaps, so it can sit louder without ever
+        masking a line. `dialogue_volume` scales the voices before the mix (it is what a
+        creator's "voices louder" changes). `loudness` applies EBU R128 normalisation
+        (-16 LUFS, the usual streaming/podcast target), so the level of the whole film is
+        fixed and these volumes are *relative*: more music means the voices sit lower in it.
         """
-        parts = [f"[1:a]volume={bgm_volume},aloop=loop=-1:size=2e9,"
-                 f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono[bgm]"]
-        if duck:
-            # One copy of the dialogue drives the compressor, the other is heard.
-            parts.append("[0:a]asplit=2[dry][key]")
-            parts.append("[bgm][key]sidechaincompress=threshold=0.03:ratio=12:"
-                         "attack=25:release=450:makeup=1[ducked]")
-            parts.append("[dry][ducked]amix=inputs=2:duration=first:"
-                         "dropout_transition=2:normalize=0[mixed]")
+        inputs = ["-i", str(dialogue)]
+        parts = [f"[0:a]volume={dialogue_volume}[voice]"]
+        beds = []
+        idx = 1
+        if bgm:
+            inputs += ["-i", str(bgm)]
+            parts.append(f"[{idx}:a]volume={bgm_volume},aloop=loop=-1:size=2e9,"
+                         f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono[music]")
+            beds.append("[music]")
+            idx += 1
+        if ambience:
+            inputs += ["-i", str(ambience)]
+            parts.append(f"[{idx}:a]volume={ambience_volume},aloop=loop=-1:size=2e9,"
+                         f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono[amb]")
+            beds.append("[amb]")
+            idx += 1
+        if not beds:
+            parts.append("[voice]anull[mixed]")
         else:
-            # normalize=0 keeps dialogue at full level instead of halving it.
-            parts.append("[0:a][bgm]amix=inputs=2:duration=first:"
-                         "dropout_transition=2:normalize=0[mixed]")
+            if len(beds) == 1:
+                parts.append(f"{beds[0]}anull[bed]")
+            else:
+                parts.append(f"{''.join(beds)}amix=inputs={len(beds)}:duration=longest:normalize=0[bed]")
+            if duck:
+                # One copy of the dialogue drives the compressor, the other is heard.
+                parts.append("[voice]asplit=2[dry][key]")
+                parts.append("[bed][key]sidechaincompress=threshold=0.03:ratio=12:"
+                             "attack=25:release=450:makeup=1[ducked]")
+                parts.append("[dry][ducked]amix=inputs=2:duration=first:"
+                             "dropout_transition=2:normalize=0[mixed]")
+            else:
+                # normalize=0 keeps dialogue at full level instead of halving it.
+                parts.append("[voice][bed]amix=inputs=2:duration=first:"
+                             "dropout_transition=2:normalize=0[mixed]")
         parts.append(f"[mixed]{'loudnorm=I=-16:TP=-1.5:LRA=11' if loudness else 'anull'}[a]")
 
-        cmd = ["ffmpeg", "-y", "-i", str(dialogue), "-i", str(bgm),
-               "-filter_complex", ";".join(parts), "-map", "[a]",
+        cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts), "-map", "[a]",
                "-ar", str(SAMPLE_RATE), "-ac", "2", str(out)]
         subprocess.run(cmd, check=True, capture_output=True)
 

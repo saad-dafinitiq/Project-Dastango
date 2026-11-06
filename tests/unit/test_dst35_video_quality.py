@@ -251,7 +251,7 @@ def _state(speed=1.0, subtitles=True, burn=True, lines=True):
         video=SimpleNamespace(fps=24, speed_factor=speed, has_subtitles=subtitles,
                               burn_subtitles=burn, subtitle_languages=[], subtitles_skipped=[],
                               frames=[SimpleNamespace(clip_path="a.mp4",
-                                                      shots=[SimpleNamespace(render_frames=48)])]),
+                                                      shots=[SimpleNamespace(render_frames=48, out_kind="cut", out_frames=0)])]),
         audio=SimpleNamespace(master_track=None, manifest=SimpleNamespace(segments=segments)))
 
 
@@ -291,7 +291,7 @@ def test_only_the_last_pass_is_encoded_at_the_delivered_quality(isolated_dirs, m
     monkeypatch.setattr(VideoAgent, "_apply_speed",
                         staticmethod(lambda src, dst, factor, has_audio, quality="final":
                                      speeds.append(quality) or dst))
-    monkeypatch.setattr(agent, "_embed_subtitles", lambda state, path: None)
+    monkeypatch.setattr(agent, "_embed_subtitles", lambda state, path, graphics_ass=None: None)
     agent._compose_final(_state(**kwargs))
     assert calls[0][1]["quality"] == compose
     assert (speeds[0] if speeds else None) == speed

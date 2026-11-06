@@ -739,3 +739,72 @@
     padding: 18px;
   }
 }
+
+/* How a cut comes in, under each shot, and the picker's before-and-after (DST-39). */
+.tin {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--mu);
+  flex-wrap: wrap;
+}
+.tin .glyph {
+  width: 26px;
+  height: 17px;
+  flex: none;
+}
+.tin b {
+  font-family: var(--title);
+  font-weight: 600;
+  color: var(--fg);
+}
+.tin :global(.textlink) {
+  font-size: 14px;
+}
+.btw {
+  color: var(--fg);
+}
+.shot[aria-current="true"] .tin {
+  color: var(--fg);
+}
+.cutPreview {
+  position: relative;
+  display: flex;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: var(--ar, 16 / 9);
+  max-width: min(100%, calc(520px * var(--arn, 1.7778)));
+  background: var(--s2);
+  margin-top: 18px;
+}
+.cutHalf {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.cutHalf img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cutPreview i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: #fff;
+  opacity: 0.9;
+}
+.cutLabels {
+  display: flex;
+  justify-content: space-between;
+  max-width: min(100%, calc(520px * var(--arn, 1.7778)));
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fa);
+}

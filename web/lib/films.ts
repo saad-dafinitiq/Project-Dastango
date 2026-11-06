@@ -9,6 +9,7 @@ const WORKING_WORDS: Record<string, string> = {
   rerun_phase: "Rendering",
   edit: "Changing",
   shot: "Changing",
+  op: "Changing",
   revert: "Going back",
 };
 

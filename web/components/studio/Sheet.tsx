@@ -3,10 +3,11 @@
 import { useState } from "react";
 
 import type { SceneEdit, ShotChange } from "@/lib/api";
-import type { Card, CardShot, CastMember, ShotOptions } from "@/lib/types";
+import type { Card, CardShot, CastMember, ShotOptions, TransitionStyle } from "@/lib/types";
 
 import styles from "./sheet.module.css";
 import { FRAMING_NAMES, MOVE_NAMES, MoveGlyph, ShotPicture, mmss } from "./shots";
+import { TransitionEditor, TransitionGlyph, transitionWords } from "./TransitionEditor";
 
 const Check = () => (
   <svg className={styles.ck} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -29,13 +30,18 @@ type Props = {
   /** A finished film exists, so a shot change cuts it again. */
   hasFilm: boolean;
   options: ShotOptions | null;
+  /** The transition styles and speeds the server offers (GET /api/edit/ops). */
+  transitions: { styles: TransitionStyle[]; speeds: Record<string, number> } | null;
   onSaveScene: (sceneId: string, edit: SceneEdit) => Promise<void>;
   onShot: (sceneId: string, shotId: string, change: ShotChange) => Promise<void>;
+  /** One shared editing operation (DST-39), as a click sends it. */
+  onOp: (op: string, params: Record<string, unknown>) => Promise<void>;
 };
 
-type Open = { sceneId: string; shotId: string | null } | null;
+type Open = { sceneId: string; shotId: string | null; mode: "shot" | "words" | "transition" } | null;
 
-export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSaveScene, onShot }: Props) {
+export function Sheet({ cards, cast, planning, editable, hasFilm, options, transitions, onSaveScene, onShot, onOp }: Props) {
+  const [removing, setRemoving] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [folded, setFolded] = useState<Set<string>>(new Set());
   const portraits = Object.fromEntries(cast.filter((m) => m.portrait_url).map((m) => [m.character_id, m.portrait_url as string]));
@@ -86,6 +92,7 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
         const shots = card.shots ?? [];
         const linesById = new Map(card.lines.map((l) => [l.line_id, l]));
         const selected = isOpen ? shots.find((s) => s.shot_id === open?.shotId) : undefined;
+        const prevCard = i > 0 ? cards[i - 1] : undefined;
 
         return (
           <section key={card.scene_id} className={styles.scene} aria-label={`Scene ${number}: ${card.title}`}>
@@ -98,13 +105,48 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
                   <div className={styles.railActions}>
                     <button
                       className="textlink"
-                      onClick={() => setOpen(isOpen && open?.shotId === null ? null : { sceneId: card.scene_id, shotId: null })}
+                      onClick={() => setOpen(isOpen && open?.mode === "words" ? null : { sceneId: card.scene_id, shotId: null, mode: "words" })}
                     >
                       Edit scene words and picture
                     </button>
                     <button className="textlink" onClick={() => toggle(card.scene_id, true)}>
                       Looks right
                     </button>
+                    {cards.length > 1 && (
+                      <>
+                        {i > 0 && (
+                          <button className="textlink" onClick={() => void onOp("move_scene", { scene: card.scene_id, to: number - 1 })}>
+                            Move earlier
+                          </button>
+                        )}
+                        {i < cards.length - 1 && (
+                          <button className="textlink" onClick={() => void onOp("move_scene", { scene: card.scene_id, to: number + 1 })}>
+                            Move later
+                          </button>
+                        )}
+                        {removing === card.scene_id ? (
+                          <span role="group" aria-label={`Remove scene ${number}?`}>
+                            Remove scene {number}?{" "}
+                            <button
+                              className="textlink"
+                              onClick={() => {
+                                setRemoving(null);
+                                void onOp("remove_scene", { scene: card.scene_id });
+                              }}
+                            >
+                              Yes, remove it
+                            </button>{" "}
+                            <button className="textlink" onClick={() => setRemoving(null)}>
+                              Keep it
+                            </button>
+                          </span>
+                        ) : (
+                          <button className="textlink" onClick={() => setRemoving(card.scene_id)}>
+                            Remove scene
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -123,6 +165,7 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
               )}
               {shots.map((shot, j) => {
                 const on = isOpen && open?.shotId === shot.shot_id;
+                const t = shot.transition;
                 const said = shot.line_ids.map((id) => linesById.get(id)).filter(Boolean);
                 return (
                   <li key={shot.shot_id} className={`${styles.shot} rise`} style={{ "--delay": `${(i * 3 + j) * 50}ms` } as React.CSSProperties} aria-current={on ? "true" : undefined}>
@@ -142,13 +185,42 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
                         <button
                           className={styles.edit}
                           aria-expanded={on}
-                          onClick={() => setOpen(on ? null : { sceneId: card.scene_id, shotId: shot.shot_id })}
+                          onClick={() => setOpen(on && open?.mode === "shot" ? null : { sceneId: card.scene_id, shotId: shot.shot_id, mode: "shot" })}
                         >
                           <Pencil />
                           {on ? "Editing" : "Edit shot"}
                         </button>
                       )}
                     </div>
+                    {t && transitions && (
+                      <div className={`${styles.tin} ${t.between ? styles.btw : ""}`}>
+                        <TransitionGlyph kind={t.kind} />
+                        <span>
+                          {t.between ? "Between scenes" : "Comes in with a"}{" "}
+                          <b>{transitionWords(t.kind, t.ms, transitions.styles, transitions.speeds)}</b>
+                          {t.chosen ? " · your choice" : ""}
+                        </span>
+                        {editable && (
+                          <button
+                            type="button"
+                            className="textlink"
+                            aria-expanded={on && open?.mode === "transition"}
+                            onClick={() => setOpen(on && open?.mode === "transition" ? null : { sceneId: card.scene_id, shotId: shot.shot_id, mode: "transition" })}
+                          >
+                            Change
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {hasFilm && editable && (
+                      <button
+                        type="button"
+                        className="textlink"
+                        onClick={() => void onOp("regenerate_shot", { scene: card.scene_id, shot: shots.indexOf(shot) + 1 })}
+                      >
+                        Draw this shot again
+                      </button>
+                    )}
                     {said.length > 0 ? (
                       said.map((l) => (
                         <p key={l!.line_id} className={styles.say}>
@@ -167,7 +239,33 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
               })}
             </ol>
 
-            {isOpen && selected && (
+            {isOpen && selected && open?.mode === "transition" && transitions && (
+              <TransitionEditor
+                card={card}
+                shot={selected}
+                index={shots.indexOf(selected)}
+                before={
+                  shots.indexOf(selected) > 0
+                    ? { card, shot: shots[shots.indexOf(selected) - 1]! }
+                    : prevCard?.shots?.length
+                      ? { card: prevCard, shot: prevCard.shots[prevCard.shots.length - 1]! }
+                      : null
+                }
+                styles={transitions.styles}
+                speeds={transitions.speeds}
+                hasFilm={hasFilm}
+                portraits={portraits}
+                onChange={(change) =>
+                  onOp("set_transition", {
+                    scene: card.scene_id,
+                    ...(shots.indexOf(selected) > 0 ? { shot: shots.indexOf(selected) + 1 } : {}),
+                    ...change,
+                  })
+                }
+                onClose={() => setOpen(null)}
+              />
+            )}
+            {isOpen && selected && open?.mode === "shot" && (
               <ShotEditor
                 card={card}
                 shot={selected}
@@ -179,7 +277,7 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, onSav
                 onClose={() => setOpen(null)}
               />
             )}
-            {isOpen && !selected && open?.shotId === null && (
+            {isOpen && !selected && open?.mode === "words" && (
               <SceneWords card={card} onSave={(edit) => onSaveScene(card.scene_id, edit)} onClose={() => setOpen(null)} />
             )}
           </section>
