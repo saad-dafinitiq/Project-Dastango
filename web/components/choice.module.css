@@ -77,6 +77,14 @@
   min-width: 0;
   padding: 0 10px;
 }
+.compact {
+  justify-content: center;
+}
+/* Short numeric options (20 s, 3) show the choice by the ring and full-strength text alone; a check
+   beside a two-character label crowded it. aria-checked still says it to a screen reader. */
+.compact .ck {
+  display: none !important;
+}
 .compact small {
   display: none;
 }

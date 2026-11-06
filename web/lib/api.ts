@@ -47,6 +47,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* not JSON — keep the status text */
     }
+    // No route of ours answers 405 on purpose: the server is older than this page and has not heard of
+    // the request (the page was rebuilt, the server was not restarted). Say that, not "Method Not Allowed".
+    if (res.status === 405) {
+      throw new ApiError(405, "The server is older than this page and doesn't know that request. Restart it (python main.py serve), then reload.");
+    }
     throw new ApiError(res.status, detail);
   }
   return (await res.json()) as T;
@@ -111,6 +116,12 @@ export const api = {
     request<RunResponse>(`/api/pipeline/spec/${pid}`, { method: "PATCH", body: JSON.stringify(change) }),
   /** What can be edited, and the choices (transition styles and speeds). */
   editOps: () => request<EditCatalogue>("/api/edit/ops"),
+  /** Would this stack of changes apply, in order, to the film as it is? The words for each, or an error naming the one that cannot. */
+  checkOps: (pid: string, ops: { op: string; params: Record<string, unknown> }[]) =>
+    request<{ labels: string[] }>(`/api/edit/${pid}/ops/check`, { method: "POST", body: JSON.stringify({ ops }) }),
+  /** Apply a stack of changes at once: one job, one version, the film cut once. */
+  applyOps: (pid: string, ops: { op: string; params: Record<string, unknown> }[]) =>
+    request<Storyboard | RunResponse>(`/api/edit/${pid}/ops`, { method: "POST", body: JSON.stringify({ ops }) }),
   /** The music library, the ambience kinds and the upload limits. */
   musicCatalogue: () => request<MusicCatalogue>("/api/edit/music"),
   /** One shared editing operation (DST-39): what a click does, and what a typed sentence turns

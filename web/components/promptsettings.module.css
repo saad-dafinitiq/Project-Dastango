@@ -1,0 +1,227 @@
+/* The "+" under the prompt and the small window it opens. Tokens only; both palettes come with them. */
+.root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.plus {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.plus svg {
+  width: 20px;
+  height: 20px;
+}
+.plus:hover:not(:disabled) {
+  border-color: var(--fg);
+}
+.plus:focus-visible,
+.summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.plus:disabled,
+.summary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.summary {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--mu);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.summary:hover:not(:disabled) {
+  color: var(--fg);
+}
+@media (max-width: 560px) {
+  .summary {
+    font-size: 13px;
+  }
+}
+
+/* ---- the window ---- */
+.modal {
+  /* A native dialog sits in the browser's top layer: nothing on the page can paint over it. */
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  color: var(--fg);
+  background: var(--s2);
+  border: 1px solid var(--line2);
+  border-radius: 16px;
+  text-align: left;
+  animation: win-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.modal::backdrop {
+  background: rgba(var(--bg-rgb), 0.72);
+  animation: scrim-in 0.22s ease both;
+}
+.leaving {
+  animation: win-out 0.16s ease-in both;
+}
+.leaving::backdrop {
+  animation: scrim-out 0.16s ease-in both;
+}
+@keyframes win-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes win-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal,
+  .modal::backdrop,
+  .leaving,
+  .leaving::backdrop {
+    animation: none;
+  }
+}
+.window {
+  display: grid;
+  gap: 20px;
+  padding: 20px 22px 18px;
+}
+.title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.title h2 {
+  margin: 0;
+  font: 600 20px var(--title);
+  letter-spacing: -0.01em;
+}
+.x {
+  width: 44px;
+  height: 44px;
+  margin: -8px -10px -8px 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mu);
+  cursor: pointer;
+}
+.x:hover {
+  color: var(--fg);
+}
+.x:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.x svg {
+  width: 20px;
+  height: 20px;
+}
+.groups {
+  display: grid;
+  gap: 18px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.pair > div {
+  min-width: 0;
+}
+.pair button {
+  min-height: 44px;
+}
+.pair button span {
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .pair {
+    grid-template-columns: 1fr;
+  }
+}
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--mu);
+}
+.help {
+  font: inherit;
+  font-size: 13px;
+  color: var(--mu);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 4px;
+  min-height: 32px;
+}
+.help:hover {
+  color: var(--fg);
+}
+.explain {
+  font-size: 14px;
+  color: var(--mu);
+}
+.explain b {
+  font-family: var(--title);
+  font-weight: 600;
+  color: var(--fg);
+}
+.explain p {
+  margin: 0 0 6px;
+}
+.explain p:last-child {
+  margin: 0;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}

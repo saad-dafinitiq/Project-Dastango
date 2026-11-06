@@ -609,6 +609,38 @@ def apply(state: PipelineState, name: str, params: Mapping[str, Any]) -> str:
     return _run(get(name), state, parse(name, params))
 
 
+def check_many(state: PipelineState, items: List[Mapping[str, Any]]) -> List[str]:
+    """Would these ops apply, one after the other, to this film? Tries them in order on a copy (a
+    later one sees what an earlier one did) and returns what each would do, in words."""
+    copy = state.model_copy(deep=True)
+    labels: List[str] = []
+    for it in items:
+        labels.append(_run(get(it["op"]), copy, parse(it["op"], it.get("params") or {})))
+    return labels
+
+
+_JOINS = ("remix_audio", "recompose_video")
+
+
+def after_steps_many(state: PipelineState, items: List[Mapping[str, Any]]) -> List[Tuple[str, str, Dict[str, Any]]]:
+    """The steps that follow a whole list of ops on a finished film, as (step, scope, params).
+
+    The sound is mixed once and the film is cut once, at the end, however many ops asked for it:
+    that is what makes applying ten changes together faster than ten changes one by one."""
+    seen, middle, joins = set(), [], []
+    for it in items:
+        for step, scope, params in after_steps(state, it["op"], it.get("params") or {}):
+            if step in _JOINS:
+                if step not in joins:
+                    joins.append(step)
+                continue
+            key = (step, scope, repr(sorted(params.items())))
+            if key not in seen:
+                seen.add(key)
+                middle.append((step, scope, params))
+    return middle + [(j, "global", {}) for j in _JOINS if j in joins]
+
+
 def catalogue() -> Dict[str, Any]:
     """What the interface and the edit agent may offer: every op, its parameters, its options."""
     return {"ops": [{"name": o.name, "summary": o.summary, "schema": o.params.model_json_schema(),

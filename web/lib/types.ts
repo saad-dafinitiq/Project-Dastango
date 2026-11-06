@@ -48,6 +48,10 @@ export type CardShot = {
   overridden: boolean;
   /** A close-up needs a face: only a shot someone speaks in can have one. */
   can_close: boolean;
+  /** A change to this shot is waiting to be applied (shown as made; see components/studio/staged.ts). */
+  pending?: boolean;
+  /** Waiting to be drawn again. */
+  redraw?: boolean;
 };
 
 /** The editing operations the server offers, and the choices of the transition one (GET /api/edit/ops). */
@@ -77,6 +81,8 @@ export type Card = {
   characters?: { character_id: string; name: string }[];
   preview_url?: string | null;
   visual_prompt?: string;
+  /** What waits to happen to the whole scene when the stacked changes are applied. */
+  staged?: string;
 };
 
 export type CastMember = {

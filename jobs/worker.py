@@ -38,6 +38,7 @@ METHODS = {
     "shot": "set_shot",
     "respec": "respec",
     "op": "apply_op",
+    "ops": "apply_ops",
 }
 
 HEARTBEAT_S = 15.0

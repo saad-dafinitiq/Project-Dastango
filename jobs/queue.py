@@ -20,7 +20,7 @@ from sqlalchemy import and_, or_, select
 
 from shared import db
 
-JOB_KINDS = ("run_full", "plan", "render", "rerun_phase", "edit", "revert", "shot", "respec", "op")
+JOB_KINDS = ("run_full", "plan", "render", "rerun_phase", "edit", "revert", "shot", "respec", "op", "ops")
 UNFINISHED_STATUSES = ("queued", "running")
 TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 
