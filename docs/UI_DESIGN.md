@@ -223,3 +223,19 @@ defaults in that browser. On a phone the groups stack and the second line of eac
 
 **Rule 10.** A control that changes what will be drawn states the number of pictures first.
 **Rule 11.** Anything that depends on the frame (a crop, a pan, a caption, a poster) reads the format; nothing assumes 16:9.
+
+## 10. Transitions and the wider edits (DST-39, 6 Nov 2026)
+
+Every shot but the first says how it comes in, in one line under its name: "Comes in with a cut" inside a scene, "Between scenes soft fade"
+for a scene's first shot, with a **Change** link and "your choice" once the creator has set it. Change opens the picker in place, like the shot
+editor: six styles first (cut, soft fade, dip to black, wipe, slide, zoom, each with a small diagram and one line saying what it does), the
+rest behind "10 more styles", a speed (Quick 0.2 s, Normal 0.4 s, Slow 0.8 s; a cut has none and says so), and the two shots the cut joins
+side by side. A choice is applied at once and to that cut only; "Back to the default" appears when there is something to go back to. The panel
+states its cost before anything happens ("the film is cut again around it ... no new pictures are drawn and the film's length does not change").
+
+**Rule 12.** An edit offered by a click is one the edit agent understands as a sentence, and the reverse: both go through the one operation
+(`agents/edit_agent/ops.py`), so a new edit is added there once.
+
+## 11. Sound, titles and scene changes (DST-39)
+
+Under a finished film: **Sound** (music for the whole film or one scene by mood or track with a listen button and "Add your own" behind a rights box, ambience chips, three level sliders applied on release) **Look** (an effect and its strength for the whole film or one scene) and **Titles** (four switches, their own words). Both are plain rows of controls on the existing tokens, one operation per choice, and work in both palettes and at phone width. On each scene of the storyboard: move earlier/later and remove (asked twice, inline), and on each shot of a finished film "Draw this shot again". These were built to the tokens and rules above but **not drawn on the canvas first** (rule 9): the canvas still owes them.

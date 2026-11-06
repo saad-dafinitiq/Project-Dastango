@@ -65,6 +65,14 @@ class TimingManifest(BaseModel):
         return next((s for s in self.scenes if s.scene_id == scene_id), None)
 
 
+class UploadedTrack(BaseModel):
+    """A music file the creator added to this film (checked and normalised on the way in)."""
+    id: str
+    title: str
+    path: str
+    duration_s: float
+
+
 class AudioOutput(BaseModel):
     """Top-level Phase 2 output."""
     voice_configs: List[VoiceConfig]
@@ -72,6 +80,18 @@ class AudioOutput(BaseModel):
     bgm_track: Optional[str] = Field(default=None, description="path to mixed BGM file")
     master_track: Optional[str] = Field(default=None, description="path to mixed master")
     bgm_enabled: bool = Field(default=True, description="whether BGM is mixed into the master")
+    # The mix (DST-39). Volumes are absolute gains: 0.32 music, 1.0 voices, 0.22 ambience are
+    # "as the film was made"; the edits speak in percent of those.
+    music_volume: float = Field(default=0.32, ge=0.0, le=1.5)
+    voice_volume: float = Field(default=1.0, ge=0.0, le=2.0)
+    ambience_volume: float = Field(default=0.22, ge=0.0, le=1.0)
+    music_track: Optional[str] = Field(default=None, description="one track for the whole film: a library id or upload:<id>")
+    scene_music: Dict[str, str] = Field(default_factory=dict,
+                                        description="scene_id -> track id, or 'none' for a silent scene")
+    ambience: Dict[str, str] = Field(default_factory=dict,
+                                     description="'*' (whole film) or scene_id -> rain, wind, city, sea, night, none")
+    uploads: List[UploadedTrack] = Field(default_factory=list)
+    ambience_track: Optional[str] = Field(default=None, description="path to the mixed ambience bed")
     scene_voices: Dict[str, Dict[str, VoiceConfig]] = Field(
         default_factory=dict,
         description="voices changed for one scene only: scene_id -> character_id -> config. "

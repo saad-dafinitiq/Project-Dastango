@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from shared import providers, voices
+from shared import providers, transitions, voices
 from shared.assets import asset_url
 
 from agents.story_agent.cast import join_names
@@ -31,7 +31,16 @@ def _voice_label(engine: str, voice_id: str) -> str:
     return voice_id or ""
 
 
-def shot_cards(scene, people: Dict, tall: bool = False) -> List[Dict]:
+def _transition_card(scene, i: int, scene_index: int, legacy: bool) -> Optional[Dict]:
+    if scene_index == 0 and i == 0:
+        return None
+    spec = coverage.transition_into(scene, i)
+    kind, ms = transitions.resolve(spec, between_scenes=i == 0, legacy=legacy)
+    return {"kind": kind, "ms": ms, "chosen": spec is not None, "between": i == 0}
+
+
+def shot_cards(scene, people: Dict, tall: bool = False, scene_index: int = 0,
+               legacy: bool = False) -> List[Dict]:
     """The shots a scene will be cut into, for the card to show (DST-36).
 
     The same plan the renderer cuts (agents/video_agent/coverage.py), with the line
@@ -54,6 +63,9 @@ def shot_cards(scene, people: Dict, tall: bool = False) -> List[Dict]:
             "source": c.source,
             "move": c.move.replace("_", " "),
             "move_id": c.move,
+            # How this shot comes in (DST-39): from the previous scene when it is the scene's
+            # first, from the shot before it otherwise; None for the first shot of the film.
+            "transition": _transition_card(scene, i, scene_index, legacy),
             # The creator's own choice over the plan (DST-38): shown, and resettable.
             "overridden": coverage.shot_id_at(scene.scene_id, i) in (scene.shot_overrides or {}),
             # A close-up needs a face: only a shot that someone speaks in can have one.
@@ -67,7 +79,7 @@ def shot_cards(scene, people: Dict, tall: bool = False) -> List[Dict]:
     return cards
 
 
-def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
+def scene_cards(script, engine: Optional[str] = None, legacy: bool = False) -> List[Dict]:
     """One card per scene: title, tone, the opening camera move, and its lines."""
     from agents.audio_agent.agent import AudioAgent   # heavy import, kept local
 
@@ -88,7 +100,8 @@ def scene_cards(script, engine: Optional[str] = None) -> List[Dict]:
     cards = []
     for scene in script.scenes:
         tone = getattr(scene, "tone", "") or ""
-        shots = shot_cards(scene, people, tall=script.story.format == "9:16")
+        shots = shot_cards(scene, people, tall=script.story.format == "9:16",
+                           scene_index=len(cards), legacy=legacy)
         # Who is in the scene: whoever speaks in it, in the order they first do.
         # The script records nothing else about who is on screen.
         in_scene: List[str] = []

@@ -18,11 +18,17 @@ from pydantic import BaseModel, Field
 
 from agents.audio_agent.agent import TONE_PRESETS
 from mcp.tools.vision_tools.image_edit_tool import list_filter_names
+from shared import finish, music, transitions
 
 MOODS = ("ambient", "tense", "joyful", "mysterious", "epic", "sad",
          "ominous", "ethereal", "energetic", "neutral")
 TONES = tuple(TONE_PRESETS)
 FILTERS = tuple(sorted(list_filter_names()))
+TRANSITIONS = tuple(s.id for s in transitions.styles())
+SPEEDS = tuple(transitions.SPEEDS)
+AMBIENCES = tuple(music.AMBIENCE) + ("none",)
+LEVELS = ("music", "voices", "ambience")
+GRAPHICS = ("title_card", "scene_titles", "lower_thirds", "end_card")
 AESTHETICS = tuple(a for a in ("darker", "brighter", "warm", "cool") if a in FILTERS)
 
 
@@ -50,6 +56,20 @@ EDITS: Dict[str, Edit] = {
     "speed_up": Edit("video", (), "faster (optional factor)"),
     "slow_down": Edit("video", (), "slower (optional factor)"),
     "recompose_video": Edit("video", (), "cut the film again as it is"),
+    "set_transition": Edit("video", ("transition",),
+                           "how one cut comes in (transition, optional speed): a cut, a fade, a wipe..."),
+    "set_music": Edit("audio", (), "the music: a mood, off (off=true), or a library track (track)"),
+    "set_volume": Edit("audio", ("level", "percent"),
+                       "how loud the music, the voices or the ambience is (level, percent: 100 = as made)"),
+    "set_ambience": Edit("audio", ("ambience",), "rain, wind, city, sea or night sound under a scene or the film"),
+    "set_graphics": Edit("video", (),
+                         "titles over the film: title_card, scene_titles, lower_thirds (name bars) or end_card, on or off, "
+                         "with optional text for the title card or end card"),
+    "set_effect": Edit("video", ("effect",), "a finishing look over a scene or the film: grain, vignette, glow, letterbox (cinema bars), glitch, or none (effect, optional strength)"),
+    "regenerate_shot": Edit("video", ("shot",), "draw one shot of a scene again (scope = the scene, shot = its number)"),
+    "edit_line": Edit("video", ("line", "text"), "change what one line says (scope = the scene, line = its number, text = the new words)"),
+    "remove_scene": Edit("video", (), "take a scene out of the film (scope = the scene)"),
+    "move_scene": Edit("video", ("to",), "move a scene to another place (scope = the scene, to = its new place, 1 is first)"),
     "regenerate_script": Edit("script", (), "rewrite the story"),
     "change_genre": Edit("script", (), "rewrite the story in another genre (genre)"),
 }
@@ -64,6 +84,16 @@ ASK_FOR = {
     "volume": "louder or quieter?",
     "filter": "which look? " + ", ".join(f for f in FILTERS if f not in ("invert", "blur")),
     "aesthetic": "darker, brighter, warmer or cooler?",
+    "transition": "which transition? " + ", ".join(TRANSITIONS),
+    "effect": "which effect? " + ", ".join(finish.EFFECTS),
+    "shot": "which shot? give its number in the scene",
+    "line": "which line? give its number in the scene",
+    "text": "what should it say?",
+    "to": "to which place? 1 is the first scene",
+    "graphic": "which titles? title card, scene titles, name bars or end card",
+    "level": "the music, the voices or the ambience?",
+    "percent": "how loud, as a percent of how it was made? e.g. 60 for quieter, 150 for louder",
+    "ambience": "which ambience? " + ", ".join(AMBIENCES),
 }
 
 IntentName = Literal[tuple(EDITS) + (UNCLEAR,)]  # type: ignore[valid-type]
@@ -81,6 +111,22 @@ class EditDraft(BaseModel):
     filter: Optional[Literal[FILTERS]] = None  # type: ignore[valid-type]
     aesthetic: Optional[Literal[AESTHETICS]] = None  # type: ignore[valid-type]
     factor: Optional[float] = Field(default=None, description="speed multiplier, e.g. 1.5")
+    transition: Optional[Literal[TRANSITIONS]] = None  # type: ignore[valid-type]
+    speed: Optional[Literal[SPEEDS]] = None  # type: ignore[valid-type]
+    shot: Optional[int] = Field(default=None, description="for a transition inside a scene: which shot comes in (2 or more); "
+                                                         "leave null for the cut between scenes (scope = the later scene)")
+    effect: Optional[Literal[tuple(finish.EFFECTS) + ("none",)]] = None  # type: ignore[valid-type]
+    strength: Optional[Literal["soft", "normal", "strong"]] = None
+    line: Optional[int] = Field(default=None, description="for edit_line: the line's number in the scene")
+    to: Optional[int] = Field(default=None, description="for move_scene: the new place, 1 is first")
+    graphic: Optional[Literal[GRAPHICS]] = None  # type: ignore[valid-type]
+    on: Optional[bool] = Field(default=None, description="for set_graphics: true to show it, false to remove it")
+    text: Optional[str] = Field(default=None, description="for set_graphics: the title card's title or the end card's words")
+    level: Optional[Literal[LEVELS]] = None  # type: ignore[valid-type]
+    percent: Optional[int] = Field(default=None, description="for set_volume: 100 is as made, 60 quieter, 150 louder")
+    ambience: Optional[Literal[AMBIENCES]] = None  # type: ignore[valid-type]
+    off: Optional[bool] = Field(default=None, description="for set_music: true for no music")
+    track: Optional[str] = Field(default=None, description="for set_music: a library track id, e.g. tense-1")
     genre: Optional[str] = None
     reasoning: str = ""
 
@@ -95,6 +141,11 @@ def describe_for_model() -> str:
         f"filter — one of: {', '.join(FILTERS)}",
         f"aesthetic — one of: {', '.join(AESTHETICS)}",
         f"mood — one of: {', '.join(MOODS)}",
+        f"transition — one of: {', '.join(TRANSITIONS)}; speed — one of: {', '.join(SPEEDS)}; "
+        "for set_transition the scope is the scene a cut comes INTO (\"between scenes 1 and 2\" is scene 2), "
+        "and shot is 2 or more only for a cut inside a scene",
+        f"level — one of: {', '.join(LEVELS)}; ambience — one of: {', '.join(AMBIENCES)}; "
+        "for set_music a scene scope means that scene only",
         "volume — a multiplier (1.3 louder, 0.7 quieter); factor — a speed multiplier",
         "Leave every field that doesn't apply as null.",
     ])
@@ -134,10 +185,26 @@ def normalise_scope(scope: str, scenes: Iterable[str], characters: Iterable[str]
 def draft_parameters(draft: EditDraft) -> Dict[str, object]:
     """The parameters the planner and executor read, under the names they read."""
     params: Dict[str, object] = {}
-    for key in ("tone", "volume", "mood", "filter", "aesthetic", "factor", "genre"):
+    for key in ("tone", "volume", "mood", "filter", "aesthetic", "factor", "genre", "transition", "speed", "shot",
+                "percent", "off", "track", "line", "to", "effect", "strength"):
         value = getattr(draft, key)
         if value is not None:
             params[key] = value
+    if draft.intent == "edit_line" and draft.text:
+        params["text"] = draft.text
+    if draft.graphic is not None:
+        params["graphic"] = draft.graphic
+        params[draft.graphic] = True if draft.on is None else draft.on
+        if draft.text and draft.on is not False:
+            key = {"title_card": "title_text", "end_card": "end_text"}.get(draft.graphic)
+            if key:
+                params[key] = draft.text
+    if draft.level is not None:
+        params["level"] = draft.level
+        params["target"] = draft.level          # the operation's own name for it
+    if draft.ambience is not None:
+        params["ambience"] = draft.ambience
+        params["kind"] = draft.ambience
     if draft.intent == "change_voice":
         params["voice"] = "alternate"
     return params

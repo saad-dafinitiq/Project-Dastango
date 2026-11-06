@@ -172,7 +172,8 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
         raise HTTPException(404, f"no storyboard for {project_id}")
     board = state.storyboard.model_dump(mode="json")
     # The same cards the live plan streamed, so a reload looks identical.
-    cards = {c["scene_id"]: c for c in scene_cards(state.script, engine)}
+    legacy = bool(state.video and state.video.legacy_transitions)
+    cards = {c["scene_id"]: c for c in scene_cards(state.script, engine, legacy=legacy)}
     for frame in board["frames"]:
         if frame.get("preview_path"):
             frame["preview_url"] = asset_url(frame["preview_path"], versioned=True)
@@ -398,6 +399,28 @@ def film(project_id: str):
         "stand_in_scenes": stand_in.scenes_with_stand_ins(video.frames or []),
         "chapters": chapters,
         "subtitles": subtitle_tracks(project_id),
+        "sound": sound_summary(state),
+        "titles": state.script.story.graphics.model_dump() if state.script else None,
+        "effects": {s.scene_id: s.effect.model_dump() for s in state.script.scenes if s.effect} if state.script else {},
+    }
+
+
+def sound_summary(state) -> dict:
+    """The film's mix as the Sound panel shows it: levels as a percent of how it was made, what is
+    playing, and the creator's uploads (DST-39)."""
+    audio = state.audio
+    if not audio:
+        return {}
+    return {
+        "music_on": audio.bgm_enabled,
+        "music_pct": round(audio.music_volume / 0.32 * 100),
+        "voices_pct": round(audio.voice_volume * 100),
+        "ambience_pct": round(audio.ambience_volume / 0.22 * 100),
+        "music_track": audio.music_track,
+        "scene_music": dict(audio.scene_music),
+        "moods": {s.scene_id: s.music_mood for s in state.script.scenes} if state.script else {},
+        "ambience": dict(audio.ambience),
+        "uploads": [{"id": f"upload:{u.id}", "title": u.title, "seconds": u.duration_s} for u in audio.uploads],
     }
 
 

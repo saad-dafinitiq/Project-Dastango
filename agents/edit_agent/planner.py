@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 from shared.schemas.edit import EditIntent
 
+from . import ops
 from .vocabulary import ASK_FOR, EDITS, UNCLEAR_MESSAGE, missing
 
 
@@ -37,6 +38,23 @@ def plan(intent: EditIntent) -> List[EditStep]:
         raise ValueError(ASK_FOR.get(lacking[0], f"the edit needs a {lacking[0]}"))
     target = EDITS[name].target
     scope = intent.scope or "global"
+
+    # The two older music intents are the shared set_music operation: one code path.
+    if name == "add_background_music":
+        name, params, target = "set_music", {"mood": (params or {}).get("mood", "ambient")}, "audio"
+    elif name == "remove_background_music":
+        name, params, target = "set_music", {"off": True}, "audio"
+
+    if name in ops.OPS:
+        # A shared operation (DST-39): its parameters are the intent's, plus where it applies.
+        if name == "set_transition" and not scope.startswith("scene:"):
+            raise ValueError("which cut? e.g. “a slow fade between scenes 1 and 2”")
+        step_params = {**params, "scene": scope.split(":", 1)[1]} if scope.startswith("scene:") else params
+        if name == "set_volume" and scope.startswith("character:"):
+            raise ValueError("levels are for the music, the voices together or the ambience, "
+                             "not one character: use a tone or volume edit on the character")
+        return [EditStep(name, target, scope, step_params),
+                *[EditStep(a, "video", sc, p) for a, sc, p in ops.after_steps(None, name, step_params)]]
 
     if target == "script":
         return [

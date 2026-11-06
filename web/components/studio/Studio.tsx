@@ -17,8 +17,10 @@ import type {
   FilmVersion,
   ImageBudget,
   RunResponse,
+  MusicCatalogue,
   ShotOptions,
   Storyboard,
+  TransitionStyle,
 } from "@/lib/types";
 import { useProgress } from "@/lib/useProgress";
 
@@ -28,6 +30,9 @@ import { Player } from "./Player";
 import { RenderProgress } from "./RenderProgress";
 import { Sheet } from "./Sheet";
 import { SpecBar } from "./SpecBar";
+import { SoundPanel } from "./SoundPanel";
+import { EffectsPanel, type EffectOption } from "./EffectsPanel";
+import { TitlesPanel } from "./TitlesPanel";
 import { Versions } from "./Versions";
 import sheet from "./sheet.module.css";
 import styles from "./studio.module.css";
@@ -35,7 +40,7 @@ import styles from "./studio.module.css";
 type Followed = { id: string; kind: string };
 
 /** Jobs that change a finished film rather than make one. */
-const CHANGES = new Set(["edit", "revert", "shot"]);
+const CHANGES = new Set(["edit", "revert", "shot", "op"]);
 
 /** What the sheet shows while a plan is still being drawn, built from events. */
 type Streamed = {
@@ -67,6 +72,9 @@ export function Studio() {
   const [versions, setVersions] = useState<FilmVersion[]>([]);
   const [restoring, setRestoring] = useState<number | null>(null);
   const [options, setOptions] = useState<ShotOptions | null>(null);
+  const [musicCatalogue, setMusicCatalogue] = useState<MusicCatalogue | null>(null);
+  const [effectOptions, setEffectOptions] = useState<{ effects: EffectOption[]; strengths: string[] } | null>(null);
+  const [transitions, setTransitions] = useState<{ styles: TransitionStyle[]; speeds: Record<string, number> } | null>(null);
   const [lastChoice, setLastChoice] = useState<RenderChoice>({ engine: null, subtitles: "English" });
   // A finished change whose outcome no longer describes what's playing.
   const [settled, setSettled] = useState<string | null>(null);
@@ -112,6 +120,16 @@ export function Studio() {
 
   useEffect(() => {
     api.shotOptions().then(setOptions).catch(() => undefined);
+    api.musicCatalogue().then(setMusicCatalogue).catch(() => undefined);
+    api
+      .editOps()
+      .then((c) => {
+        const o = c.ops.find((x) => x.name === "set_transition")?.options;
+        if (o?.styles && o.speeds) setTransitions({ styles: o.styles, speeds: o.speeds });
+        const fx = c.ops.find((x) => x.name === "set_effect")?.options;
+        if (fx?.effects && fx.strengths) setEffectOptions({ effects: fx.effects, strengths: fx.strengths });
+      })
+      .catch(() => undefined);
   }, []);
 
   // When the job we're following ends, read back what it settled into.
@@ -263,6 +281,23 @@ export function Studio() {
     }
   }
 
+  async function runOp(op: string, params: Record<string, unknown>) {
+    if (!pid) return;
+    setProblem(null);
+    try {
+      const answer = await api.applyOp(pid, op, params);
+      if (isJob(answer)) {
+        // A finished film is cut again: follow that like any change to it.
+        setShowBoard(false);
+        setJob({ id: answer.job_id, kind: "op" });
+      } else {
+        await refresh();
+      }
+    } catch (err) {
+      setProblem(err instanceof ApiError ? err.message : "That change didn't save.");
+    }
+  }
+
   async function stop() {
     if (job) await api.cancel(job.id).catch(() => undefined);
   }
@@ -407,8 +442,10 @@ export function Studio() {
               editable={mode === "storyboard" && Boolean(board)}
               hasFilm={Boolean(film)}
               options={options}
+              transitions={transitions}
               onSaveScene={saveScene}
               onShot={changeShot}
+              onOp={runOp}
             />
             {mode === "storyboard" && film && (
               <p style={{ marginTop: 22 }}>
@@ -468,6 +505,9 @@ export function Studio() {
                 {film.width}×{film.height} · {film.fps}fps · version {film.cut}
               </span>
             </div>
+            <SoundPanel film={film} catalogue={musicCatalogue} disabled={running} onOp={runOp} />
+            <EffectsPanel film={film} options={effectOptions} disabled={running} onOp={runOp} />
+            <TitlesPanel film={film} disabled={running} onOp={runOp} />
             <div className={styles.afterRender}>
               <EditPanel
                 film={film}

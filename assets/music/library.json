@@ -1,0 +1,224 @@
+{
+  "tracks": [
+    {
+      "id": "ambient-1",
+      "title": "Open Air",
+      "mood": "ambient",
+      "file": "ambient-1.mp3",
+      "duration_s": 40.0,
+      "bpm": 60,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "ambient-2",
+      "title": "Slow Light",
+      "mood": "ambient",
+      "file": "ambient-2.mp3",
+      "duration_s": 35.56,
+      "bpm": 54,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "neutral-1",
+      "title": "Plain Day",
+      "mood": "neutral",
+      "file": "neutral-1.mp3",
+      "duration_s": 40.0,
+      "bpm": 66,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "neutral-2",
+      "title": "Quiet Room",
+      "mood": "neutral",
+      "file": "neutral-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 60,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "tense-1",
+      "title": "Held Breath",
+      "mood": "tense",
+      "file": "tense-1.mp3",
+      "duration_s": 37.14,
+      "bpm": 84,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "tense-2",
+      "title": "Wire",
+      "mood": "tense",
+      "file": "tense-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 96,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "ominous-1",
+      "title": "Low Tide",
+      "mood": "ominous",
+      "file": "ominous-1.mp3",
+      "duration_s": 36.92,
+      "bpm": 52,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "ominous-2",
+      "title": "Under the Floor",
+      "mood": "ominous",
+      "file": "ominous-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 48,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "mysterious-1",
+      "title": "Half Seen",
+      "mood": "mysterious",
+      "file": "mysterious-1.mp3",
+      "duration_s": 40.0,
+      "bpm": 66,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "mysterious-2",
+      "title": "Lantern",
+      "mood": "mysterious",
+      "file": "mysterious-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 60,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "sad-1",
+      "title": "Late Letter",
+      "mood": "sad",
+      "file": "sad-1.mp3",
+      "duration_s": 37.24,
+      "bpm": 58,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "sad-2",
+      "title": "Empty Chair",
+      "mood": "sad",
+      "file": "sad-2.mp3",
+      "duration_s": 36.92,
+      "bpm": 52,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "joyful-1",
+      "title": "Open Window",
+      "mood": "joyful",
+      "file": "joyful-1.mp3",
+      "duration_s": 38.57,
+      "bpm": 112,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "joyful-2",
+      "title": "Good News",
+      "mood": "joyful",
+      "file": "joyful-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 120,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "energetic-1",
+      "title": "Run",
+      "mood": "energetic",
+      "file": "energetic-1.mp3",
+      "duration_s": 40.0,
+      "bpm": 126,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "energetic-2",
+      "title": "Lift Off",
+      "mood": "energetic",
+      "file": "energetic-2.mp3",
+      "duration_s": 40.0,
+      "bpm": 132,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "epic-1",
+      "title": "Horizon",
+      "mood": "epic",
+      "file": "epic-1.mp3",
+      "duration_s": 36.92,
+      "bpm": 78,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "epic-2",
+      "title": "Gathering",
+      "mood": "epic",
+      "file": "epic-2.mp3",
+      "duration_s": 36.67,
+      "bpm": 72,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "ethereal-1",
+      "title": "Glass",
+      "mood": "ethereal",
+      "file": "ethereal-1.mp3",
+      "duration_s": 38.57,
+      "bpm": 56,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    },
+    {
+      "id": "ethereal-2",
+      "title": "Afterglow",
+      "mood": "ethereal",
+      "file": "ethereal-2.mp3",
+      "duration_s": 38.4,
+      "bpm": 50,
+      "licence": "CC0 1.0",
+      "author": "Dastango project (synthesised by scripts/make_music.py)",
+      "source": "scripts/make_music.py"
+    }
+  ]
+}

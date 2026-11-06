@@ -3,6 +3,8 @@
 
 import type {
   AuthStatus,
+  EditCatalogue,
+  MusicCatalogue,
   Card,
   Film,
   FilmPlayback,
@@ -107,6 +109,18 @@ export const api = {
   /** Change a storyboard's format and/or style: every picture is drawn again, so it is a job. */
   respec: (pid: string, change: { format?: string; style?: string }) =>
     request<RunResponse>(`/api/pipeline/spec/${pid}`, { method: "PATCH", body: JSON.stringify(change) }),
+  /** What can be edited, and the choices (transition styles and speeds). */
+  editOps: () => request<EditCatalogue>("/api/edit/ops"),
+  /** The music library, the ambience kinds and the upload limits. */
+  musicCatalogue: () => request<MusicCatalogue>("/api/edit/music"),
+  /** One shared editing operation (DST-39): what a click does, and what a typed sentence turns
+   *  into. Before a render it answers with the storyboard; on a finished film the film is cut
+   *  again, so it answers with a job to follow. */
+  applyOp: (pid: string, op: string, params: Record<string, unknown>) =>
+    request<Storyboard | RunResponse>(`/api/edit/${pid}/op`, {
+      method: "POST",
+      body: JSON.stringify({ op, params }),
+    }),
   shotOptions: () => request<ShotOptions>("/api/pipeline/shot-options"),
   /** Before a render this answers with the storyboard; on a finished film the film
    *  is cut again, so it answers with a job to follow. */

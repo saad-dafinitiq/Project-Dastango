@@ -42,6 +42,11 @@ class Shot(BaseModel):
     # films made before, which are read as they were.
     framing: str = ""
     crop: Optional[List[float]] = None
+    # How this shot goes out into the next (DST-39): a style from shared.transitions and the
+    # frames of overlap, which are rendered as extra frames on this shot so the film's length
+    # stays exactly the timeline's. "cut" and 0 when it simply ends.
+    out_kind: str = "cut"
+    out_frames: int = 0
 
 
 class SceneFrame(BaseModel):
@@ -82,6 +87,10 @@ class VideoOutput(BaseModel):
     used_text_to_video: bool = False
     used_lip_sync: bool = False
     cinematic_post: bool = True           # vignette + grain + grade on every shot
+    # A film rendered before DST-39 was cut with a 200 ms fade inside every scene and a 400 ms
+    # fade between scenes. Editing it keeps those defaults (so an edit does not silently change
+    # its look); a film rendered now defaults to cuts inside a scene and a soft fade between.
+    legacy_transitions: bool = True
     speed_factor: float = Field(default=1.0, gt=0)
     # Subtitles: default track + every language actually embedded.
     subtitle_language: str = "English"
