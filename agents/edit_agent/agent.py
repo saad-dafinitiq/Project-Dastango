@@ -163,6 +163,49 @@ class EditAgent:
         return EditResult(success=True, intent=intent, new_version=version.version,
                           affected_assets=list(set(affected)), message=label)
 
+    def apply_ops(self, project_id: str, items: List[Dict[str, Any]],
+                  on_progress: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> EditResult:
+        """Apply a whole list of the shared operations to a finished film as ONE version (DST-40).
+
+        The creator stacks changes in the interface and presses Apply: every operation changes
+        the script and the settings in order, then the film's sound is mixed once and the film cut
+        once, and a single version is saved. Same guarantees as `apply_op`: it starts from the
+        saved version's files, and on failure or cancel the files go back and nothing is saved."""
+        progress = on_progress or (lambda _kind, _info: None)
+        intent = EditIntent(intent="batch", target="video", scope="global", parameters={"ops": items})
+        state = self.sm.latest(project_id)
+        if not state or not state.script:
+            return EditResult(success=False, intent=intent, error=f"no project state for {project_id}")
+        if not items:
+            return EditResult(success=False, intent=intent, error="there is nothing to apply")
+        try:
+            labels = ops.check_many(state, items)
+        except ops.OpError as e:
+            return EditResult(success=False, intent=intent, error=str(e))
+        label = labels[0] if len(labels) == 1 else f"{len(labels)} changes: " + "; ".join(labels)
+        steps = [EditStep(it["op"], "video", "global", dict(it.get("params") or {})) for it in items]
+        steps += [EditStep(name, "video", scope, params) for name, scope, params in ops.after_steps_many(state, items)]
+        progress("understood", {"intent": intent.model_dump(mode="json"),
+                                "steps": [s.name for s in steps], "summary": label})
+        self._put_back(state)
+        affected: List[str] = []
+        try:
+            for i, step in enumerate(steps):
+                progress("step", {"name": step.name, "index": i, "total": len(steps)})
+                affected.extend(self.executor.execute(state, step))
+        except BaseException as e:  # noqa: BLE001 — a cancelled job stops here too
+            self._put_back(state)
+            if not isinstance(e, Exception):
+                raise
+            log.exception("edit batch failed")
+            return EditResult(success=False, intent=intent, error=f"{type(e).__name__}: {e}")
+        version = self.sm.snapshot(
+            state, asset_paths=self._collect_assets(state),
+            description=f"edit: {len(items)} change{'s' if len(items) != 1 else ''} (video)",
+            edit_intent={**intent.model_dump(mode="json"), "query": label[:400]})
+        return EditResult(success=True, intent=intent, new_version=version.version,
+                          affected_assets=list(set(affected)), message=label)
+
     def set_shot(self, project_id: str, scene_id: str, shot_id: str,
                  move: Optional[str] = None, framing: Optional[str] = None,
                  reset: bool = False,

@@ -75,6 +75,8 @@ this machine cannot run is `409` with the reason ("run
 | GET | `/api/edit/music` | none | The music library (`id`, `title`, `mood`, `seconds`, `licence`), the moods, the ambience kinds (`rain`, `wind`, `city`, `sea`, `night`) and the upload limits |
 | GET | `/api/edit/music/{track_id}/file` | none | A library track as MP3, to listen before choosing it |
 | POST | `/api/edit/{project_id}/music` | multipart `file`, `rights=true` | Add your own music to this film. Checked (audio extension, at most 15 MB, 3 s to 10 min, has audio, not a video, decodes) and kept as a normalised mono MP3. Answers `{track: "upload:<id>", title, seconds}`; nothing changes until `set_music` uses it. `400` with the reason, `413` over the size limit, `404` for someone else's film |
+| POST | `/api/edit/{project_id}/ops/check` | `{ops: [{op, params}]}` | Would this stack of changes apply, in order, to the film as it is? Answers `{labels}` (what each would do, in words); changes nothing. `400` unknown operation or bad parameters, `404` one does not fit (a later change sees what an earlier one did) |
+| POST | `/api/edit/{project_id}/ops` | `{ops: [{op, params}]}` | Apply a stack of changes at once (DST-40): one `ops` job, one version, the sound mixed and the film cut once. Before a render it changes the storyboard at once and answers with it. Statuses as `/op` |
 | POST | `/api/edit/classify` | `{query, project_id?}` | What the query would be understood as, without changing anything |
 | POST | `/api/edit/apply` | `{project_id, query}` | Queue an edit and wait for it (kept for scripts and the classic page) |
 | GET | `/api/edit/log/{project_id}` | none | Every edit with its intent and result |

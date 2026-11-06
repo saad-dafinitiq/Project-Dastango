@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 
-import { formatInfo, type FormatId, type StyleId } from "@/lib/format";
+import type { FormatId, StyleId } from "@/lib/format";
 
-import { FormatChoice, StyleChoice } from "./Choice";
 import { FilmGrid, FilmTabs, useFilms, useFiltered, type Filter } from "./FilmGrid";
+import { PromptSettings } from "./PromptSettings";
 import { TopBar } from "./TopBar";
 import styles from "./create.module.css";
 
@@ -20,9 +20,6 @@ const IDEAS = [
   "A night train that only stops at stations that no longer exist",
 ];
 
-const LENGTHS = [20, 30, 45, 60];
-const SCENES = [2, 3, 4, 5, 6];
-
 /** Pictures that move slowly behind the box, from the creator's own films once
  *  there are three, otherwise the shipped examples. */
 const EXAMPLES = [1, 2, 3].map((n) => `/examples/frame-${n}.jpg`);
@@ -32,9 +29,9 @@ function greeting(): string {
   return h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-const Arrow = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M5 12h14M13 6l6 6-6 6" />
+const Up2 = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19V5M6 11l6-6 6 6" />
   </svg>
 );
 const Up = () => (
@@ -51,7 +48,7 @@ export function Composer() {
   const [scenes, setScenes] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [explain, setExplain] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
   const [hello, setHello] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [format, setFormat] = useState<FormatId>("16:9");
@@ -76,6 +73,14 @@ export function Composer() {
   const shown = useFiltered(films ?? [], filter, "").slice(0, 5);
 
   const ready = prompt.trim().length >= 4 && !busy;
+
+  // The box is one line until the words need more, then grows to five.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
+  }, [prompt]);
 
   async function start() {
     if (!ready) return;
@@ -125,77 +130,39 @@ export function Composer() {
             </label>
             <textarea
               id="prompt"
-              rows={2}
+              ref={box}
+              rows={1}
               value={prompt}
               placeholder="A clockmaker in a flooded city repairs the hours people lose"
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void start();
+                // Enter sends, as in every chat box; Shift+Enter is a new line.
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void start();
+                }
               }}
             />
-            <div className={styles.look}>
-              <FormatChoice value={format} onChange={setFormat} />
-              <StyleChoice value={style} onChange={setStyle} />
+            <div className={styles.bar}>
+              <PromptSettings
+                format={format}
+                style={style}
+                seconds={seconds}
+                scenes={scenes}
+                onFormat={setFormat}
+                onStyle={setStyle}
+                onSeconds={setSeconds}
+                onScenes={setScenes}
+                disabled={busy}
+              />
+              <button className={`btn primary ${styles.send}`} disabled={!ready} onClick={start} aria-label={busy ? "Starting" : "Make the storyboard"} title="Make the storyboard (Enter)">
+                {busy ? <span className="pip" /> : <Up2 />}
+              </button>
             </div>
-            <div className={styles.row}>
-              <div className={styles.ctl}>
-                <label className="sr-only" htmlFor="length">
-                  Length
-                </label>
-                <select id="length" className="select" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
-                  {LENGTHS.map((s) => (
-                    <option key={s} value={s}>
-                      {s} seconds
-                    </option>
-                  ))}
-                </select>
-                <label className="sr-only" htmlFor="scenes">
-                  Scenes
-                </label>
-                <select id="scenes" className="select" value={scenes} onChange={(e) => setScenes(Number(e.target.value))}>
-                  {SCENES.map((n) => (
-                    <option key={n} value={n}>
-                      {n} scenes
-                    </option>
-                  ))}
-                </select>
-                <button type="button" className={styles.help} aria-expanded={explain} onClick={() => setExplain((v) => !v)}>
-                  What is a scene?
-                </button>
-              </div>
-              <div className={styles.go}>
-                <span className={styles.eta}>
-                  {formatInfo(format).size} · usually under a minute
-                </span>
-                <button className="btn primary" disabled={!ready} onClick={start}>
-                  {busy ? "Starting" : "Make the storyboard"}
-                  {!busy && <Arrow />}
-                </button>
-              </div>
-            </div>
-            {explain && (
-              <div className={styles.explain} role="note">
-                <p>
-                  <b>A scene</b> is one place and moment in the story, with its own picture and its own lines. Each
-                  scene is cut into two to four shots.
-                </p>
-                <p>
-                  <b>Length and scenes trade off.</b> {seconds} seconds in {scenes} scenes is about{" "}
-                  {Math.round(seconds / scenes)} seconds a scene. More scenes means a busier film; fewer means longer,
-                  calmer scenes. 30 seconds in 3 scenes is a good start.
-                </p>
-              </div>
-            )}
           </div>
-
-          {error ? (
+          {error && (
             <p className={`${styles.note} ${styles.error}`} role="alert">
               {error}
-            </p>
-          ) : (
-            <p className={styles.note}>
-              You&rsquo;ll see every scene, its lines and a first frame before anything is rendered. {scenes} images to
-              plan, drawn in the {format} frame and the {style} style you chose, and nothing more until you say so.
             </p>
           )}
 

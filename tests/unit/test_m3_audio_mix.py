@@ -36,14 +36,14 @@ def _loudness_lufs(path: str) -> float:
     return float(json.loads(blob)["input_i"])
 
 
-def _mix(tmp_path: Path, name: str, duck: bool, loudness: bool = False) -> str:
-    """Dialogue in the first 2s only; music for the whole 4s."""
+def _mix(tmp_path: Path, name: str, duck: bool, loudness: bool = False, seconds: float = 4.0) -> str:
+    """Dialogue in the first 2s only; music for the whole of `seconds` (4 by default)."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     speech = _tone(tmp_path / "speech.wav", 300, 2.0, volume=0.6)
-    music = _tone(tmp_path / "music.wav", 900, 4.0, volume=0.6)
+    music = _tone(tmp_path / "music.wav", 900, seconds, volume=0.6)
     out = tmp_path / f"{name}.wav"
     res = ToolExecutor().execute(
-        "audio.merge", out_path=str(out), total_ms=4000,
+        "audio.merge", out_path=str(out), total_ms=int(seconds * 1000),
         placements=[{"path": speech, "start_ms": 0}],
         bgm=music, bgm_volume=0.5, duck=duck, loudness=loudness,
     )
@@ -54,20 +54,24 @@ def _mix(tmp_path: Path, name: str, duck: bool, loudness: bool = False) -> str:
 
 def test_music_ducks_while_someone_speaks(tmp_path):
     """Speech is a 300 Hz tone, music a 900 Hz tone, so each can be measured alone."""
-    ducked = _mix(tmp_path / "a", "ducked", duck=True)
-    flat = _mix(tmp_path / "b", "flat", duck=False)
+    # A long bed, so there is time after the line for the compressor to let go: how fast it does depends on
+    # the ffmpeg build (the music is back within about 1 s on one, and still creeping up 5 s later on another,
+    # which is what made a measurement at 3 s to 4 s flaky), so the climb is judged late in the bed.
+    ducked = _mix(tmp_path / "a", "ducked", duck=True, seconds=9.0)
+    flat = _mix(tmp_path / "b", "flat", duck=False, seconds=9.0)
     MUSIC, SPEECH = 900, 300
 
     # The music is pushed down while the line plays (measured: ~6 dB)...
-    duck_amount = _rms_db(flat, 0.5, 1.8, MUSIC) - _rms_db(ducked, 0.5, 1.8, MUSIC)
+    during = _rms_db(ducked, 0.5, 1.8, MUSIC)
+    duck_amount = _rms_db(flat, 0.5, 1.8, MUSIC) - during
     assert duck_amount > 4, f"music only ducked by {duck_amount:.1f} dB"
 
-    # ...and climbs back in the gap after it (a soft release, no pumping).
-    recovery = _rms_db(ducked, 3.0, 4.0, MUSIC) - _rms_db(ducked, 0.5, 1.8, MUSIC)
-    # How far it climbs depends on the ffmpeg build's compressor release: 4.1 dB here, 1.9 dB on
-    # two other builds (the CI runner, and a Windows run on 4 Nov). The property is that it climbs
-    # at all, so the bar is 1 dB, well above the noise of a measurement, not a tuned number.
-    assert recovery > 1, f"music only recovered {recovery:.1f} dB after the line"
+    # ...and comes back after it: later in the bed it is clearly above where it was under the line, and it
+    # has not stopped climbing (a soft release, no pumping).
+    soon = _rms_db(ducked, 3.0, 4.0, MUSIC) - during
+    late = _rms_db(ducked, 6.0, 7.5, MUSIC) - during
+    assert late > 1.0, f"music only recovered {late:.1f} dB after the line"
+    assert late >= soon - 0.3, f"music was {soon:.1f} dB back at 3 s but {late:.1f} dB at 6 s: it fell again"
 
     # ...and the dialogue itself is untouched.
     assert abs(_rms_db(ducked, 0.2, 1.8, SPEECH) - _rms_db(flat, 0.2, 1.8, SPEECH)) < 1.0

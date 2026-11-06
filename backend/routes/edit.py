@@ -142,6 +142,54 @@ def apply_op(project_id: str, req: OpRequest, user: User = Depends(require_user)
     return get_storyboard(project_id)
 
 
+class OpsRequest(BaseModel):
+    ops: list[OpRequest] = Field(..., min_length=1, max_length=60)
+
+
+def _check_items(state, items) -> list:
+    """Every op parsed, then all tried in order on a copy; the words each would do."""
+    try:
+        for it in items:
+            ops.get(it["op"])
+            ops.parse(it["op"], it["params"])
+    except ops.OpError as e:
+        raise HTTPException(400, str(e))
+    try:
+        return ops.check_many(state, items)
+    except ops.OpError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/{project_id}/ops/check", dependencies=[Depends(require_project)])
+def check_ops(project_id: str, req: OpsRequest):
+    """Would this stack of changes apply, in order, to the film as it is? Answers what each would do
+    ({labels}); changes nothing. The interface asks this as each change is stacked, so a change that
+    cannot be made is refused when it is chosen, not when everything is applied."""
+    state = sm.latest(project_id)
+    if not state or not state.script:
+        raise HTTPException(404, f"project {project_id} has no storyboard")
+    return {"labels": _check_items(state, [r.model_dump() for r in req.ops])}
+
+
+@router.post("/{project_id}/ops", dependencies=[Depends(require_project)])
+def apply_ops(project_id: str, req: OpsRequest, user: User = Depends(require_user)):
+    """Apply a stack of changes at once (DST-40): one job, one version, the film cut once. Before a
+    render they change the storyboard at once and the answer is the storyboard. Statuses as `/op`."""
+    state = sm.latest(project_id)
+    if not state or not state.script:
+        raise HTTPException(404, f"project {project_id} has no storyboard")
+    items = [r.model_dump() for r in req.ops]
+    _check_items(state, items)
+    busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done]
+    if busy:
+        raise HTTPException(409, f"This film is being worked on right now ({busy[0].kind}); "
+                                 "try again when it has finished.")
+    if state.video and state.video.final_video_path:
+        return _accepted("ops", project_id, "queued", user, max_attempts=1, items=items).model_dump()
+    pipeline_service.orchestrator().apply_ops(project_id, items)
+    return get_storyboard(project_id)
+
+
 @router.get("/log/{project_id}", dependencies=[Depends(require_project)])
 def edit_log(project_id: str):
     return sm.edit_history(project_id)

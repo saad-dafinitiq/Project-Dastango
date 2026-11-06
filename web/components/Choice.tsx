@@ -22,10 +22,10 @@ function Glyph({ id }: { id: FormatId }) {
   );
 }
 
-type Option<T extends string> = { id: T; title: string; sub: string; glyph?: FormatId };
+type Option<T extends string | number> = { id: T; title: string; sub: string; glyph?: FormatId };
 
 /** One radio group: a ring and a check on the chosen one, never colour alone. Arrow keys move. */
-function Group<T extends string>({
+export function ChoiceGroup<T extends string | number>({
   label,
   options,
   value,
@@ -76,7 +76,7 @@ function Group<T extends string>({
             {o.glyph && <Glyph id={o.glyph} />}
             <span>
               {o.title}
-              <small>{o.sub}</small>
+              {o.sub && <small>{o.sub}</small>}
             </span>
             <Check />
           </button>
@@ -88,7 +88,7 @@ function Group<T extends string>({
 
 export function FormatChoice({ value, onChange, disabled, compact }: { value: FormatId; onChange: (v: FormatId) => void; disabled?: boolean; compact?: boolean }) {
   return (
-    <Group
+    <ChoiceGroup
       label="Format"
       value={value}
       onChange={onChange}
@@ -101,7 +101,7 @@ export function FormatChoice({ value, onChange, disabled, compact }: { value: Fo
 
 export function StyleChoice({ value, onChange, disabled, compact }: { value: StyleId; onChange: (v: StyleId) => void; disabled?: boolean; compact?: boolean }) {
   return (
-    <Group
+    <ChoiceGroup
       label="Style"
       value={value}
       onChange={onChange}

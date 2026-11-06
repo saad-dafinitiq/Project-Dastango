@@ -102,7 +102,8 @@ type Props = {
   hasFilm: boolean;
   portraits: Record<string, string>;
   onChange: (change: { transition?: string; speed?: string; ms?: number; reset?: boolean }) => Promise<void>;
-  onClose: () => void;
+  /** Only where the editor stands on its own; in the side panel changes apply at once and nothing needs closing. */
+  onClose?: () => void;
 };
 
 /** How one cut comes in: a style, a speed and a look at the two shots. Chosen and applied at
@@ -131,34 +132,25 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
   const where = t.between ? "between scenes" : `shot ${index + 1}`;
 
   return (
-    <div className={styles.ed} role="group" aria-label={`How ${where} comes in`}>
+    <div className={styles.edc} role="group" aria-label={`How ${where} comes in`}>
       <div>
-        <h3>
-          {t.between ? "How this scene comes in" : `How shot ${index + 1} comes in`}
-          <span className={styles.editing}>
-            <Check /> Editing
-          </span>
-        </h3>
         <p className={styles.sub}>
           This cut only. {hasFilm ? "The film is cut again around it, which takes a little while; no new pictures are drawn and the film's length does not change." : "Nothing is drawn."}
         </p>
-        <div className={styles.opts} role="radiogroup" aria-label="Transition">
+        <div className={styles.tgrid} role="radiogroup" aria-label="Transition">
           {main.map((s) => (
             <button
               key={s.id}
               type="button"
               role="radio"
               aria-checked={t.kind === s.id}
-              className={styles.opt}
+              className={styles.topt}
+              title={s.about}
               disabled={busy}
               onClick={() => t.kind !== s.id && apply({ transition: s.id, ...(s.id !== "cut" && currentSpeed ? { speed: currentSpeed } : {}) })}
             >
               <TransitionGlyph kind={s.id} />
-              <span>
-                {s.label}
-                <br />
-                <small>{s.about}</small>
-              </span>
+              <span>{s.label}</span>
               <Check />
             </button>
           ))}
@@ -189,9 +181,6 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
             )}
           </div>
         )}
-      </div>
-
-      <div>
         <div className={styles.grp} style={{ marginTop: 0 }}>
           <b id={`tp-speed-${shot.shot_id}`}>Speed</b>
           <div className={styles.fr} role="radiogroup" aria-labelledby={`tp-speed-${shot.shot_id}`}>
@@ -257,9 +246,11 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
         )}
 
         <div className={styles.acts}>
-          <button className="btn primary small" onClick={onClose}>
-            Done
-          </button>
+          {onClose && (
+            <button className="btn primary small" onClick={onClose}>
+              Done
+            </button>
+          )}
           {t.chosen && (
             <button className="textlink" disabled={busy} onClick={() => apply({ reset: true })}>
               Back to the default

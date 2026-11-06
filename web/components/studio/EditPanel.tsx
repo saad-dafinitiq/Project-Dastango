@@ -76,7 +76,7 @@ export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onSt
           maxLength={300}
         />
         <button className="btn primary" type="submit" disabled={busy || !query.trim()}>
-          Make the change
+          Add to changes
         </button>
       </form>
 

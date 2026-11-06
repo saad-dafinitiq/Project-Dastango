@@ -239,3 +239,62 @@ states its cost before anything happens ("the film is cut again around it ... no
 ## 11. Sound, titles and scene changes (DST-39)
 
 Under a finished film: **Sound** (music for the whole film or one scene by mood or track with a listen button and "Add your own" behind a rights box, ambience chips, three level sliders applied on release) **Look** (an effect and its strength for the whole film or one scene) and **Titles** (four switches, their own words). Both are plain rows of controls on the existing tokens, one operation per choice, and work in both palettes and at phone width. On each scene of the storyboard: move earlier/later and remove (asked twice, inline), and on each shot of a finished film "Draw this shot again". These were built to the tokens and rules above but **not drawn on the canvas first** (rule 9): the canvas still owes them.
+
+## 12. A shorter prompt box, and the controls beside the film (DST-40, 6 Nov 2026)
+
+**Create.** The box is one line of words (it grows to five as the sentence needs) with a round **+** on the left and a round send button on the
+right; Enter sends and Shift+Enter is a new line. Format, style, length and scenes sit behind the **+** in a small modal window ("Film
+settings": the same radio groups, the picture count and "What is a scene?" in its footer, and Done), and what is chosen is said beside the
+button ("16:9 · Realistic · 30 s · 3 scenes", which opens the same window). It is a native `<dialog>`: it lives in the browser's top layer, so
+nothing on the page can paint over it (a hand-placed drop-down was covered by the film list), focus stays inside it, Escape, the scrim, the
+close button and Done all close it, and focus returns to the button. It fades and rises in over 0.22 s and out over 0.16 s, and does neither
+under reduced motion. In its short numeric rows (length, scenes) the chosen option is shown by the ring and full-strength text without a
+check (a decision of 6 Nov: the check crowded two-character labels); the wider format and style options keep the check. This follows the
+compact prompt bar of the studios people already know (ImagineArt: one bar, options behind a plus) while keeping our own tokens, type and
+selection pattern; the box went from about 380 px tall to about 136 px.
+
+**Watch.** From 1100 px the editing controls sit **beside the film** in one sticky column (Change, Sound, Look, Titles, Versions as tabs), so a
+change is made and watched without scrolling. A change started from any tab is followed in a status line at the top of that column (what it is
+doing, the seconds, Stop, then "Change made"). Below 1100 px the column sits under the film and its tabs scroll sideways. Tabs are a tablist
+(arrow keys, Home, End), the chosen tab is lit and underlined (a line, not colour alone).
+
+Built to the tokens and rules above; the canvas still owes both screens (rule 9).
+
+## 13. The storyboard with one panel beside it (DST-40, 6 Nov 2026)
+
+The Review screen had its controls spread over every card: "Edit shot", a transition line with "Change", "Draw this shot again", and five text links in
+each scene's left rail, and every editor opened out under the scene, far from what was pressed. Boords, script2screen and other storyboard tools
+that were looked at keep a scene list and a shot gallery on one side and a **panel for the chosen shot** on the other (script2screen documents a
+three-column workspace: scenes, frames, inspector), so the screen now works that way.
+
+- **Cards** are small and carry no actions of their own: a picture (press it to choose the shot), its name, two **tags** (the camera move and how it
+  comes in) and the line. A tag is also the way into the panel: the move opens **Camera**, the transition opens **Transition**. The chosen card is
+  ringed and says "Editing".
+- **The panel** (from 1100 px, sticky beside the list) says what is chosen ("Scene 2 · Shot 1, Wide · 0:00") and holds everything for it. For a shot:
+  **Camera** (preview, move, framing, back to planned, Draw this shot again) and **Transition**. For a scene (the "Edit scene" button on its heading):
+  **Words and picture** and **Order** (looks right, move earlier or later, remove, asked twice). The first shot is chosen when the screen opens, so
+  the panel is never empty.
+- **A change is followed in the panel**, not by leaving: the controls wait while it runs, the status line says what it is doing and ends with
+  "Change made" and a "Watch the film" link. (Before, any change threw the creator out to the film.)
+- **On a phone** the panel is a sheet from the bottom edge that opens when something is chosen and closes with the X; the move preview is left out
+  there so the controls stay in view.
+
+Built to the tokens and rules above; the canvas still owes this screen (rule 9).
+
+## 14. Changes are stacked, then applied together (DST-40, 6 Nov 2026)
+
+Changing a finished film means cutting it again, which takes a while. Before, every click started that at once and sent the creator to the film
+to wait, then back to the storyboard for the next change. Now choosing a change **adds it to a stack** and nothing is cut until **Apply**.
+
+- **The bar**, bottom left on every screen of a finished film (above the render bar on the storyboard): "3 changes waiting", a list of them
+  (each can be taken out), **Discard** and **Apply**. While applying it says "Applying 3 changes", the seconds and Stop. It is solid, above everything.
+- **Shown as made**: a stacked change appears on the screen straight away (the chosen transition on its tag, the camera move, the Sound,
+  Look and Titles controls), and the card or scene it touches says **Waiting** (a word, not colour alone). Two choices about the same thing are
+  one: the later replaces the earlier. A move or removal of a scene is marked on its heading and applied with the rest.
+- **Checked when chosen**: each change is checked against the film and the rest of the stack (`POST /api/edit/{id}/ops/check`), so one that cannot be
+  made is refused at once, in words, and not after everything is applied. The words on the bar come from the server.
+- **Applied together**: all stacked changes to the film are one job and one version (`POST /api/edit/{id}/ops`): the sound is mixed once and the film
+  cut once, however many changes there are. Typed changes ("Add to changes" in Change) are stacked too and applied after, each as its own version, since
+  they are only understood at that moment. The creator stays on the screen they are on, and the panel's status line follows the job.
+- **Not stacked**: before a render everything is cheap and is made at once; "Save scene" (words and picture) is an explicit save with its own cost note.
+- **Leaving** with changes that were never applied asks first.

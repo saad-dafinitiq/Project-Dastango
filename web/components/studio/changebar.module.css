@@ -1,0 +1,115 @@
+/* The stack of waiting changes, fixed bottom left. A raised, solid surface: nothing else on the
+   screen is allowed to cover it, and it covers nothing it should not (it sits above the render bar). */
+.wrap {
+  position: fixed;
+  left: var(--gutter);
+  bottom: 24px;
+  z-index: 50;
+  display: grid;
+  gap: 8px;
+  max-width: calc(100vw - 2 * var(--gutter));
+}
+.raised {
+  bottom: 104px;
+}
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px 8px 16px;
+  background: var(--s2);
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+}
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.count svg {
+  width: 16px;
+  height: 16px;
+  color: var(--mu);
+  transition: transform 0.18s;
+}
+.count svg.up {
+  transform: rotate(180deg);
+}
+.count:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-t);
+}
+.text {
+  font-size: 15px;
+  color: var(--fg);
+}
+.list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  width: min(420px, calc(100vw - 2 * var(--gutter)));
+  max-height: min(320px, 50dvh);
+  overflow-y: auto;
+  background: var(--s2);
+  border: 1px solid var(--line2);
+  border-radius: 14px;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 4px 4px 12px;
+  font-size: 14px;
+  color: var(--mu);
+  border-radius: 8px;
+}
+.list li + li {
+  border-top: 1px solid var(--line);
+}
+.list li span {
+  min-width: 0;
+}
+.x {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mu);
+  cursor: pointer;
+}
+.x:hover {
+  color: var(--fg);
+}
+.x:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.x svg {
+  width: 18px;
+  height: 18px;
+}
+@media (max-width: 560px) {
+  .raised {
+    bottom: 120px;
+  }
+}

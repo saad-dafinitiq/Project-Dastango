@@ -581,6 +581,55 @@ class PipelineOrchestrator:
                            payload={"version": state.version, "kind": "shot"}))
         return state
 
+    def apply_ops(self, project_id: str, items: List[Dict[str, Any]],
+                  on_event: Optional[Callable[[ProgressEvent], None]] = None) -> PipelineState:
+        """Apply a stacked list of editing operations at once (DST-40): one job, one version.
+
+        On a finished film the film is cut once for all of them. Before a render each is a
+        storyboard edit and nothing is drawn, saved as one version."""
+        from agents.edit_agent import ops
+
+        emit = on_event or (lambda _e: None)
+        state = self.sm.latest(project_id)
+        if not state or not state.script:
+            raise ValueError(f"no storyboard for {project_id}")
+        labels = ops.check_many(state, items)            # raises OpError before anything changes
+        label = labels[0] if len(labels) == 1 else f"{len(labels)} changes: " + "; ".join(labels)
+        film = state.video is not None and bool(state.video.final_video_path)
+        if film:
+            emit(ProgressEvent(phase="edit", status="started", project_id=project_id,
+                               message="Applying the changes", progress=0.05, payload={"query": label}))
+
+            def hear(kind, info):
+                if kind == "understood":
+                    emit(ProgressEvent(phase="edit", status="understood", project_id=project_id,
+                                       message=f"Understood: {label}", progress=0.1,
+                                       payload={**info, "summary": label}))
+                elif kind == "step":
+                    emit(ProgressEvent(
+                        phase="edit", status="step", project_id=project_id,
+                        message=STEP_WORDS.get(info["name"], "Working on it"),
+                        progress=0.1 + 0.85 * info["index"] / max(info["total"], 1), payload=info))
+
+            result = self.editor.apply_ops(project_id, items, on_progress=hear)
+            if not result.success:
+                raise EditFailed(result.error or "the changes could not be made")
+            emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
+                               message=f"{label} (version {result.new_version})", progress=1.0,
+                               payload={"version": result.new_version, "kind": "edit",
+                                        "result": result.model_dump(mode="json")}))
+            return self.sm.latest(project_id)
+
+        for it in items:
+            ops.apply(state, it["op"], it.get("params") or {})
+        self.story.serialize(state)
+        self.sm.snapshot(state, asset_paths=self._collect_assets(state),
+                         description=f"storyboard edit: {len(items)} changes",
+                         edit_intent={"intent": "batch", "parameters": {"ops": items}, "query": label[:400]})
+        emit(ProgressEvent(phase="complete", status="complete", project_id=project_id, message=label,
+                           progress=1.0, payload={"version": state.version, "kind": "shot"}))
+        return state
+
     def set_shot(self, project_id: str, scene_id: str, shot_id: str,
                  move: Optional[str] = None, framing: Optional[str] = None,
                  reset: bool = False,
