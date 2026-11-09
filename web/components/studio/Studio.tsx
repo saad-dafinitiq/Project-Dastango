@@ -84,6 +84,8 @@ export function Studio() {
   // Changes chosen on a finished film and waiting for Apply. Choosing never starts the (slow) re-cut.
   const [pending, setPending] = useState<Pending[]>([]);
   const [applying, setApplying] = useState(false);
+  // The job Stop was pressed for: said at once, before the server's own "Cancelling" event arrives.
+  const [stopping, setStopping] = useState<string | null>(null);
 
   const { events, finished, signedOut } = useProgress(pid, job?.id ?? null);
 
@@ -174,6 +176,10 @@ export function Studio() {
   const last = events[events.length - 1];
   const failed = last?.phase === "error" && last.status === "failed";
   const running = job !== null && !finished;
+  // Asked to stop, not stopped yet: a running job ends at its next check, which can be some seconds away.
+  // The event log says it too (the server writes one when Stop is pressed), so a page opened after, or a
+  // second tab, shows it as well.
+  const cancelling = running && (stopping === job?.id || events.some((e) => e.phase === "cancelling"));
   const changing = job !== null && CHANGES.has(job.kind);
   // A second-by-second clock while something runs; otherwise enough to keep "4 min ago" honest.
   useEffect(() => {
@@ -359,9 +365,9 @@ export function Studio() {
     return (
       <p className={`${styles.inspStatus} ${bad ? styles.statusFailed : ""}`} role="status">
         {running && changing && <span className="pip" />}
-        <span>{bad ? `Couldn’t make that change: ${reason(end.message)}` : ok ? "Change made." : describe(end)}</span>
+        <span>{bad ? `Couldn’t make that change: ${reason(end.message)}` : ok ? "Change made." : cancelling && changing && running ? "Cancelling… the step that is running has to finish first." : describe(end)}</span>
         {running && changing && elapsed != null && <span className="meta">· {elapsed}s</span>}
-        {running && changing && (
+        {running && changing && !cancelling && (
           <button className="btn quiet small" type="button" onClick={stop}>
             Stop
           </button>
@@ -376,7 +382,14 @@ export function Studio() {
   }
 
   async function stop() {
-    if (job) await api.cancel(job.id).catch(() => undefined);
+    if (!job || cancelling) return;
+    setStopping(job.id);
+    try {
+      await api.cancel(job.id);
+    } catch (err) {
+      setStopping(null);
+      setProblem(err instanceof ApiError ? err.message : "Couldn't stop it. Try again in a moment.");
+    }
   }
 
   /** A typed change is added to the stack like any other; it is understood when the stack is applied. */
@@ -443,6 +456,7 @@ export function Studio() {
             failed={mode === "stopped"}
             failure={failed ? last?.message : undefined}
             filmSeconds={seconds}
+            cancelling={cancelling}
             onStop={stop}
             onTryAgain={() => render(lastChoice)}
             onBack={() => {
@@ -534,7 +548,7 @@ export function Studio() {
         )}
 
         {mode === "watch" && film && (
-          <main className={`${styles.page} ${styles.watchPage}`}>
+          <main className={`${styles.page} ${styles.watchPage} ${pending.length > 0 || applying ? styles.barUp : ""}`}>
             <div className={styles.stageCol}>
               <header className={styles.head}>
                 <h1 className="title">{title || prompt}</h1>
@@ -596,6 +610,7 @@ export function Studio() {
                       cast={board?.cast ?? []}
                       events={changing && job?.id !== settled ? events : []}
                       running={running && changing}
+                      cancelling={cancelling && changing}
                       elapsed={changing ? elapsed : null}
                       onSubmit={change}
                       onStop={stop}
@@ -619,6 +634,7 @@ export function Studio() {
       <ChangeBar
         pending={pending}
         applying={applying}
+        cancelling={cancelling}
         elapsed={changing ? elapsed : null}
         raised={mode === "storyboard"}
         onApply={applyPending}

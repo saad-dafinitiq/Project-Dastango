@@ -69,7 +69,11 @@ export function EffectsPanel({ film, options, disabled, onOp }: Props) {
           </button>
         ))}
       </div>
-      <p className={styles.note}>Drawn over the picture frame by frame; only the scenes that change are cut again, and the film's length does not change.</p>
+      <p className={styles.note}>
+        Grain, vignette and cinema bars take a few seconds a scene, and grain adds little to the file. Glow and glitch are drawn
+        frame by frame and take longer, about as long as the scene plays or more. Only the scenes that change are cut again, and the
+        film's length does not change.
+      </p>
       {problem && (
         <p className={styles.problem} role="alert">
           {problem}

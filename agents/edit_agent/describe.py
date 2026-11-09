@@ -30,6 +30,7 @@ STEP_WORDS = {
     "regenerate_scene": "Drawing the scene again",
     "regenerate_portraits": "Redesigning the characters",
     "recompose_video": "Cutting the film again",
+    "save": "Saving the new version",
     "change_speed": "Changing the pace",
     "regenerate_script": "Rewriting the script",
     "rerun_video": "Drawing the shots and cutting the film",

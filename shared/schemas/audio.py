@@ -80,8 +80,10 @@ class AudioOutput(BaseModel):
     bgm_track: Optional[str] = Field(default=None, description="path to mixed BGM file")
     master_track: Optional[str] = Field(default=None, description="path to mixed master")
     bgm_enabled: bool = Field(default=True, description="whether BGM is mixed into the master")
-    # The mix (DST-39). Volumes are absolute gains: 0.32 music, 1.0 voices, 0.22 ambience are
-    # "as the film was made"; the edits speak in percent of those.
+    # The mix (DST-39). 0.32 music, 1.0 voices, 0.22 ambience are "as the film was made"; the edits
+    # speak in percent of those. Since DST-41 they are multipliers on levels set relative to the dialogue
+    # (every line is brought to one loudness, the music bed to about 13 dB under it, the ambience to about
+    # 18 dB under it), not gains on whatever level a file happens to have.
     music_volume: float = Field(default=0.32, ge=0.0, le=1.5)
     voice_volume: float = Field(default=1.0, ge=0.0, le=2.0)
     ambience_volume: float = Field(default=0.22, ge=0.0, le=1.0)

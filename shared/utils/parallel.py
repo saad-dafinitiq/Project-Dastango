@@ -46,13 +46,23 @@ def run_jobs(jobs: List[Job], workers: int, label: str = "", step: str = "") -> 
     if workers <= 1 or len(jobs) <= 1:
         return [fn(*args) for fn, args in jobs]
     started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         # Threads do not inherit context variables, so each job runs in a copy
         # of the caller's: that is how a model call in a worker thread knows
         # which job it belongs to (shared/tracing.py). One copy per job,
         # because a context cannot be entered by two threads at once.
         futures = [pool.submit(contextvars.copy_context().run, fn, *args) for fn, args in jobs]
         results = [f.result() for f in futures]
+    except BaseException:
+        # A cancelled job (or a failure) must not leave the rest of the batch running: leaving the pool
+        # with `with` waits for every queued job to finish first, so a Stop pressed during a render of
+        # twelve shots was only heard after all twelve (DST-41). The ones already running finish; the
+        # ones still waiting never start.
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown()
     log.info("%s: %d job(s) on %d workers in %.1fs", label or "batch", len(jobs), workers,
              time.monotonic() - started)
     return results

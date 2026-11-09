@@ -44,16 +44,23 @@ roles:
     - provider: mock              # deterministic template script, no network
 
   # ---- Classifying a natural-language edit (small, fast, cheap) ----------
+  # Understanding a sentence is one small call that answers in a second or less (Groq: 0.2 to 0.7 s
+  # measured). The default 60 s wait made a hung Gemini hold a typed change for a minute before the
+  # next provider got its turn (DST-41, measured 9 Nov 2026: Gemini answered 504 after about 60 s, Groq
+  # then took 0.5 s), so a provider that has not answered in 10 s is given up on.
   edit_intent:
     - provider: gemini
       model: gemini-flash-latest
       requires: [GEMINI_API_KEY]
+      timeout_s: 10
     - provider: groq
       model: openai/gpt-oss-20b
       requires: [GROQ_API_KEY]
+      timeout_s: 10
     - provider: openrouter
       model: openrouter/free
       requires: [OPENROUTER_API_KEY]
+      timeout_s: 20             # a free shared model: slower on a good day
     - provider: ollama
       model: qwen3:4b
       requires: [OLLAMA_HOST]

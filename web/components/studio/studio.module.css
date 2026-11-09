@@ -336,6 +336,13 @@
 .watchPage {
   max-width: 1680px;
 }
+/* While changes wait, the bar sits over the bottom-left of the window (changebar.module.css). The film
+   stops short of it, so its controls (play, the time, the seek bar) are never under the bar: on a window
+   768 px high the bar overlapped them by 39 px (DST-41). */
+.barUp .screen,
+.barUp .chapters {
+  max-width: min(100%, calc((100dvh - 360px) * var(--arn, 1.7778)));
+}
 .stageCol {
   min-width: 0;
 }
@@ -362,5 +369,10 @@
   .watchPage .screen,
   .watchPage .chapters {
     max-width: min(100%, calc((100dvh - 250px) * var(--arn, 1.7778)));
+  }
+  /* ...and, while changes wait, by what is left above the bar (the film starts about 260 px down). */
+  .watchPage.barUp .screen,
+  .watchPage.barUp .chapters {
+    max-width: min(100%, calc((100dvh - 360px) * var(--arn, 1.7778)));
   }
 }

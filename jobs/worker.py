@@ -99,12 +99,17 @@ class _Heartbeat:
 
 
 def _event_sink(job: queue.Job, beat: _Heartbeat) -> Callable[[ProgressEvent], None]:
+    def check() -> None:
+        if beat.cancelled.is_set() or not queue.heartbeat(job.id):
+            raise JobCancelled(f"{job.id} cancelled")
+
     def push(ev: ProgressEvent) -> None:
         queue.append_event(job.id, job.project_id, phase=ev.phase,
                            status=ev.status, message=ev.message,
                            progress=ev.progress, payload=ev.payload)
-        if beat.cancelled.is_set() or not queue.heartbeat(job.id):
-            raise JobCancelled(f"{job.id} cancelled")
+        check()
+    # Work that goes a long time between events calls this (shared/progress_hook.py `pulse`).
+    push.check_cancelled = check  # type: ignore[attr-defined]
     return push
 
 

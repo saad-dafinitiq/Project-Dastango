@@ -975,7 +975,10 @@ button.tag:focus-visible {
   margin-top: 0;
 }
 .edc .preview {
-  max-width: 100%;
+  /* No taller than 220 px, in any format: a 9:16 picture at the panel's width was 610 px tall, so on a
+     laptop the camera moves under it were out of sight until the panel was scrolled (DST-41).
+     A wide picture is unchanged (it is narrower than this already). */
+  max-width: min(100%, calc(220px * var(--arn, 1.7778)));
 }
 .stack {
   display: grid;

@@ -17,11 +17,13 @@ def _tone(path: Path, freq: int, seconds: float, volume: float = 0.5) -> str:
 
 def _rms_db(path: str, start: float, end: float, band: int | None = None) -> float:
     """Mean volume of a slice, in dB; `band` isolates one tone's frequency."""
-    filters = (f"bandpass=f={band}:width_type=h:w=120," if band else "") + "volumedetect"
-    proc = subprocess.run(
-        ["ffmpeg", "-i", str(path), "-ss", f"{start}", "-to", f"{end}",
-         "-af", filters, "-f", "null", "-"],
-        capture_output=True, text=True)
+    # The slice is cut inside the filter chain: with `-ss/-to` as output options, recent ffmpeg builds
+    # apply them after the filters, so volumedetect averaged the whole file and each window read as a
+    # drifting running mean (DST-41: the likely reason this test passed or failed by ffmpeg build).
+    filters = (f"atrim=start={start}:end={end},asetpts=PTS-STARTPTS,"
+               + (f"bandpass=f={band}:width_type=h:w=120," if band else "") + "volumedetect")
+    proc = subprocess.run(["ffmpeg", "-i", str(path), "-af", filters, "-f", "null", "-"],
+                          capture_output=True, text=True)
     for line in proc.stderr.splitlines():
         if "mean_volume:" in line:
             return float(line.split("mean_volume:")[1].split("dB")[0])

@@ -9,6 +9,8 @@ type Props = {
   pending: Pending[];
   /** Applying now: the stack is being made into a new version of the film. */
   applying: boolean;
+  /** Stop was pressed: it ends at the next safe point, which may be some seconds away. */
+  cancelling: boolean;
   elapsed: number | null;
   /** On the storyboard the render bar sits along the bottom, so this one rises above it. */
   raised: boolean;
@@ -20,7 +22,7 @@ type Props = {
 
 /** The stack of changes waiting to be applied, bottom left: how many, what they are (each can be taken
  *  out), Apply, and Discard. Nothing here changes the film until Apply is pressed. */
-export function ChangeBar({ pending, applying, elapsed, raised, onApply, onDiscard, onRemove, onStop }: Props) {
+export function ChangeBar({ pending, applying, cancelling, elapsed, raised, onApply, onDiscard, onRemove, onStop }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -63,12 +65,14 @@ export function ChangeBar({ pending, applying, elapsed, raised, onApply, onDisca
           <>
             <span className="pip" />
             <span className={styles.text} role="status">
-              Applying {words}
+              {cancelling ? "Cancelling… the step that is running has to finish first" : `Applying ${words}`}
               {elapsed != null && <span className="meta"> · {elapsed}s</span>}
             </span>
-            <button type="button" className="btn quiet small" onClick={onStop}>
-              Stop
-            </button>
+            {!cancelling && (
+              <button type="button" className="btn quiet small" onClick={onStop}>
+                Stop
+              </button>
+            )}
           </>
         ) : (
           <>

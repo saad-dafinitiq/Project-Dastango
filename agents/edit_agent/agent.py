@@ -78,6 +78,9 @@ class EditAgent:
             for i, step in enumerate(steps):
                 progress("step", {"name": step.name, "index": i, "total": len(steps)})
                 affected.extend(self.executor.execute(state, step))
+            # A last look before anything is saved: a Stop pressed during the final step must stop
+            # the edit, not let it save a version and only then be marked cancelled (DST-41).
+            progress("step", {"name": "save", "index": len(steps), "total": len(steps)})
         except BaseException as e:  # noqa: BLE001 — a cancelled job stops here too
             self._put_back(state)
             if not isinstance(e, Exception):
@@ -150,6 +153,9 @@ class EditAgent:
             for i, step in enumerate(steps):
                 progress("step", {"name": step.name, "index": i, "total": len(steps)})
                 affected.extend(self.executor.execute(state, step))
+            # A last look before anything is saved: a Stop pressed during the final step must stop
+            # the edit, not let it save a version and only then be marked cancelled (DST-41).
+            progress("step", {"name": "save", "index": len(steps), "total": len(steps)})
         except BaseException as e:  # noqa: BLE001 — a cancelled job stops here too
             self._put_back(state)
             if not isinstance(e, Exception):
@@ -193,6 +199,9 @@ class EditAgent:
             for i, step in enumerate(steps):
                 progress("step", {"name": step.name, "index": i, "total": len(steps)})
                 affected.extend(self.executor.execute(state, step))
+            # A last look before anything is saved: a Stop pressed during the final step must stop
+            # the edit, not let it save a version and only then be marked cancelled (DST-41).
+            progress("step", {"name": "save", "index": len(steps), "total": len(steps)})
         except BaseException as e:  # noqa: BLE001 — a cancelled job stops here too
             self._put_back(state)
             if not isinstance(e, Exception):
