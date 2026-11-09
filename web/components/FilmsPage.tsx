@@ -50,7 +50,7 @@ export function FilmsPage() {
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
-            {shown.length === 0 ? <p className={styles.empty}>No film matches that.</p> : <FilmGrid films={shown} />}
+            {shown.length === 0 ? <p className={styles.empty}>No film matches that.</p> : <FilmGrid films={shown} heading="h2" />}
           </>
         )}
       </main>

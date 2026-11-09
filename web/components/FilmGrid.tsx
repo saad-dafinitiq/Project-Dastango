@@ -26,7 +26,7 @@ export function useFilms(): LibraryFilm[] | null {
 type Filter = "all" | "ready" | "draft";
 
 /** One film: its frame, its name, and one status line (a dot and a word). */
-export function FilmCard({ film, delay = 0 }: { film: LibraryFilm; delay?: number }) {
+export function FilmCard({ film, delay = 0, heading: Heading = "h3" }: { film: LibraryFilm; delay?: number; heading?: "h2" | "h3" }) {
   const status = statusLine(film);
   return (
     <li className="rise" style={{ "--delay": `${delay}ms` } as React.CSSProperties}>
@@ -39,7 +39,7 @@ export function FilmCard({ film, delay = 0 }: { film: LibraryFilm; delay?: numbe
             <span className={styles.none}>no frame yet</span>
           )}
         </div>
-        <h3 className={styles.title}>{film.title || "Untitled"}</h3>
+        <Heading className={styles.title}>{film.title || "Untitled"}</Heading>
         <p className={styles.status}>
           <i className={`dot ${status.kind === "working" ? "now" : status.kind === "draft" ? "wait" : ""}`} />
           {status.text}
@@ -88,11 +88,13 @@ export function useFiltered(films: LibraryFilm[], filter: Filter, query: string)
   }, [films, filter, query]);
 }
 
-export function FilmGrid({ films }: { films: LibraryFilm[] }) {
+/** `heading`: the level of each film's name, one below the heading the list sits under (h2 on the Films page, whose
+ *  title is the h1; h3 on the home page, under "Your films"), so no level is skipped. */
+export function FilmGrid({ films, heading = "h3" }: { films: LibraryFilm[]; heading?: "h2" | "h3" }) {
   return (
     <ul className={styles.grid}>
       {films.map((f, i) => (
-        <FilmCard key={f.project_id} film={f} delay={Math.min(i, 8) * 40} />
+        <FilmCard key={f.project_id} film={f} delay={Math.min(i, 8) * 40} heading={heading} />
       ))}
     </ul>
   );

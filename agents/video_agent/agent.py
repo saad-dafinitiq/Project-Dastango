@@ -948,7 +948,7 @@ class VideoAgent:
         # transparent so the passes stop compounding their loss (DST-35).
         speed = abs(video.speed_factor - 1.0) > 1e-3
         burn = self._will_burn_subtitles(state)
-        ass = self._graphics_script(state, proj)
+        ass = self._graphics_script(state, proj, subtitles=burn)
         self._graphics_done = False
         compose = self.tools.execute(
             "video.compose", clips=clips, out_path=str(out), audio_path=master,
@@ -980,14 +980,15 @@ class VideoAgent:
             final = self._burn_graphics(final, proj / "final_output_graphics.mp4", ass)
         return final
 
-    def _graphics_script(self, state: PipelineState, proj: Path) -> Optional[Path]:
+    def _graphics_script(self, state: PipelineState, proj: Path, subtitles: bool = False) -> Optional[Path]:
         """Write the titles' ASS script for this film, or None when none are switched on."""
         from shared import graphics
         if not (getattr(state, "script", None) and getattr(state, "audio", None)):
             return None
         video = state.video
         text = graphics.build_ass(state.script, state.audio.manifest, video.width, video.height,
-                                  speed=video.speed_factor, language=video.subtitle_language or "English")
+                                  speed=video.speed_factor, language=video.subtitle_language or "English",
+                                  subtitles=subtitles)
         if not text:
             return None
         path = proj / "graphics.ass"

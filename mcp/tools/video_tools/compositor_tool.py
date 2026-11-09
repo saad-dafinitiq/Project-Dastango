@@ -74,7 +74,8 @@ class CompositorTool(BaseTool):
         durations = list(durations_s or [])
         if len(durations) != len(clips):
             durations = [self._probe(c) for c in clips]
-        fc, last = xfade.build_graph(durations, boundaries)
+        fps_, size = xfade.probe_video(clips[0])
+        fc, last = xfade.build_graph(durations, boundaries, fps=fps_, size=size)
         inputs: List[str] = []
         for c in clips:
             inputs += ["-i", str(c)]

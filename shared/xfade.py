@@ -9,35 +9,93 @@ A boundary is `(xfade name | None, seconds)`. None is a straight cut, joined wit
 """
 from __future__ import annotations
 
+import subprocess
 from typing import List, Optional, Sequence, Tuple
+
+from shared.transitions import ZOOM
 
 Boundary = Tuple[Optional[str], float]
 
+# How far the zoom pushes: the outgoing shot grows to this, the incoming one starts at it and settles.
+ZOOM_PUSH = 0.28
 
-def build_graph(durations_s: Sequence[float], boundaries: Sequence[Boundary]) -> Tuple[str, str]:
+
+def probe_video(path: str) -> Tuple[Optional[float], Optional[Tuple[int, int]]]:
+    """(frame rate, (width, height)) of a clip, for the transitions that must count frames and keep
+    the picture's size (the zoom). (None, None) when it cannot be read: the zoom is then a fade."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "stream=r_frame_rate,width,height", "-of", "csv=p=0", str(path)],
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+        width, height, rate = out.split(",")[:3]
+        num, _, den = rate.partition("/")
+        return float(num) / float(den or 1), (int(width), int(height))
+    except (OSError, ValueError, ZeroDivisionError, subprocess.SubprocessError):
+        return None, None
+
+
+def _zoom_join(parts: List[str], prev: str, nxt: str, out: str, total_a: int, total_b: int, n: int,
+               fps: float, tag: str) -> None:
+    """Join `prev` (total_a frames) to `nxt` (total_b frames) over their last/first `n` frames with a
+    push: the outgoing frames grow, the incoming ones settle from the same size, and a plain fade
+    blends them. ffmpeg's own `zoomin` magnifies the last shot into a blur and then a flat colour;
+    this never leaves the picture. The result has total_a + total_b - n frames, exactly what an
+    xfade of n frames gives, because the overlap is cut out by frame number, not by time."""
+    grow = f"1+{ZOOM_PUSH}*pow(n/{max(n - 1, 1)},2)"                # accelerating
+    settle = f"1+{ZOOM_PUSH}*pow(1-n/{max(n - 1, 1)},2)"            # braking
+    push = lambda expr: (f"scale=w='trunc(iw*({expr})/2)*2':h='trunc(ih*({expr})/2)*2':eval=frame:flags=bicubic,"
+                         f"crop=w={{w}}:h={{h}},setsar=1,format=yuv420p")
+    parts += [
+        f"[{prev}]split[{tag}pa][{tag}pb]",
+        f"[{nxt}]split[{tag}na][{tag}nb]",
+        f"[{tag}pa]trim=end_frame={total_a - n},setpts=PTS-STARTPTS[{tag}pre]",
+        f"[{tag}pb]trim=start_frame={total_a - n},setpts=PTS-STARTPTS,{push(grow)}[{tag}tail]",
+        f"[{tag}na]trim=end_frame={n},setpts=PTS-STARTPTS,{push(settle)}[{tag}head]",
+        f"[{tag}nb]trim=start_frame={n},setpts=PTS-STARTPTS[{tag}rest]",
+        f"[{tag}tail][{tag}head]xfade=transition=fade:duration={n / fps:.6f}:offset=0[{tag}mid]",
+        f"[{tag}pre][{tag}mid][{tag}rest]concat=n=3:v=1:a=0[{out}]",
+    ]
+
+
+def build_graph(durations_s: Sequence[float], boundaries: Sequence[Boundary],
+                fps: Optional[float] = None, size: Optional[Tuple[int, int]] = None) -> Tuple[str, str]:
     """(filter_complex, label of the last stream) for N clips and N-1 boundaries.
 
-    `durations_s[i]` is clip i's length *including* its trailing overlap.
+    `durations_s[i]` is clip i's length *including* its trailing overlap. The zoom counts frames, so
+    it needs `fps` and the clips' `size`; without them it is a plain fade.
     """
-    n = len(durations_s)
-    if len(boundaries) != max(0, n - 1):
-        raise ValueError(f"{n} clips need {max(0, n - 1)} boundaries, got {len(boundaries)}")
-    if n == 1:
+    clips = len(durations_s)
+    if len(boundaries) != max(0, clips - 1):
+        raise ValueError(f"{clips} clips need {max(0, clips - 1)} boundaries, got {len(boundaries)}")
+    if clips == 1:
         return "[0:v]null[v0]", "v0"
     parts: List[str] = []
     prev, acc = "0:v", float(durations_s[0])
-    for i in range(1, n):
+    for i in range(1, clips):
         name, d = boundaries[i - 1]
         out = f"v{i}"
         if name is None or d <= 0:
             parts.append(f"[{prev}][{i}:v]concat=n=2:v=1:a=0[{out}]")
             acc += durations_s[i]
+        elif name == ZOOM and fps and size and _can_zoom(acc, durations_s[i], d, fps):
+            join: List[str] = []
+            _zoom_join(join, prev, f"{i}:v", out, round(acc * fps), round(durations_s[i] * fps),
+                       round(d * fps), fps, f"z{i}")
+            parts += [p.replace("{w}", str(size[0])).replace("{h}", str(size[1])) for p in join]
+            acc += durations_s[i] - d
         else:
+            name = "fade" if name == ZOOM else name
             parts.append(f"[{prev}][{i}:v]xfade=transition={name}:duration={d:.6f}:"
                          f"offset={max(0.0, acc - d):.6f}[{out}]")
             acc += durations_s[i] - d
         prev = out
     return ";".join(parts), prev
+
+
+def _can_zoom(acc: float, dur: float, d: float, fps: float) -> bool:
+    """The zoom cuts frames out by number, so the overlap must be whole frames and fit in both clips."""
+    n = round(d * fps)
+    return n >= 2 and abs(d * fps - n) < 1e-3 and n <= round(acc * fps) and n <= round(dur * fps)
 
 
 def all_cuts(boundaries: Sequence[Boundary]) -> bool:

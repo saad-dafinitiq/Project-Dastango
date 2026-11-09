@@ -14,6 +14,8 @@ small pop). Only the two fonts the interface uses are involved, in assets/fonts/
 from __future__ import annotations
 
 import re
+import unicodedata
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -56,18 +58,67 @@ def _ts(seconds: float) -> str:
 
 
 def _clean(text: str) -> str:
-    """Text safe inside an ASS event: no override braces, no backslashes, no raw newlines."""
-    text = re.sub(r"[{}\\]", "", text or "")
+    """Text safe inside an ASS event: no override blocks, no backslashes, no raw newlines.
+
+    A whole `{...}` block goes (its tags are not text: stripping only the braces left "fs250c&H0000FF&"
+    on screen), and ASS's own escapes `\\N`, `\\n` and `\\h` become a space (stripping only the
+    backslash left a stray "N")."""
+    text = re.sub(r"\{[^}]*\}", "", text or "")
+    text = re.sub(r"\\[Nnh]", " ", text)
+    text = re.sub(r"[{}\\]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return (text[: MAX_TEXT - 1] + "…") if len(text) > MAX_TEXT else text
 
 
+def _other_script(text: str) -> bool:
+    """Does the text hold a letter from outside the Latin range our two faces cover (Urdu, Hindi,
+    CJK)? Punctuation and symbols do not count: a title with "…", an em dash or curly quotes is
+    still set in the chosen face (the old test, any code point above 0x24F, sent it to Arial)."""
+    return any(ord(c) > 0x24F and unicodedata.category(c).startswith("L") for c in text)
+
+
 def _font(text: str, preferred: str, language: str) -> str:
-    """The chosen face, unless it has none of the text's letters (Urdu, Hindi, CJK): then the
-    same per-script face the subtitles use."""
-    if any(ord(c) > 0x24F for c in text):
+    """The chosen face, unless the text has letters it lacks (Urdu, Hindi, CJK): then the same
+    per-script face the subtitles use."""
+    if _other_script(text):
         return font_for(language)
     return preferred
+
+
+_FACE_FILES = {TITLE_FONT: "Chillax-Semibold.otf", BODY_FONT: "Synonym-Regular.otf"}
+
+
+@lru_cache(maxsize=32)
+def _face(name: str, size: int):
+    """The Pillow font for one of our two faces, to measure text the way libass will set it."""
+    try:
+        from PIL import ImageFont
+        return ImageFont.truetype(str(FONTS_DIR / _FACE_FILES[name]), size)
+    except Exception:  # noqa: BLE001 — measuring is a nicety; the estimate below is the fallback
+        return None
+
+
+def _width(text: str, face: str, size: int, spacing: float = 0) -> float:
+    font = None if (face not in _FACE_FILES or _other_script(text)) else _face(face, size)
+    base = font.getlength(text) if font else 0.6 * size * len(text)   # a script we cannot measure: wide guess
+    return base + spacing * len(text)
+
+
+def _wrap(text: str, face: str, size: int, max_w: float, spacing: float = 0) -> List[str]:
+    """Greedy word wrap by measured width, so the layout knows how many lines a text takes
+    (libass would wrap it too, but then the rule and the tagline cannot be placed around it)."""
+    lines: List[str] = []
+    current = ""
+    for word in text.split():
+        trial = f"{current} {word}".strip()
+        if current and _width(trial, face, size, spacing) > max_w:
+            lines.append(current)
+            current = word
+        else:
+            current = trial
+    if current:
+        lines.append(current)
+    return lines or [""]
 
 
 def _rect(x: float, y: float, w: float, h: float) -> str:
@@ -79,11 +130,12 @@ def wanted(spec) -> bool:
 
 
 def build_ass(script, manifest, width: int, height: int, speed: float = 1.0,
-              language: str = "English") -> Optional[str]:
+              language: str = "English", subtitles: bool = False) -> Optional[str]:
     """The graphics script for this film, or None when none is switched on.
 
     Times come from the timeline (`manifest`), divided by the film's speed as the subtitles are,
-    so a graphic is on the same scene whatever the pace.
+    so a graphic is on the same scene whatever the pace. `subtitles`: they are burned into the
+    same picture, so the title card ends when the first of them appears.
     """
     spec = script.story.graphics
     if not wanted(spec):
@@ -127,24 +179,46 @@ def build_ass(script, manifest, width: int, height: int, speed: float = 1.0,
 
     scenes = list(manifest.scenes)
     first_len = t(scenes[0].duration_ms) if scenes else total
+    # When the first burned subtitle begins (the same lines `VideoAgent._embed_subtitles` burns).
+    starts = [s.start_ms for s in manifest.segments if s.kind == "dialogue" and s.text]
+    first_subtitle = min(starts) if starts else None
 
     # ---- title card: over the opening, never before it, so nothing moves on the timeline
     if spec.title_card:
         end = min(TITLE_S, max(1.2, first_len - 0.2), total)
+        if subtitles and first_subtitle is not None:
+            # Burned subtitles share the picture: the card gives way when the first one appears
+            # instead of showing under it for seconds (DST-43). Never shorter than 0.9 s.
+            end = max(0.9, min(end, t(first_subtitle) - 0.05))
+        fade_in, fade_out = min(0.6, end * 0.35), min(0.7, end * 0.4)
         title = _clean(spec.title_text or script.story.title)
         logline = _clean(script.story.logline)
         cx, cy = w / 2, h / 2
-        scrim(0, end, 130, 0.0, 0.7)
         face = _font(title, TITLE_FONT, language)
-        add(0.15, end, rf"\an5\pos({cx:.0f},{cy - lay['title'] * 0.3:.0f})\fn{face}\fs{lay['title']}"
-                       rf"\fad(600,700)\t(0,{end * 1000:.0f},\fscx104\fscy104){pop}", title, layer=2)
+        tag_face = _font(logline, BODY_FONT, language)
+        # The block is built from measured lines, so a title that wraps (a tall film) pushes the rule
+        # and the tagline down instead of being drawn through (DST-43).
+        avail = (w - 2 * mx) * 0.94
+        title_lines = _wrap(title, face, lay["title"], avail, spacing)
+        tag_lines = _wrap(logline, tag_face, lay["tagline"], avail) if logline else []
+        title_h = len(title_lines) * lay["title"] * 1.25
+        tag_h = len(tag_lines) * lay["tagline"] * 1.35
+        gap = lay["title"] * 0.25
+        total_h = title_h + gap + rule_h + (gap + tag_h if tag_lines else 0)
+        top_y = cy - total_h / 2
+        scrim(0, end, 130, 0.0, fade_out)
+        add(0.15, end, rf"\an8\pos({cx:.0f},{top_y:.0f})\fn{face}\fs{lay['title']}"
+                       rf"\fad({int(fade_in * 1000)},{int(fade_out * 1000)})"
+                       rf"\t(0,{end * 1000:.0f},\fscx104\fscy104){pop}", r"\N".join(title_lines), layer=2)
         rule_w = min(w - 2 * mx, round(0.16 * w))
-        add(0.45, end, rf"\an5\pos({cx:.0f},{cy + lay['title'] * 0.55:.0f})\bord0\shad0\1c{ACCENT}"
-                       rf"\fscx0\t(0,700,\fscx100)\fad(0,700)\p1",
-            _rect(-rule_w / 2, 0, rule_w, rule_h) + r"{\p0}", layer=2)
-        if logline:
-            add(0.7, end, rf"\an8\pos({cx:.0f},{cy + lay['title'] * 0.8:.0f})\fn{_font(logline, BODY_FONT, language)}"
-                          rf"\fs{lay['tagline']}\1c&H00E6E6E6&\fad(600,700)\q0", logline, layer=2)
+        rule_y = top_y + title_h + gap + rule_h / 2
+        add(0.45, end, rf"\an5\pos({cx:.0f},{rule_y:.0f})\bord0\shad0\1c{ACCENT}"
+                       rf"\fscx0\t(0,700,\fscx100)\fad(0,{int(fade_out * 1000)})\p1",
+            _rect(0, 0, rule_w, rule_h) + r"{\p0}", layer=2)
+        if tag_lines:
+            add(0.7, end, rf"\an8\pos({cx:.0f},{rule_y + rule_h / 2 + gap:.0f})\fn{tag_face}"
+                          rf"\fs{lay['tagline']}\1c&H00E6E6E6&\fad({int(fade_in * 1000)},{int(fade_out * 1000)})\q0",
+                r"\N".join(tag_lines), layer=2)
 
     # ---- scene titles: top left, at the start of each scene
     if spec.scene_titles:

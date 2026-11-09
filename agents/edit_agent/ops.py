@@ -33,6 +33,11 @@ class OpError(ValueError):
     """The op cannot be applied to this film; the message says why, in a creator's words."""
 
 
+class BadValue(OpError):
+    """The request itself is wrong whatever the film is (an unknown mood, a length out of range): an
+    API answers 400. Any other OpError depends on the film (no such scene) and answers 404."""
+
+
 # ---- helpers ------------------------------------------------------------------------------
 
 def find_scene(state: PipelineState, ref: str) -> Tuple[int, Scene]:
@@ -108,7 +113,7 @@ def _apply_set_transition(state: PipelineState, p: SetTransition) -> str:
         words = "back to the default"
     else:
         if not p.transition:
-            raise OpError("which transition? " + ", ".join(s.id for s in transitions.styles()))
+            raise BadValue("which transition? " + ", ".join(s.id for s in transitions.styles()))
         style = transitions.get(p.transition)
         ms = 0 if style.id == "cut" else transitions.speed_ms(p.speed, p.ms)
         spec = TransitionSpec(kind=style.id, ms=ms or None)
@@ -137,16 +142,16 @@ def _apply_set_camera(state: PipelineState, p: SetCamera) -> str:
     if p.shot_id not in shot_ids(state, scene):
         raise OpError(f"unknown shot {p.shot_id!r} in {scene.scene_id}")
     if p.move is not None and p.move not in camera.MOVES:
-        raise OpError(f"unknown camera move {p.move!r}")
+        raise BadValue(f"unknown camera move {p.move!r}")
     if p.framing is not None and p.framing not in ("wide", "medium", "close"):
-        raise OpError(f"unknown framing {p.framing!r}")
+        raise BadValue(f"unknown framing {p.framing!r}")
     if p.reset:
         set_override(scene, p.shot_id, move=None, framing=None)
         what = "camera as planned"
     else:
         fields = {k: v for k, v in (("move", p.move), ("framing", p.framing)) if v is not None}
         if not fields:
-            raise OpError("choose a camera move, a framing, or reset")
+            raise BadValue("choose a camera move, a framing, or reset")
         set_override(scene, p.shot_id, **fields)
         what = ", ".join(x for x in (p.move.replace("_", " ") if p.move else "",
                                      f"{p.framing} framing" if p.framing else "") if x)
@@ -210,7 +215,7 @@ def _apply_set_music(state: PipelineState, p: SetMusic) -> str:
                 audio.uploads.append(UploadedTrack(**music.load_upload(state.project_id, p.track.split(":", 1)[1])))
             music.track_path(p.track, audio.uploads)
         except music.MusicError as e:
-            raise OpError(str(e)) from None
+            raise BadValue(str(e)) from None
         title = (library_title(p.track) or next((u.title for u in audio.uploads if f"upload:{u.id}" == p.track), p.track))
         audio.bgm_enabled = True
         if whole:
@@ -221,7 +226,7 @@ def _apply_set_music(state: PipelineState, p: SetMusic) -> str:
     if p.mood:
         key = p.mood.lower().strip()
         if key not in music.moods() and key not in music.ALIASES:
-            raise OpError(f"which mood? {', '.join(music.moods())}")
+            raise BadValue(f"which mood? {', '.join(music.moods())}")
         mood = music.resolve_mood(key)
         for i, scene in scenes:
             scene.music_mood = mood
@@ -237,7 +242,7 @@ def _apply_set_music(state: PipelineState, p: SetMusic) -> str:
             if whole:
                 state.audio.music_track = None
         return f"{where}: {mood}"
-    raise OpError("what about the music? a mood, a track, off, or reset")
+    raise BadValue("what about the music? a mood, a track, off, or reset")
 
 
 def library_title(track_id: str) -> Optional[str]:
@@ -259,7 +264,7 @@ def _apply_set_volume(state: PipelineState, p: SetVolume) -> str:
     field_name, base, top = _VOLUME_FIELDS[p.target]
     value = base * p.percent / 100.0
     if value > top:
-        raise OpError(f"{p.target} cannot go past {int(top / base * 100)}%")
+        raise BadValue(f"{p.target} cannot go past {int(top / base * 100)}%")
     setattr(audio, field_name, round(value, 4))
     return f"{p.target.capitalize()} at {p.percent}%"
 
@@ -283,7 +288,7 @@ def _apply_set_ambience(state: PipelineState, p: SetAmbience) -> str:
         return f"{where}: no added ambience"
     kind = (p.kind or "").lower().strip()
     if kind != "none" and kind not in music.AMBIENCE:
-        raise OpError("which ambience? " + ", ".join([*music.AMBIENCE, "none"]))
+        raise BadValue("which ambience? " + ", ".join([*music.AMBIENCE, "none"]))
     if p.scene is None:
         # A film-wide choice replaces what scenes had, so it is what is heard everywhere.
         audio.ambience = {"*": kind}
@@ -329,12 +334,12 @@ def _apply_set_graphics(state: PipelineState, p: SetGraphics) -> str:
             setattr(spec, field_name, value.strip() or None)
             said.append(f"{words} {'set' if value.strip() else 'back to the default'}")
     if not said:
-        raise OpError("which titles? " + ", ".join(GRAPHIC_WORDS.values()))
+        raise BadValue("which titles? " + ", ".join(GRAPHIC_WORDS.values()))
     # Text with its graphic still off would never be seen; say so rather than save a no-op.
     if p.title_text and not spec.title_card:
-        raise OpError("turn the title card on to give it a title")
+        raise BadValue("turn the title card on to give it a title")
     if (p.end_text or p.credits_text) and not spec.end_card:
-        raise OpError("turn the end card on to give it text")
+        raise BadValue("turn the end card on to give it text")
     return "Titles: " + ", ".join(said)
 
 
@@ -381,7 +386,7 @@ def _apply_edit_line(state: PipelineState, p: EditLine) -> str:
     n, line = find_line(scene, p.line)
     text = p.text.strip()
     if not text:
-        raise OpError("what should the line say?")
+        raise BadValue("what should the line say?")
     line.text = text
     line.duration_ms = estimate_line_ms(text)
     # The scene's estimated length follows its lines, as on the storyboard.
@@ -416,9 +421,9 @@ def _apply_set_voice(state: PipelineState, p: SetVoice) -> str:
         raise OpError(NEEDS_FILM)
     c = find_character(state, p.character)
     if p.tone is not None and p.tone.lower() not in TONE_PRESETS:
-        raise OpError("which tone? " + ", ".join(TONE_PRESETS))
+        raise BadValue("which tone? " + ", ".join(TONE_PRESETS))
     if p.tone is None and not p.different:
-        raise OpError(f"what about {c.name}'s voice? a tone, or a different voice")
+        raise BadValue(f"what about {c.name}'s voice? a tone, or a different voice")
     if not any(s.character_id == c.id for s in state.audio.manifest.segments if s.kind == "dialogue"):
         raise OpError(f"{c.name} has no lines to record")
     what = " ".join(w for w in ((p.tone or "").lower(), "a different voice" if p.different else "voice") if w)
@@ -486,9 +491,9 @@ def _apply_set_effect(state: PipelineState, p: SetEffect) -> str:
             s.effect = None
         return f"{where}: no effect"
     if kind not in finish.EFFECTS:
-        raise OpError("which effect? " + ", ".join([*finish.EFFECTS, "none"]))
+        raise BadValue("which effect? " + ", ".join([*finish.EFFECTS, "none"]))
     if p.strength not in finish.STRENGTHS:
-        raise OpError("how strong? " + ", ".join(finish.STRENGTHS))
+        raise BadValue("how strong? " + ", ".join(finish.STRENGTHS))
     for _i, s in scenes:
         s.effect = EffectSpec(kind=kind, strength=p.strength)
     how = "" if p.strength == "normal" else p.strength + " "
@@ -596,7 +601,7 @@ def _run(op: Op, state: PipelineState, parsed: BaseModel) -> str:
     except OpError:
         raise
     except ValueError as e:
-        raise OpError(str(e)) from None
+        raise BadValue(str(e)) from None
 
 
 def check(state: PipelineState, name: str, params: Mapping[str, Any]) -> str:

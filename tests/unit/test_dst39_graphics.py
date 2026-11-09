@@ -116,7 +116,7 @@ def test_braces_and_backslashes_in_a_title_cannot_inject_ass_codes():
     script.story.graphics.title_text = r"Hello {\fs1}\N world"
     ass = graphics.build_ass(script, manifest, 1920, 1080)
     line = [l for l in ass.splitlines() if "Hello" in l][0]
-    assert r"{\fs1}" not in line and "Hello fs1N world" in line
+    assert r"{\fs1}" not in line and "Hello world" in line      # tags and escapes leave no debris (DST-43)
 
 
 def test_the_fonts_are_the_unmodified_interface_fonts_with_their_licences():

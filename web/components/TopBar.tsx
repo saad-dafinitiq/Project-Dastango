@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
 
 import { useSession } from "./AuthGate";
 import { Logo } from "./Logo";
@@ -25,9 +26,22 @@ type Props = {
   here?: "films" | "docs";
 };
 
+const THEMES = ["system", "light", "dark"] as const;
+
 export function TopBar({ stage, film, here }: Props) {
   const { user, github, notice, dismiss, signOut } = useSession();
   const { choice, choose } = useTheme();
+  const themeButtons = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // One radio group: one tab stop (the chosen one), arrow keys move and choose (DST-43).
+  function themeKey(e: React.KeyboardEvent, i: number) {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const next = (i + step + THEMES.length) % THEMES.length;
+    choose(THEMES[next]!);
+    themeButtons.current[next]?.focus();
+  }
   const at = stage ? STAGES.findIndex((s) => s.id === stage) : -1;
   const initial = (user.email.trim()[0] ?? "?").toUpperCase();
 
@@ -78,9 +92,20 @@ export function TopBar({ stage, film, here }: Props) {
               <p className={styles.themeLabel} id="theme-label">
                 Appearance
               </p>
-              <div className={styles.themes} role="group" aria-labelledby="theme-label">
-                {(["system", "light", "dark"] as const).map((t) => (
-                  <button key={t} type="button" aria-pressed={choice === t} onClick={() => choose(t)}>
+              <div className={styles.themes} role="radiogroup" aria-labelledby="theme-label">
+                {THEMES.map((t, i) => (
+                  <button
+                    key={t}
+                    ref={(el) => {
+                      themeButtons.current[i] = el;
+                    }}
+                    type="button"
+                    role="radio"
+                    aria-checked={choice === t}
+                    tabIndex={choice === t ? 0 : -1}
+                    onClick={() => choose(t)}
+                    onKeyDown={(e) => themeKey(e, i)}
+                  >
                     {t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}
                   </button>
                 ))}

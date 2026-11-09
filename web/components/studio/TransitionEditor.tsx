@@ -224,12 +224,18 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
               </output>
             </div>
           )}
+          {t.kind !== "cut" && t.max_ms !== undefined && shown > t.max_ms && (
+            <p className={styles.note} role="status">
+              Held to {(t.max_ms / 1000).toFixed(2)} s here: a transition can take at most half of the shorter shot it joins, so a
+              longer one would swallow the shot. Make the shots longer, or choose a shorter length.
+            </p>
+          )}
           {t.kind === "cut" && <p className={styles.note}>A cut has no speed: it is straight to the next shot.</p>}
         </div>
 
         {before && (
           <>
-            <div className={styles.cutPreview} aria-label="The two shots this cut joins">
+            <div className={styles.cutPreview} role="group" aria-label="The two shots this cut joins">
               <div className={styles.cutHalf}>
                 <ShotPicture shot={before.shot} preview={before.card.preview_url} portrait={before.shot.character_id ? portraits[before.shot.character_id] : undefined} />
               </div>

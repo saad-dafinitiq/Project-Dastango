@@ -48,13 +48,18 @@ class Style:
     main: bool = False        # offered first in the picker
 
 
+# The zoom is not one of ffmpeg's xfade styles (its `zoomin` magnifies the last shot into a blur and
+# a flat colour before the next one appears): shared/xfade.py makes it from a scale animation and a
+# plain fade (DST-43). It needs nothing from ffmpeg but `fade`.
+ZOOM = "zoomthrough"
+
 STYLES: Tuple[Style, ...] = (
     Style("cut", "Cut", "Straight to the next shot. The default inside a scene.", None, True),
     Style("fade", "Soft fade", "One picture dissolves into the next. The default between scenes.", "fade", True),
     Style("fadeblack", "Dip to black", "Down to black and up again: a pause, a change of time.", "fadeblack", True),
     Style("wipe", "Wipe", "A line sweeps across and uncovers the next shot.", "wipeleft", True),
     Style("slide", "Slide", "The next shot pushes the last one out of the frame.", "slideleft", True),
-    Style("zoom", "Zoom", "The camera pushes into the last shot and arrives in the next.", "zoomin", True),
+    Style("zoom", "Zoom", "The camera pushes into the last shot and settles into the next.", ZOOM, True),
     Style("circleopen", "Circle open", "An opening circle reveals the next shot.", "circleopen"),
     Style("radial", "Radial", "A sweep like a clock hand uncovers the next shot.", "radial"),
     Style("dissolve", "Dissolve", "A grainy dissolve, rougher than the soft fade.", "dissolve"),
@@ -88,9 +93,9 @@ def available_xfades() -> Set[str]:
         out = subprocess.run(["ffmpeg", "-hide_banner", "-h", "filter=xfade"], capture_output=True,
                              text=True, timeout=20).stdout
     except (OSError, subprocess.SubprocessError):
-        return {"fade"}
+        return {"fade", ZOOM}
     names = set(re.findall(r"^\s{4,}([a-z]+)\s", out, re.M))
-    return names or {"fade"}
+    return (names or {"fade"}) | {ZOOM}
 
 
 def styles() -> List[Style]:

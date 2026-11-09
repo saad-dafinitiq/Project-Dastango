@@ -77,8 +77,17 @@ def revert(project_id: str, version: int):
     Runs on a worker like any job that writes a version, so it waits for the
     project's running job instead of restoring files underneath it.
     """
-    if not sm.storage.get_version(project_id, version):
+    target = sm.load_version(project_id, version)
+    if target is None:
         raise HTTPException(404, f"no version v{version} for {project_id}")
+    # A draft made before the first render has no film. Going back to it from a film would leave the
+    # creator with a sketch and no video; the film's own versions (`/film`) are the ones to go back to.
+    now = sm.latest(project_id)
+    has_film = lambda s: bool(s and s.video and s.video.final_video_path)  # noqa: E731
+    if has_film(now) and not has_film(target):
+        raise HTTPException(409, f"version v{version} is a storyboard draft with no film, so going back to it "
+                                 "would leave this project without a video. Choose a version from the film's "
+                                 "own list (GET /api/history/{id}/film).")
     try:
         job, _final = run_and_wait("revert", project_id, {"version": version})
     except TimeoutError as e:

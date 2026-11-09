@@ -45,7 +45,10 @@ export function describe(ev: ProgressEvent | undefined): string {
       // say so instead of a plain "ready" (DST-17).
       const off = ev.payload?.length_warning as { film_s: number; target_s: number } | undefined;
       const lengthNote = off ? `, but it came out ${Math.round(off.film_s)} s for a ${off.target_s} s target` : "";
-      if (ev.payload?.kind === "edit") return `Change made${lengthNote}`;
+      if (ev.payload?.kind === "edit") {
+        const left = ev.payload?.not_done as string[] | undefined;
+        return left?.length ? `Change made. Not done: ${left.join("; ")}` : `Change made${lengthNote}`;
+      }
       if (ev.payload?.kind === "revert") return ev.message;
       return `Your film is ready${lengthNote}`;
     }
