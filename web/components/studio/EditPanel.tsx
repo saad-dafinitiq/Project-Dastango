@@ -13,6 +13,8 @@ type Props = {
   /** The edit or revert being followed, if any. */
   events: ProgressEvent[];
   running: boolean;
+  /** Stop was pressed: it ends at the next safe point, which may be some seconds away. */
+  cancelling?: boolean;
   elapsed: number | null;
   onSubmit: (query: string) => Promise<void>;
   onStop: () => void;
@@ -32,7 +34,7 @@ function suggestionsFor(film: FilmPlayback, cast: CastMember[]): string[] {
 }
 
 /** "Change something": one sentence, then the film is made again around it. */
-export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onStop }: Props) {
+export function EditPanel({ film, cast, events, running, cancelling = false, elapsed, onSubmit, onStop }: Props) {
   const [query, setQuery] = useState("");
   const [sending, setSending] = useState(false);
   const ideas = useMemo(() => suggestionsFor(film, cast), [film, cast]);
@@ -97,16 +99,17 @@ export function EditPanel({ film, cast, events, running, elapsed, onSubmit, onSt
           <p className={styles.editLine}>
             {running && <span className="pip" />}
             <span className={failed ? styles.statusFailed : undefined}>
-              {failed ? `Couldn’t make that change: ${reason(last.message)}` : describe(last)}
+              {failed ? `Couldn’t make that change: ${reason(last.message)}` : cancelling ? "Cancelling… the step that is running has to finish first" : describe(last)}
             </span>
             {running && elapsed != null && <span className="meta">· {elapsed}s</span>}
-            {running && (
+            {running && !cancelling && (
               <button className="btn quiet small" type="button" onClick={onStop}>
                 Stop
               </button>
             )}
           </p>
-          {running && expect && <p className={styles.editNote}>{expect} You can keep watching meanwhile.</p>}
+          {running && cancelling && <p className={styles.editNote}>This can take a moment. Nothing will be changed.</p>}
+          {running && !cancelling && expect && <p className={styles.editNote}>{expect} You can keep watching meanwhile.</p>}
           {failed && <p className={styles.editNote}>Nothing was changed. The film is as it was.</p>}
         </div>
       )}

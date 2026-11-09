@@ -900,7 +900,10 @@ class VideoAgent:
         clips: Dict[str, Path] = {}
         effects = {sc.scene_id: sc.effect for sc in (state.script.scenes if state.script else [])
                    if sc.effect}
+        looks_total = sum(1 for scene_id, _planned in scenes if scene_id in effects)
+        looks_done = 0
         for scene_id, planned in scenes:
+            progress_hook.pulse()
             clips[scene_id] = assemble_scene(
                 [next(paths) for _ in planned], scene_dir / f"{scene_id}.mp4",
                 durations_s=[p.render_frames / video.fps for p in planned],
@@ -912,9 +915,12 @@ class VideoAgent:
                 # Drawn over the finished scene, frame by frame; same frame count out as in.
                 from shared import finish
                 raw = clips[scene_id]
+                progress_hook.report("looks", looks_done, looks_total)
                 done = finish.apply(raw, scene_dir / f"{scene_id}_fx.mp4", effects[scene_id].kind,
                                     effects[scene_id].strength, video.fps)
                 done.replace(raw)
+                looks_done += 1
+                progress_hook.report("looks", looks_done, looks_total)
                 log.info("  scene %s: %s (%s)", scene_id, effects[scene_id].kind, effects[scene_id].strength)
         return clips
 

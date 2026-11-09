@@ -53,9 +53,17 @@ def job_events(job_id: str, after: int = 0, limit: int = Query(200, ge=1, le=100
 @router.post("/{job_id}/cancel")
 def cancel_job(job_id: str, user: User = Depends(require_user)):
     """Stop a job. Queued stops at once; running stops at its next step."""
-    if _owned(job_queue.get(job_id), user) is None:
+    job = _owned(job_queue.get(job_id), user)
+    if job is None:
         raise HTTPException(404, f"no job {job_id}")
+    already = bool(job.cancel_requested)
     status = job_queue.cancel(job_id)
     if status is None:
         raise HTTPException(404, f"no job {job_id}")
+    if status == "cancelling" and not already:
+        # A running job stops at its next check, which can be some seconds away: say so in its event
+        # log, so every page following the job (and one opened later, which replays the log) shows
+        # "Cancelling" instead of carrying on as if nothing had been asked (DST-41).
+        job_queue.append_event(job_id, job.project_id, phase="cancelling", status="cancelling",
+                               message="Cancelling", progress=0.0)
     return {"job_id": job_id, "status": status}

@@ -12,6 +12,8 @@ type Props = {
   now: number;
   elapsed: number | null;
   failed: boolean;
+  /** Stop was pressed: it ends at the next safe point, which may be some seconds away. */
+  cancelling?: boolean;
   /** The failure's reason, from the last event. */
   failure?: string;
   /** The film's planned length, for the "usually takes" line. */
@@ -26,7 +28,7 @@ const dotClass = (s: StageState) => (s === "now" ? "dot now" : s === "bad" ? "do
 /** What a render says while it runs: what it is doing now (from real step counts), what
  *  is done and how long each took, how long a film this long usually takes, and that
  *  leaving is safe (F3). When it stops, what is kept and how to go on (F13). */
-export function RenderProgress({ cards, events, now, elapsed, failed, failure, filmSeconds, onStop, onTryAgain, onBack }: Props) {
+export function RenderProgress({ cards, events, now, elapsed, failed, cancelling = false, failure, filmSeconds, onStop, onTryAgain, onBack }: Props) {
   const view = renderView(events, now, failed);
   const usual = typicalTime(filmSeconds);
 
@@ -34,11 +36,13 @@ export function RenderProgress({ cards, events, now, elapsed, failed, failure, f
     <>
       <div className={styles.work}>
         <section className={styles.main} aria-live="polite">
-          <h1 className="title">{failed ? "The render stopped." : view.headline}</h1>
+          <h1 className="title">{failed ? "The render stopped." : cancelling ? "Cancelling the render…" : view.headline}</h1>
           <p className={`${styles.lede} ${failed ? styles.problem : ""}`}>
             {failed
               ? `${(reason(failure) || "Something went wrong").replace(/[.\s]+$/, "")}. Your storyboard and your edits are kept. Trying again renders from the start.`
-              : `A film this long usually takes ${usual}. You can leave: it will be in Films when it's done.`}
+              : cancelling
+                ? "Stopping at the next safe point: the step that is running has to finish first, so this can take a moment. Your storyboard and your edits are kept."
+                : `A film this long usually takes ${usual}. You can leave: it will be in Films when it's done.`}
           </p>
           {!failed && (
             <div className={styles.bar} role="progressbar" aria-label="Render progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(view.fraction * 100)}>
@@ -122,7 +126,7 @@ export function RenderProgress({ cards, events, now, elapsed, failed, failure, f
           <p>
             <span className={styles.clock}>{elapsed != null ? clock(elapsed) : "00:00"}</span> {failed ? "before it stopped" : "so far"}
             <br />
-            {failed ? "Nothing in your storyboard changed" : "You can leave"}
+            {failed ? "Nothing in your storyboard changed" : cancelling ? "Cancelling…" : "You can leave"}
           </p>
           {failed ? (
             <>
@@ -134,8 +138,8 @@ export function RenderProgress({ cards, events, now, elapsed, failed, failure, f
               </button>
             </>
           ) : (
-            <button className="btn" onClick={onStop}>
-              Stop rendering
+            <button className="btn" onClick={onStop} disabled={cancelling}>
+              {cancelling ? "Cancelling…" : "Stop rendering"}
             </button>
           )}
         </div>

@@ -17,6 +17,18 @@ os.environ.setdefault("PROVIDER_IMAGE", "placeholder")
 # Real credentials must never reach the tests: they would spend the owner's free
 # quota and make results depend on which keys happen to be present on a machine.
 os.environ["PIPELINE_SKIP_DOTENV"] = "1"      # main.py skips loading .env
+
+# MoviePy (shared/finish.py) runs load_dotenv(find_dotenv()) when it is first imported, which
+# would put the whole of a developer's .env into the process the first time a test touched it
+# (DST-41). Import it now and take out what the import added; unlike the list below this also
+# covers the storage, sign-in and voice settings a .env holds.
+_before_moviepy = set(os.environ)
+try:
+    import moviepy  # noqa: F401
+except ImportError:         # the effects tests skip themselves without it
+    pass
+for _added in set(os.environ) - _before_moviepy:
+    os.environ.pop(_added, None)
 for _credential in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
                     "ANTHROPIC_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN",
                     "POLLINATIONS_API_KEY", "AGNES_API_KEY", "ELEVENLABS_API_KEY", "FAL_KEY",

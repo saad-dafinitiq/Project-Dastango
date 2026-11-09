@@ -42,6 +42,7 @@ class VideoQuality:
     final_preset: str
     final_profile: str
     pix_fmt: str
+    grain_maxrate_kbps: int
     # How a scene is shot (DST-36).
     min_shots: int
     max_shots: int
@@ -112,6 +113,8 @@ def load(path: Optional[Path | str] = None) -> VideoQuality:
         final_preset=_choice(encode, "encode", "final_preset", PRESETS, target),
         final_profile=_choice(encode, "encode", "final_profile", PROFILES, target),
         pix_fmt=_choice(encode, "encode", "pix_fmt", PIX_FMTS, target),
+        grain_maxrate_kbps=_number(encode, "encode", "grain_maxrate_kbps", target, int, low=1000,
+                                   high=50000, inclusive_low=True),
         min_shots=min_shots,
         max_shots=max_shots,
         typical_shot_s=_number(coverage, "coverage", "typical_shot_s", target, float, low=1,

@@ -314,6 +314,10 @@ def change_spec(project_id: str, change: SpecChange, user: User = Depends(requir
     return _accepted("respec", project_id, "queued", user, max_attempts=1, format=fmt, style=style)
 
 
+# Jobs that change or render a film: a render waits for them to finish rather than queue behind them.
+RENDER_BLOCKERS = ("op", "ops", "edit", "shot", "revert", "render", "respec")
+
+
 @router.post("/render/{project_id}", response_model=RunResponse)
 def start_render(project_id: str, req: RenderRequest,
                  user: User = Depends(require_project)):
@@ -322,6 +326,13 @@ def start_render(project_id: str, req: RenderRequest,
     if not state or not state.script:
         raise HTTPException(404, f"no storyboard to render for {project_id}")
     _check_engine(req.tts_engine)
+    # Not while the film is being changed or already rendered: a render queued behind an edit starts
+    # again from the script and spends minutes redrawing a film that was being edited (DST-41), and a
+    # double click would queue two. (A render may still follow its own plan: that is not listed.)
+    busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done and j.kind in RENDER_BLOCKERS]
+    if busy:
+        raise HTTPException(409, f"This film is being worked on right now ({busy[0].kind}); "
+                                 "try again when it has finished.")
     return _accepted(
         "render", project_id, "rendering", user,
         with_bgm=req.with_bgm, with_subtitles=req.with_subtitles,

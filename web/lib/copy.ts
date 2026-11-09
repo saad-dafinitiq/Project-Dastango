@@ -49,6 +49,8 @@ export function describe(ev: ProgressEvent | undefined): string {
       if (ev.payload?.kind === "revert") return ev.message;
       return `Your film is ready${lengthNote}`;
     }
+    case "cancelling:cancelling":
+      return "Cancelling";
     case "cancelled:cancelled":
       return "Stopped";
     case "error:retrying":

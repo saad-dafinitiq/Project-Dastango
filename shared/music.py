@@ -174,13 +174,22 @@ def cut_bed(src: Path, offset_ms: int, duration_ms: int, out: Path,
     """`duration_ms` of the track, from `offset_ms` into it (the track repeats), as 22.05 kHz mono."""
     dur = max(0.05, duration_ms / 1000.0)
     fi, fo = fade_in_ms / 1000.0, fade_out_ms / 1000.0
-    # The seek is on the input and the clock is reset: the fades are timed from the start of the
-    # bed. (Seeking on the output left the clock at the offset, so a scene that began 18 s into a
-    # track had already "faded out" and came out silent.)
-    af = (f"asetpts=PTS-STARTPTS,aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,"
-          f"afade=t=in:st=0:d={fi:.3f},afade=t=out:st={max(0.0, dur - fo):.3f}:d={fo:.3f}")
+    start = offset_ms / 1000.0
+    # The bed is cut inside the filter chain, by sample, and the clock is reset, so the fades are timed
+    # from the start of the bed. Two earlier ways went wrong. Seeking on the output left the clock at the
+    # offset, so a scene that began 18 s into a track had already "faded out" and came out silent. Seeking
+    # on the input (`-ss` before `-i`) made the MP3 decoder start cold: every bed from a non-zero offset began
+    # with 43 to 68 ms of digital silence, which with the fades was the hole heard at every scene cut (DST-41).
+    # A fade of 0 is no fade: where one bed carries straight on into the next (the same track across a cut)
+    # the two meet with nothing between them.
+    af = (f"atrim=start={start:.4f}:end={start + dur:.4f},asetpts=PTS-STARTPTS,"
+          f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono")
+    if fi > 0:
+        af += f",afade=t=in:st=0:d={fi:.3f}"
+    if fo > 0:
+        af += f",afade=t=out:st={max(0.0, dur - fo):.3f}:d={fo:.3f}"
     out.parent.mkdir(parents=True, exist_ok=True)
-    _run(["ffmpeg", "-y", "-ss", f"{offset_ms / 1000.0:.3f}", "-stream_loop", "-1", "-i", str(src),
+    _run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", str(src),
           "-t", f"{dur:.3f}", "-af", af, "-c:a", "pcm_s16le", str(out)])
     return out
 
@@ -192,17 +201,27 @@ def silence(duration_ms: int, out: Path) -> Path:
     return out
 
 
-def ambience_bed(kind: str, duration_ms: int, out: Path, fade_ms: int = 300) -> Path:
+def ambience_bed(kind: str, duration_ms: int, out: Path, fade_ms: int = 300,
+                 fade_in_ms: Optional[int] = None, fade_out_ms: Optional[int] = None) -> Path:
+    """`duration_ms` of an ambience, 22.05 kHz mono. `fade_ms` fades both ends; `fade_in_ms` and
+    `fade_out_ms` say each end on its own (0 is none, for a bed that carries straight on)."""
     spec = AMBIENCE.get(kind)
     if not spec:
         raise MusicError(f"unknown ambience {kind!r}: {', '.join(AMBIENCE)}")
     dur = max(0.05, duration_ms / 1000.0)
-    fade = min(fade_ms / 1000.0, dur / 3)
-    af = (f"{spec['af']},volume={spec['gain']}dB,alimiter=limit=0.9,aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,"
-          f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={max(0.0, dur - fade):.3f}:d={fade:.3f}")
+    fi = min((fade_ms if fade_in_ms is None else fade_in_ms) / 1000.0, dur / 3)
+    fo = min((fade_ms if fade_out_ms is None else fade_out_ms) / 1000.0, dur / 3)
+    # The limiter looks ahead 5 ms and so starts every bed with 5 ms of silence: draw 10 ms more and cut the
+    # first 5 ms off (DST-41), or a bed that carries on across a scene cut begins with a gap.
+    af = (f"{spec['af']},volume={spec['gain']}dB,alimiter=limit=0.9,atrim=start=0.005,asetpts=PTS-STARTPTS,"
+          f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono")
+    if fi > 0:       # none where the same ambience carries straight on (see cut_bed)
+        af += f",afade=t=in:st=0:d={fi:.3f}"
+    if fo > 0:
+        af += f",afade=t=out:st={max(0.0, dur - fo):.3f}:d={fo:.3f}"
     out.parent.mkdir(parents=True, exist_ok=True)
-    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"{spec['src']}:sample_rate={SAMPLE_RATE}:duration={dur:.3f}",
-          "-af", af, "-c:a", "pcm_s16le", str(out)])
+    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"{spec['src']}:sample_rate={SAMPLE_RATE}:duration={dur + 0.01:.3f}",
+          "-af", af, "-t", f"{dur:.3f}", "-c:a", "pcm_s16le", str(out)])
     return out
 
 

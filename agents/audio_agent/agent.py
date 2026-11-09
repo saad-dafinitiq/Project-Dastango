@@ -11,6 +11,7 @@ The three steps are public so edits can reuse them:
     remix()        -> rebuild BGM + master from the timeline
 """
 from __future__ import annotations
+import math
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -35,7 +36,8 @@ log = get_logger("audio_agent")
 
 DEFAULT_VOICE = "en-US-GuyNeural"
 _SILENT = ProviderSpec(role="tts", provider="silent")
-# Music's level is AudioOutput.music_volume (0.32: louder than it once was, since it ducks).
+# The mix is set relative to the dialogue (mcp/tools/audio_tools/audio_merger.py, DST-41): music_volume 0.32,
+# ambience_volume 0.22 and voice_volume 1.0 are "100%", the multipliers on levels fixed in LUFS, not absolute gains.
 
 # Kokoro voices (open-source engine): af_/am_ are US, bf_/bm_ British.
 KOKORO_VOICES = {
@@ -203,13 +205,23 @@ class AudioAgent:
         manifest.total_duration_ms = total_ms
         return manifest
 
+    @staticmethod
+    def _tone_offset_db(audio: AudioOutput, seg: AudioSegment) -> float:
+        """How far this line is meant to sit from the other lines, in dB: a whispered tone (volume
+        0.7) or a shout (1.3) was recorded that much off normal, and the mix, which brings every line
+        to one loudness (DST-41), puts it back rather than erase it."""
+        cfg = (audio.scene_voices.get(seg.scene_id) or {}).get(seg.character_id) or next(
+            (c for c in audio.voice_configs if c.character_id == seg.character_id), None)
+        volume = cfg.volume if cfg else 1.0
+        return round(20.0 * math.log10(min(2.0, max(0.1, volume))), 2)
+
     def remix(self, state: PipelineState) -> str:
         """Rebuild the BGM bed (if enabled) and the master track from the timeline."""
         audio = state.audio
         audio.bgm_track = self._render_bgm(state) if audio.bgm_enabled else None
         audio.ambience_track = self._render_ambience(state)
         out = project_dir(state.project_id) / "audio" / "master.wav"
-        placements = [{"path": s.file_path, "start_ms": s.start_ms}
+        placements = [{"path": s.file_path, "start_ms": s.start_ms, "offset_db": self._tone_offset_db(audio, s)}
                       for s in audio.manifest.segments if s.kind == "dialogue"]
         merge = self.tools.execute(
             "audio.merge",
@@ -400,8 +412,8 @@ class AudioAgent:
                     length = music.track_seconds(choice, audio.uploads)
                     offset = int(timing.start_ms % int(length * 1000)) if length else 0
                     music.cut_bed(music.track_path(choice, audio.uploads), offset, timing.duration_ms,
-                                  out_file, fade_in_ms=350 if choice != before else 20,
-                                  fade_out_ms=350 if choice != after else 20)
+                                  out_file, fade_in_ms=350 if choice != before else 0,
+                                  fade_out_ms=350 if choice != after else 0)
                 parts.append(out_file)
             except (music.MusicError, subprocess.CalledProcessError) as exc:
                 log.warning("music failed for %s (%s); using generated tones", timing.scene_id, exc)
@@ -431,9 +443,12 @@ class AudioAgent:
                 music.silence(timing.duration_ms, out_file)
             else:
                 # Fade only where the ambience begins or ends; between two scenes of the same
-                # kind it is a short fade so the join is clean.
-                changes = i == 0 or wanted[i - 1] != kind
-                music.ambience_bed(kind, timing.duration_ms, out_file, fade_ms=300 if changes else 20)
+                # kind it carries straight on, with no fade at all (a fade out and a fade in left a
+                # hole at every cut, DST-41). Where the kind changes, each bed fades at its own end.
+                starts = i == 0 or wanted[i - 1] != kind
+                ends = i + 1 == len(wanted) or wanted[i + 1] != kind
+                music.ambience_bed(kind, timing.duration_ms, out_file,
+                                   fade_in_ms=300 if starts else 0, fade_out_ms=300 if ends else 0)
             parts.append(out_file)
         return str(music.join(parts, amb_dir / "ambience_full.wav"))
 

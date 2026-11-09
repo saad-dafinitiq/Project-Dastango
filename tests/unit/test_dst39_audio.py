@@ -92,19 +92,30 @@ def test_a_bed_is_cut_to_the_millisecond_and_a_track_carries_on_across_scenes(tm
 
 # ---- the mix --------------------------------------------------------------------------------
 
+def _band_db(path, hz: int) -> float:
+    """Mean level of one tone in a mix, so the voice and the bed can each be read alone."""
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
+                          f"bandpass=f={hz}:width_type=h:w=100,volumedetect", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    return float(re.search(r"mean_volume: (-?[\d.]+) dB", err).group(1))
+
+
 def test_voices_and_the_music_levels_move_the_balance(tmp_path):
     from mcp.tool_executor import ToolExecutor
     tools = ToolExecutor()
     voice = _tone(tmp_path / "v.wav", 3, 220)
     bed = _tone(tmp_path / "m.wav", 3, 880)
-    levels = {}
+    voices, beds = {}, {}
     for name, vol, bgm_vol in (("base", 1.0, 0.32), ("quiet_voice", 0.5, 0.32), ("loud_music", 1.0, 0.96)):
         res = tools.execute("audio.merge", out_path=str(tmp_path / f"{name}.wav"), placements=[{"path": str(voice), "start_ms": 0}],
                             total_ms=3000, bgm=str(bed), bgm_volume=bgm_vol, dialogue_volume=vol, duck=False, loudness=False)
         assert res.success, res.error
-        levels[name] = _mean_volume(res.data)
-    assert levels["quiet_voice"] < levels["base"] - 3                         # about 6 dB lower
-    assert levels["loud_music"] > levels["base"] + 1.5          # a third voice sine already in the mix
+        voices[name], beds[name] = _band_db(res.data, 220), _band_db(res.data, 880)
+    # Since DST-41 the music is set relative to the voice, so each slider is read on its own tone.
+    assert voices["quiet_voice"] == pytest.approx(voices["base"] - 6.0, abs=1.0)        # 50% is 6 dB down
+    assert beds["quiet_voice"] == pytest.approx(beds["base"], abs=0.5)                  # the music did not move
+    assert beds["loud_music"] == pytest.approx(beds["base"] + 9.5, abs=1.0)             # three times the gain
+    assert voices["loud_music"] == pytest.approx(voices["base"], abs=0.5)               # the voice did not move
 
 
 def test_ambience_is_mixed_in_even_with_no_music(tmp_path):

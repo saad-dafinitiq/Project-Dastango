@@ -66,6 +66,14 @@ encode:
   # the index to the front so the web player can start and seek at once.
   final_profile: high
   pix_fmt: yuv420p
+  # A scene with film grain is encoded under this ceiling (DST-41). Grain is new noise on every
+  # frame, which no encoder can predict, so at the film's own CRF it dominates the file: on a real
+  # 6 s 1080p scene (2.7 MB plain) uniform temporal grain at the strengths the Look panel offers was
+  # 3 MB (barely visible), 7 MB and 24 MB, and the old MoviePy grain made the 17 s test film
+  # 29, 49 and 69 MB where it was 3.9 MB; every version snapshot copies the clips. Under 8 Mb/s the
+  # strongest grain is thinned by the encoder instead of growing the file, and a grained scene stays
+  # near a megabyte a second.
+  grain_maxrate_kbps: 8000
 
 coverage:
   # How a scene is shot (DST-36): 2 to 4 shots per scene, each framed for its job.

@@ -53,15 +53,30 @@ STEP_PHASE = {"voices": "audio", "portraits": "video", "pictures": "video",
               "shots": "video", "cut": "video"}
 
 
+# What a report is called while a finished film is being changed (the edit's own words).
+EDIT_STEP_WORDS = {"shots": "Drawing the shots", "looks": "Drawing the look over the scenes",
+                   "cut": "Cutting the film"}
+
+
 @contextlib.contextmanager
-def _following_steps(emit, project_id):
+def _following_steps(emit, project_id, editing=False):
     """Turn the agents' step reports into progress events while a job runs, so the
-    creator sees "shots 7 of 12" rather than one sentence for four minutes (DST-38)."""
+    creator sees "shots 7 of 12" rather than one sentence for four minutes (DST-38).
+
+    While a finished film is being changed (`editing`) the events are the edit's own
+    (phase "edit", in words), and Stop lands between them: every event, and every `pulse()` from
+    work that runs long between events, checks whether the job was cancelled (DST-41)."""
     def sink(step, done, total):
+        payload = {"step": step, "done": done, "total": total}
+        if editing:
+            words = EDIT_STEP_WORDS.get(step, "Working on it")
+            emit(ProgressEvent(phase="edit", status="step", project_id=project_id,
+                               message=f"{words} ({done} of {total})" if total > 1 else words,
+                               progress=0.0, payload=payload))
+            return
         emit(ProgressEvent(phase=STEP_PHASE.get(step, "video"), status="step",
-                           project_id=project_id, message=step,
-                           progress=0.0, payload={"step": step, "done": done, "total": total}))
-    token = progress_hook.listen(sink)
+                           project_id=project_id, message=step, progress=0.0, payload=payload))
+    token = progress_hook.listen(sink, getattr(emit, "check_cancelled", None))
     try:
         yield
     finally:
@@ -562,7 +577,8 @@ class PipelineOrchestrator:
                         progress=0.1 + 0.85 * info["index"] / max(info["total"], 1),
                         payload=info))
 
-            result = self.editor.apply_op(project_id, op, params, on_progress=hear)
+            with _following_steps(emit, project_id, editing=True):
+                result = self.editor.apply_op(project_id, op, params, on_progress=hear)
             if not result.success:
                 raise EditFailed(result.error or "the change could not be made")
             emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
@@ -611,7 +627,8 @@ class PipelineOrchestrator:
                         message=STEP_WORDS.get(info["name"], "Working on it"),
                         progress=0.1 + 0.85 * info["index"] / max(info["total"], 1), payload=info))
 
-            result = self.editor.apply_ops(project_id, items, on_progress=hear)
+            with _following_steps(emit, project_id, editing=True):
+                result = self.editor.apply_ops(project_id, items, on_progress=hear)
             if not result.success:
                 raise EditFailed(result.error or "the changes could not be made")
             emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
@@ -664,8 +681,9 @@ class PipelineOrchestrator:
                                    progress=0.1 + 0.85 * info["index"] / max(info["total"], 1),
                                    payload=info))
 
-        result = self.editor.edit(EditCommand(project_id=project_id, query=query,
-                                              user_id=user_id), on_progress=progress)
+        with _following_steps(emit, project_id, editing=True):
+            result = self.editor.edit(EditCommand(project_id=project_id, query=query,
+                                                  user_id=user_id), on_progress=progress)
         if not result.success:
             raise EditFailed(result.error or "the edit could not be applied")
         note, notes = self._completion_notes(self.sm.latest(project_id))
