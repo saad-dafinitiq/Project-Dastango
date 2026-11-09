@@ -17,7 +17,7 @@ from state_manager.state_manager import StateManager
 
 from . import ops
 from .executor import EditExecutor
-from .intent_classifier import IntentClassifier
+from .intent_classifier import IntentClassifier, split_request
 from .planner import EditStep, plan as plan_steps
 
 log = get_logger("edit_agent")
@@ -53,6 +53,12 @@ class EditAgent:
                 intent=EditIntent(intent="noop", target="video", scope="global"),
                 error=f"no project state for {command.project_id}",
             )
+
+        parts = split_request(command.query)
+        if len(parts) > 1:
+            several = self._edit_several(command, state, parts, progress)
+            if several is not None:
+                return several
 
         intent = self.classifier.classify(command.query, *self._context(state))
         log.info("[%s] classified '%s' -> %s/%s/%s %s",
@@ -118,6 +124,52 @@ class EditAgent:
                          intent.model_dump(mode="json"),
                          result.model_dump(mode="json"))
         return result
+
+    def _edit_several(self, command: EditCommand, state: PipelineState, parts: List[str],
+                      progress: Callable[[str, Dict[str, Any]], None]) -> Optional[EditResult]:
+        """A sentence that asks for more than one thing ("add rain and make the music quieter"),
+        DST-43. Each part is read on its own. The parts that are shared operations are applied
+        together as one version; every other part is listed in `not_done` with why, so half a
+        sentence is never dropped without a word. None: nothing in it was understood as a unit,
+        so the whole sentence goes the ordinary way."""
+        items: List[Dict[str, Any]] = []
+        understood: List[str] = []
+        not_done: List[str] = []
+        other: List[Tuple[str, EditIntent]] = []          # understood, but not a shared operation
+        for part in parts:
+            try:
+                intent = self.classifier.classify(part, *self._context(state))
+                steps = plan_steps(intent)
+            except ValueError as e:
+                not_done.append(f"“{part}”: {e}")
+                continue
+            if steps[0].name in ops.OPS:
+                items.append({"op": steps[0].name, "params": dict(steps[0].params)})
+                understood.append(part)
+            else:
+                other.append((part, intent))
+        if not items:
+            if not other:
+                return None                      # nothing understood on its own: read the sentence whole
+            part = other[0][0]
+            res = self.edit(EditCommand(project_id=command.project_id, query=part,
+                                        user_id=command.user_id), progress)
+            res.not_done = [*not_done, *[f"“{p}”: ask for this on its own" for p, _ in other[1:]]]
+            return res
+        not_done += [f"“{p}”: ask for this on its own" for p, _ in other]
+        try:
+            ops.check_many(state, items)
+        except ops.OpError as e:
+            return EditResult(success=False, intent=EditIntent(intent="batch", target="video", scope="global",
+                                                              parameters={"ops": items}), error=str(e))
+        res = self.apply_ops(command.project_id, items, progress)
+        res.not_done = not_done
+        if res.success and not_done:
+            res.message += " · not done: " + "; ".join(not_done)
+        if res.success:
+            self.sm.log_edit(command.project_id, command.query, res.intent.model_dump(mode="json"),
+                             res.model_dump(mode="json"))
+        return res
 
     def apply_op(self, project_id: str, name: str, params: Dict[str, Any],
                  on_progress: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> EditResult:

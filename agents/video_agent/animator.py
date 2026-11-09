@@ -236,7 +236,8 @@ def assemble_scene(shots: List[Path], out_path: Path,
     if has_audio:
         inputs += ["-i", str(audio_path)]
 
-    fc, prev = xfade.build_graph(durations_s, boundaries)
+    fps_, size = xfade.probe_video(str(shots[0]))
+    fc, prev = xfade.build_graph(durations_s, boundaries, fps=fps_, size=size)
 
     cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", fc,
            "-map", f"[{prev}]"]

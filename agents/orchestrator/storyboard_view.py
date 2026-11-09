@@ -79,6 +79,28 @@ def shot_cards(scene, people: Dict, tall: bool = False, scene_index: int = 0,
     return cards
 
 
+def cap_transitions(cards: List[Dict], actual: Optional[Dict[str, int]] = None) -> List[Dict]:
+    """Say how long each cut can really be (DST-43).
+
+    A transition overlaps the two shots it joins, and `transitions.overlap_frames` never lets it take
+    more than half of either, so a 1.2 s zoom between two 1.5 s shots is cut to 0.75 s. Each card's
+    `transition` gains `max_ms` (the longest it can be here) and `capped` (the chosen length is
+    longer than that), so the picker can say so instead of quietly doing less. The shot lengths are
+    the plan's estimates, or `actual` (shot id -> ms) once a film has been cut."""
+    actual = actual or {}
+    previous: Optional[int] = None
+    for card in cards:
+        for shot in card.get("shots", []):
+            length = actual.get(shot["shot_id"], shot["end_ms"] - shot["start_ms"])
+            t = shot.get("transition")
+            if t and previous is not None:
+                longest = max(0, min(transitions.MAX_MS, min(previous, length) // 2))
+                t["max_ms"] = longest
+                t["capped"] = t["kind"] != "cut" and t["ms"] > longest
+            previous = length
+    return cards
+
+
 def scene_cards(script, engine: Optional[str] = None, legacy: bool = False) -> List[Dict]:
     """One card per scene: title, tone, the opening camera move, and its lines."""
     from agents.audio_agent.agent import AudioAgent   # heavy import, kept local
@@ -132,7 +154,7 @@ def scene_cards(script, engine: Optional[str] = None, legacy: bool = False) -> L
                 for line in scene.dialogue
             ],
         })
-    return cards
+    return cap_transitions(cards)
 
 
 def _portrait_of(state, character_id: str) -> Tuple[Optional[str], bool]:

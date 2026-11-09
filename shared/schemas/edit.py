@@ -35,3 +35,5 @@ class EditResult(BaseModel):
     affected_assets: List[str] = Field(default_factory=list)
     message: str = ""
     error: Optional[str] = None
+    # Parts of a sentence that were not done ("add rain and ..."), each with why (DST-43).
+    not_done: List[str] = Field(default_factory=list)

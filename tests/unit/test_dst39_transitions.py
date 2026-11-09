@@ -407,7 +407,7 @@ def test_the_api_refuses_what_does_not_fit_and_queues_a_change_on_a_finished_fil
     assert client.post(url, json={"op": "set_transition", "params": {"scene": "2"}}).status_code == 404 \
         or client.post(url, json={"op": "set_transition", "params": {"scene": "2"}}).status_code == 400
     assert client.post(url, json={"op": "set_transition", "params": {"scene": "9", "transition": "fade"}}).status_code == 404
-    assert client.post(url, json={"op": "set_transition", "params": {"scene": "2", "transition": "spin"}}).status_code == 404
+    assert client.post(url, json={"op": "set_transition", "params": {"scene": "2", "transition": "spin"}}).status_code == 400   # a wrong value, not a missing film (DST-43)
     queued = client.post(url, json={"op": "set_transition", "params": {"scene": "2", "transition": "wipe"}})
     assert queued.status_code == 200 and queued.json()["job_id"]                  # a film is cut again: a job
     assert client.post(url, json={"op": "set_transition", "params": {"scene": "2", "transition": "slide"}}).status_code == 409
@@ -430,15 +430,16 @@ def test_before_a_render_a_change_is_immediate_and_the_cards_show_it(isolated_di
     board = client.get("/api/pipeline/storyboard/t_sb").json()
     first = board["frames"][0]["shots"]
     assert first[0]["transition"] is None                                         # nothing before the film
-    assert first[1]["transition"] == {"kind": "cut", "ms": 0, "chosen": False, "between": False}
+    assert {"kind": "cut", "ms": 0, "chosen": False, "between": False}.items() <= first[1]["transition"].items()
     second_first = board["frames"][1]["shots"][0]["transition"]
-    assert second_first == {"kind": "fade", "ms": 400, "chosen": False, "between": True}
+    assert {"kind": "fade", "ms": 400, "chosen": False, "between": True}.items() <= second_first.items()
+    assert "max_ms" in second_first and second_first["capped"] in (True, False)           # DST-43
 
     done = client.post("/api/edit/t_sb/op", json={"op": "set_transition",
                                                   "params": {"scene": "scene_2", "transition": "wipe", "speed": "slow"}})
     assert done.status_code == 200
     after = done.json()["frames"][1]["shots"][0]["transition"]
-    assert after == {"kind": "wipe", "ms": 800, "chosen": True, "between": True}
+    assert {"kind": "wipe", "ms": 800, "chosen": True, "between": True}.items() <= after.items()
     # it is a saved version, with the creator's words
     assert orch.sm.history("t_sb")[-1]["edit_intent"]["query"] == "Between scenes 1 and 2: slow wipe"
     # the first shot of the film has nothing to change

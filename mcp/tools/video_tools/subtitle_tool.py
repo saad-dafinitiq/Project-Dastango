@@ -59,9 +59,10 @@ class SubtitleTool(BaseTool):
               f"Alignment=2,MarginV={mv},MarginL={ml},MarginR={mr},"
               f"Bold=0'")
         if graphics_ass:
-            # Titles go on in the same encode, over the subtitles' own pass (shared/graphics.py).
+            # Titles go on in the same encode, but UNDER the subtitles: the end card's dark scrim must
+            # not dim the last line, and a line is never half hidden by a title (DST-43).
             from shared import graphics
-            vf += "," + graphics.filter_for(Path(graphics_ass))
+            vf = graphics.filter_for(Path(graphics_ass)) + "," + vf
         # Burning the subtitles is the last time the film is encoded, so this pass
         # is the delivered quality (config/video.yaml, encode).
         cmd = ["ffmpeg", "-y", "-i", str(in_p), "-vf", vf,

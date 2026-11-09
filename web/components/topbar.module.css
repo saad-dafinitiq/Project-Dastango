@@ -154,7 +154,7 @@
   color: var(--mu);
   border: 1px solid var(--line);
 }
-.themes button[aria-pressed="true"] {
+.themes button[aria-checked="true"] {
   color: var(--fg);
   border-color: var(--fg);
 }

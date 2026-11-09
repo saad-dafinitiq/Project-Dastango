@@ -117,8 +117,9 @@ def apply_op(project_id: str, req: OpRequest, user: User = Depends(require_user)
 
     Before a render it changes the storyboard at once and answers with it. On a finished film
     the film has to be cut again, so it queues a job and answers `{job_id, ...}`; progress
-    streams like any edit. `400` for an unknown operation or bad parameters, `404` when it does
-    not fit this film (no such scene or shot), `409` while the film is being worked on."""
+    streams like any edit. `400` for an unknown operation or a value that is wrong whatever the film is
+    (an unknown mood or transition, a length out of range), `404` when it does not fit this film (no such
+    scene or shot), `409` while the film is being worked on."""
     state = sm.latest(project_id)
     if not state or not state.script:
         raise HTTPException(404, f"project {project_id} has no storyboard")
@@ -129,7 +130,9 @@ def apply_op(project_id: str, req: OpRequest, user: User = Depends(require_user)
         raise HTTPException(400, str(e))
     try:
         ops.check(state, req.op, req.params)
-    except ops.OpError as e:
+    except ops.BadValue as e:                     # wrong whatever the film is
+        raise HTTPException(400, str(e))
+    except ops.OpError as e:                      # depends on this film
         raise HTTPException(404, str(e))
     busy = [j for j in jobs.list_jobs(project_id=project_id) if not j.done]
     if busy:
@@ -156,6 +159,8 @@ def _check_items(state, items) -> list:
         raise HTTPException(400, str(e))
     try:
         return ops.check_many(state, items)
+    except ops.BadValue as e:
+        raise HTTPException(400, str(e))
     except ops.OpError as e:
         raise HTTPException(404, str(e))
 

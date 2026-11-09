@@ -16,7 +16,7 @@ from auth.accounts import User
 from agents.story_agent import current_length_check
 from agents.orchestrator import RENDER_DESCRIPTIONS as RENDERS
 from shared import film_format, stand_in, voices
-from agents.orchestrator.storyboard_view import cast, cast_note, image_budget, scene_cards
+from agents.orchestrator.storyboard_view import cap_transitions, cast, cast_note, image_budget, scene_cards
 from shared.assets import asset_url
 from shared.languages import iso639_1, supported_names
 from shared.utils.files import project_dir
@@ -173,7 +173,11 @@ def get_storyboard(project_id: str, engine: Optional[str] = None):
     board = state.storyboard.model_dump(mode="json")
     # The same cards the live plan streamed, so a reload looks identical.
     legacy = bool(state.video and state.video.legacy_transitions)
-    cards = {c["scene_id"]: c for c in scene_cards(state.script, engine, legacy=legacy)}
+    card_list = scene_cards(state.script, engine, legacy=legacy)
+    if state.video:
+        # A cut film has real shot lengths: a transition's limit is half the shorter shot (DST-43).
+        cap_transitions(card_list, {s.shot_id: s.duration_ms for f in state.video.frames for s in f.shots})
+    cards = {c["scene_id"]: c for c in card_list}
     for frame in board["frames"]:
         if frame.get("preview_path"):
             frame["preview_url"] = asset_url(frame["preview_path"], versioned=True)

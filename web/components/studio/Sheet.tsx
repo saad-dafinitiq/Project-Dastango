@@ -365,7 +365,7 @@ function ShotEditor({
 
   return (
     <div className={styles.edc} role="group" aria-label="Camera for this shot">
-      <div className={styles.preview} aria-label="Preview of the move">
+      <div className={styles.preview} role="group" aria-label="Preview of the move">
         <div className={styles.moving} data-move={shot.move_id}>
           <ShotPicture shot={shot} preview={card.preview_url} portrait={shot.character_id ? portraits[shot.character_id] : undefined} />
         </div>

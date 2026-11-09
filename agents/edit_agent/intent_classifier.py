@@ -86,6 +86,45 @@ _MOODS = {
 }
 
 
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                 "eight": 8, "nine": 9, "ten": 10}
+_NUMBER = "|".join(_NUMBER_WORDS)
+
+
+def numerals(q: str) -> str:
+    """"scene two" -> "scene 2", "scenes one and three" -> "scenes 1 and 3". Only after a word that
+    takes a number, so "the one in scene 3" keeps its "one"."""
+    def digit(m: re.Match) -> str:
+        return f"{m.group(1)}{_NUMBER_WORDS[m.group(2)]}"
+
+    q = re.sub(rf"\b((?:scenes?|shots?|lines?)\s+)({_NUMBER})\b", digit, q)
+    return re.sub(rf"\b((?:scenes?|shots?)\s+\d+\s*(?:and|&|to|,)\s*)({_NUMBER})\b", digit, q)
+
+
+# A new request starts with one of these ("add rain AND make the music quieter"). The word after "and"
+# is what tells a second request from "scenes 1 and 2" or "the music and the rain".
+_STARTS = ("add|make|remove|turn|switch|play|use|change|set|put|give|mute|redraw|regenerate|remake|redo|move|"
+           "delete|swap|show|hide|apply|slow|speed|lower|raise|increase|decrease|drop|take|get|include|"
+           "enable|disable|no|without|rewrite|stop|start|swap|cut|bring|keep")
+_SPLIT = re.compile(rf"\s*(?:[;,]|\b(?:and then|and also|and|then|also|plus)\b)\s*(?:(?:and|then|also)\s+)?"
+                    rf"(?=(?:{_STARTS})\b)", re.I)
+
+
+def split_request(query: str) -> List[str]:
+    """A sentence that asks for several things, as one request each ("add rain and make the music
+    quieter" -> two). Quoted text is kept whole. One request comes back as itself."""
+    held: List[str] = []
+
+    def hold(m: re.Match) -> str:
+        held.append(m.group(0))
+        return f"\x00{len(held) - 1}\x00"
+
+    masked = re.sub(r"[\"“][^\"”]*[\"”]", hold, query)
+    parts = [p.strip(" .") for p in _SPLIT.split(masked)]
+    parts = [re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], p) for p in parts if p.strip(" .")]
+    return parts if len(parts) > 1 else [query.strip()]
+
+
 SYSTEM_PROMPT = """You turn a creator's request to change their short animated film
 into one edit the editor can carry out. Only the intents and values listed are
 possible; never invent new ones. If the request matches none, use "unclear".
@@ -178,7 +217,7 @@ class IntentClassifier:
     def _keyword_classify(self, query: str, scenes: List[str],
                           characters: List[str], names: Dict[str, str] | None = None
                           ) -> EditIntent:
-        q = query.lower().strip()
+        q = numerals(query.lower().strip())
 
         # Match a scene mention if present.
         scope = "global"
@@ -254,7 +293,8 @@ class IntentClassifier:
         """The music, the ambience and how loud things are in the mix: "make the music quieter",
         "no music in scene 2", "play something tense in scene 3", "add rain to scene 1".
         "Add/remove background music" is left to the older rules (they end up in the same operation)."""
-        music_word = re.search(r"\b(music|soundtrack|score|bgm|song)\b", q)
+        music_word = re.search(r"\b(music|soundtrack|score|bgm|song)\b", q) or \
+            re.search(r"\b(play|put on|i want|give me)\s+(me\s+)?(something|a track|a song|some tunes)\b", q)
         kinds = {"rain": r"\brain(y|ing)?\b", "wind": r"\bwind(y)?\b", "sea": r"\b(sea|ocean|waves)\b",
                  "city": r"\b(city|traffic|street)\b", "night": r"\b(crickets|insects|night sounds?)\b"}
         kind = next((k for k, rx in kinds.items() if re.search(rx, q)), None)
@@ -264,7 +304,8 @@ class IntentClassifier:
             return EditIntent(intent=intent, target="audio", scope=scope, parameters=params,
                               confidence=0.8, reasoning="keyword match on the music, ambience or levels")
 
-        off = re.search(r"\b(no|mute|silence|turn off|switch off|stop|without|take out|get rid of|remove|delete|drop)\b", q)
+        off = re.search(r"\b(no|mute|silence|turn off|switch off|stop|without|take out|get rid of|remove|delete|drop|kill)\b", q) or \
+            re.search(r"\b(turn|switch)\b[^.]*\boff\b|\b(rain|wind|sea|city|night|ambience|sound|sounds)\s+(off|out)\b", q)
         if (kind or sounds) and not music_word:
             if off and not re.search(r"\b(add|put|play|include)\b", q):
                 return done("set_ambience", {"ambience": "none", "kind": "none"})
@@ -274,11 +315,18 @@ class IntentClassifier:
                 return done("set_ambience", {})            # asks which
             return None
         if not music_word:
+            # "scene two should feel more tense": a mood for a scene is its music.
+            words = set(re.findall(r"[a-z]+", q))
+            mood = next((m for m in sorted(music.moods()) if m in words), None) or \
+                next((music.ALIASES[w] for w in sorted(words) if w in music.ALIASES), None)
+            if re.search(r"\b(feel|sound)\w*\b", q) and mood and scope.startswith("scene:"):
+                return done("set_music", {"mood": mood})
             return None
-        if re.search(r"\b(mute|silence|turn off|switch off|no music|without|stop the)\b", q):
+        if re.search(r"\b(mute|silence|turn off|switch off|no music|no more music|without|stop the|kill the)\b", q) or \
+                re.search(r"\b(turn|switch)\b[^.]*\boff\b|\b(music|soundtrack|score|bgm|song)\s+(off|out)\b", q):
             return done("set_music", {"off": True})
-        louder = re.search(r"\b(louder|turn (it )?up|raise|boost|increase)\b", q)
-        quieter = re.search(r"\b(quieter|softer|lower|turn (it )?down|reduce|decrease|less)\b", q)
+        louder = re.search(r"\b(louder|turn\b[^.]*\bup|raise|boost|increase)\b", q)
+        quieter = re.search(r"\b(quieter|softer|lower|turn\b[^.]*\bdown|reduce|decrease|less)\b", q)
         pct = re.search(r"(\d{1,3})\s*(%|percent)", q)
         if pct or louder or quieter:
             much = bool(re.search(r"\b(much|a lot|way|far)\b", q))
@@ -303,7 +351,8 @@ class IntentClassifier:
     def _effect_intent(q: str, scope: str) -> Optional[EditIntent]:
         """"add film grain to scene 2", "make the whole film vignette", "a soft glow", "cinema bars",
         "remove the effect". Named effects only, so 'make scene 2 darker' stays a filter."""
-        words = (("grain", r"\b(film )?grain(y)?\b"), ("vignette", r"\bvignett\w*"),
+        words = (("grain", r"\b(film )?grain(y)?\b|\b(old|vintage|retro|aged) (film|movie|footage)\b|"
+                           r"\bfilm (look|stock)\b|\bfilmic\b|\b(8|16|35) ?mm\b"), ("vignette", r"\bvignett\w*"),
                  ("glow", r"\b(glow|bloom|dreamy glow)\b"), ("letterbox", r"\b(letterbox\w*|cinema bars|cinematic bars|black bars|widescreen bars)\b"),
                  ("glitch", r"\bglitch\w*\b"))
         none = re.search(r"\b(remove|no|without|turn off|take off|drop)\b.*\b(effects?|grain|vignett\w*|glow|bloom|letterbox\w*|bars|glitch\w*)\b", q)

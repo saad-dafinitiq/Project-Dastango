@@ -41,7 +41,8 @@ export type CardShot = {
   line_ids: string[];
   /** How this shot comes in (DST-39): null for the first shot of the film. `between` is a cut
    *  between scenes; `chosen` means the creator set it, otherwise it is the default. */
-  transition: { kind: string; ms: number; chosen: boolean; between: boolean } | null;
+  /** `max_ms`: the longest it can really be here (half of the shorter shot it joins); `capped`: the chosen length is longer. */
+  transition: { kind: string; ms: number; chosen: boolean; between: boolean; max_ms?: number; capped?: boolean } | null;
   /** The camera move's id (`pan_left`), where `move` is the same in words. */
   move_id: string;
   /** The creator chose this move or framing, over what the plan picked. */

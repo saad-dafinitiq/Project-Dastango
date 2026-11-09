@@ -112,7 +112,7 @@ export function RenderProgress({ cards, events, now, elapsed, failed, cancelling
       </div>
 
       <footer className={styles.dock}>
-        <div className={styles.strip} aria-label="The film, scene by scene">
+        <div className={styles.strip} role="group" aria-label="The film, scene by scene">
           {cards.map((c) => (
             <i key={c.scene_id}>
               {c.preview_url && (

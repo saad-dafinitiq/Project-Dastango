@@ -687,6 +687,9 @@ class PipelineOrchestrator:
         if not result.success:
             raise EditFailed(result.error or "the edit could not be applied")
         note, notes = self._completion_notes(self.sm.latest(project_id))
+        if result.not_done:
+            notes = {**notes, "not_done": result.not_done}
+            note += " · not done: " + "; ".join(result.not_done)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Edit applied (version {result.new_version}){note}",
                            progress=1.0,
