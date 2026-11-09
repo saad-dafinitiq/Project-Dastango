@@ -106,7 +106,8 @@ def test_the_reference_lists_every_route_and_only_real_ones():
 
     real = {(method.upper(), re.sub(r"\{[^}]+\}", "{}", path))
             for path, methods in app_module.app.openapi()["paths"].items() for method in methods
-            if not path.startswith("/classic")}
+            # Endpoints only: the pages (`/` when the web app is not built, `/classic/`) are not.
+            if path.startswith(("/api", "/assets")) or path in ("/health", "/ready")}
     documented = _documented()
     assert real - documented == set(), "routes missing from docs/API.md"
     assert documented - real == set(), "docs/API.md lists routes that do not exist"
