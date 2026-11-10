@@ -275,6 +275,37 @@ The script was Groq's; all 3 edits succeeded.
 itself stays about 10 MB; each new version adds 6.5 to 6.8 MB to
 `state_versions`, because every version copies every file (F3).
 
+## Storage growth after DST-30 (S, again)
+
+Content-addressed versions (DST-30): a version records `{path: sha256}` and each file is kept once, by hash,
+in a store shared by every version of every film. Measured on 10 Nov 2026 with `scripts/storage_growth.py`,
+the DST-10 test repeated (the dst-03 prompt, 20 s, 2 scenes, placeholder pictures, the same 3 edits), once on
+the code before the change (a copy per version) and once after, each in a throwaway data folder so nothing
+else is counted. It is not the same film as the DST-10 run: the script comes from the offline writer instead of
+a model, the film is 1080p and the audio is 44.1 kHz stereo (DST-42), so the sizes are larger; the comparison
+that matters is before against after, measured the same way. "Versions" is everything under `state_versions/`,
+the content store included.
+
+| Step | Live files | Versions, before (a copy each) | Total, before | Versions, after (once by hash) | Total, after |
+|---|---|---|---|---|---|
+| After plan (storyboard) | 0.12 MB | 0.13 MB (11 files) | 0.24 MB | 0.13 MB (12 files) | 0.24 MB |
+| After render | 30.39 MB | 17.38 MB (35 files) | 47.77 MB | 17.22 MB (25 files) | 47.61 MB |
+| After edit 1, "make the voices in scene 2 whispered" | 32.74 MB | 36.04 MB (59 files) | 68.78 MB | 33.21 MB (36 files) | 65.95 MB |
+| After edit 2, "make scene 1 darker" | 32.22 MB | 54.32 MB (84 files) | 86.54 MB | 40.17 MB (43 files) | 72.38 MB |
+| After edit 3, "make everyone louder" | 32.22 MB | 72.61 MB (109 files) | 104.83 MB | 49.17 MB (48 files) | 81.39 MB |
+
+**Before: 47.77 MB to 104.83 MB over three edits (2.2x); after: 47.61 MB to 81.39 MB (1.7x).** The store holds
+**49.2 MB instead of 72.6 MB (32% less)**, and the three edits added 16.0, 7.0 and 9.0 MB to it instead of
+18.7, 18.3 and 18.3. What is still added is content that really changed: each version's new film (about 5 MB),
+and, when the sound changes, the master and the music bed (4 MB each); an edit that changes one scene adds that
+scene's clip, one that only raises the volume adds the master and the film. The first version of a film
+always holds one copy of each file (17.2 MB here), so the saving grows with the number of versions: the
+three-edit film saves 23.4 MB, and each further edit of this kind saves about 7 MB more.
+
+Migrating a film made before DST-30 (this "before" folder, 5 versions, 104 files): `python main.py storage
+migrate` moved them to the store, 72.5 MB of copies became 49.05 MB, and all 104 files of all 5 versions
+restored with the same SHA-256 as before.
+
 ## Free quota used, 2026-10-29
 
 | Provider | What happened |

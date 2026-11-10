@@ -195,6 +195,21 @@ echo "$(date -u +%FT%TZ) now running: $(git rev-parse --short HEAD)" | tee -a ~/
 Values for new settings go in the VM's `.env` only: never copy them from a
 laptop's `.env`, and never commit one.
 
+**The version store (DST-30).** Versions made before DST-30 keep their own
+copies of every file until they are moved into the shared store; they restore
+as they always did meanwhile. Once, after the update that brings DST-30, with
+nothing rendering:
+
+```bash
+docker compose $P exec -T api python main.py storage stats     # what is still copied
+docker compose $P exec -T api python main.py storage migrate   # move it (safe to stop and run again)
+docker compose $P exec -T api python main.py storage stats     # what the store holds now
+```
+
+`storage gc --dry-run` says what nothing names any more; without `--dry-run` it
+removes it (content written in the last hour is always kept). Run `backup.sh`
+after the first migration: the data folder is then a fraction of its size.
+
 ## Rolling back
 
 Go back to the commit from step 3 of "Updating". The quickest way uses the image

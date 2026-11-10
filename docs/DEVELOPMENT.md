@@ -97,8 +97,10 @@ Every operation the UI has is scriptable.
 | `python scripts/benchmark.py --offline` | Fixed prompts, measured |
 | `python scripts/benchmark.py --testset eval/testset.jsonl --render-subset` | The labelled test set: plan each prompt, fully render the 8 marked ones (see `eval/README.md`) |
 
-Outputs go to `data/outputs/<project_id>/`, version snapshots to
-`data/state_versions/`, and the SQLite database to `data/state.db`.
+Outputs go to `data/outputs/<project_id>/`, version snapshots (a manifest per
+version, and the content store they share) to `data/state_versions/`, and the
+SQLite database to `data/state.db`. `python main.py storage stats|migrate|gc`
+looks after the version store.
 `DATA_DIR=/elsewhere` moves all three.
 
 ## Tests
@@ -150,8 +152,9 @@ docs/               this documentation
   output under a success label.
 - **Timing comes from `shared/timeline.py`.** Never time audio or video
   independently.
-- **Anything recorded in the state is undoable**, because snapshots copy every
-  file the state refers to (`state_manager.snapshot.referenced_files`).
+- **Anything recorded in the state is undoable**, because snapshots keep every
+  file the state refers to (`state_manager.snapshot.referenced_files`), once
+  each, by content hash.
 - **Clips are rendered to exact frame counts** (`-frames:v`); every clip in a
   crossfade chain but the last gets extra frames for its crossfade.
 - **Requests become users only in `auth/deps.py`; paths become URLs only in

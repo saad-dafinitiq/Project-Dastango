@@ -156,14 +156,18 @@ it to the vocabulary and the executor together.
 **Context.** A film is many files (audio lines, images, shots, the master);
 restoring only the JSON state would leave the wrong media on disk.
 
-**Decision.** Each version stores its `PipelineState` and a copy of every file
+**Decision.** Each version stores its `PipelineState` and a record of every file
 the state refers to (`state_manager/snapshot.referenced_files`). Reverting
 restores both and saves the result as a **new** version. An edit starts from,
 and on failure returns to, the saved version's files.
 
 **Consequences.** A revert is byte-identical to the version it restores, and
-nothing is ever lost. The cost is storage: every version copies every file.
-Content-addressed storage is the planned fix ([ROADMAP](ROADMAP.md)).
+nothing is ever lost. The first design copied every file into every version,
+which cost storage (a film went from 47.8 MB to 104.8 MB over three small
+edits). Since DST-30 a version records `{path: content hash}` and the content
+is kept once, by hash, in a shared store (`state_manager/blobs.py`): the same
+film is 81.4 MB after the same edits, and a version costs only what it changed.
+Content nobody names any more is removed by `python main.py storage gc`.
 
 ## ADR-009: Camera moves on stills; real motion is opt-in
 
