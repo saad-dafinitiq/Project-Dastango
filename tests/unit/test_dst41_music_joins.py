@@ -67,7 +67,7 @@ def test_a_bed_with_no_fade_is_exactly_as_long_as_asked(tmp_path):
 
 def test_ambience_carries_on_across_a_cut_too(tmp_path):
     a = music.ambience_bed("wind", 3_000, tmp_path / "a.wav", fade_in_ms=300, fade_out_ms=0)
-    b = music.ambience_bed("wind", 3_000, tmp_path / "b.wav", fade_in_ms=0, fade_out_ms=300)
+    b = music.ambience_bed("wind", 3_000, tmp_path / "b.wav", fade_in_ms=0, fade_out_ms=300, offset_ms=3_000)
     joined = music.join([a, b], tmp_path / "j.wav")
     assert _hole_at(joined, 3.0, (1.0, 2.0, 4.5, 5.0)) > -4
     # and a bed that starts or ends the ambience still fades there

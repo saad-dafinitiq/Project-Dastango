@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared.music import CHANNELS, SAMPLE_RATE
 
 
 # Mood -> (base_freq_hz, second_freq_hz, harmonic_freq_hz, volume)
@@ -42,13 +43,13 @@ class BgmTool(BaseTool):
             f"sine=frequency={f1}:duration={dur_s},"
             f"volume={vol},"
             f"tremolo=f=4:d=0.3,"
-            f"aformat=sample_fmts=s16:sample_rates=22050:channel_layouts=mono [a1];"
+            f"aformat=sample_fmts=s16:sample_rates={SAMPLE_RATE}:channel_layouts={CHANNELS} [a1];"
             f"sine=frequency={f2}:duration={dur_s},"
             f"volume={vol*0.7},"
-            f"aformat=sample_fmts=s16:sample_rates=22050:channel_layouts=mono [a2];"
+            f"aformat=sample_fmts=s16:sample_rates={SAMPLE_RATE}:channel_layouts={CHANNELS} [a2];"
             f"sine=frequency={f3}:duration={dur_s},"
             f"volume={vol*0.4},"
-            f"aformat=sample_fmts=s16:sample_rates=22050:channel_layouts=mono [a3];"
+            f"aformat=sample_fmts=s16:sample_rates={SAMPLE_RATE}:channel_layouts={CHANNELS} [a3];"
             f"[a1][a2][a3]amix=inputs=3:normalize=0,"
             f"afade=t=in:st=0:d=0.5,"
             f"afade=t=out:st={max(0, dur_s-0.5):.2f}:d=0.5"
@@ -56,7 +57,7 @@ class BgmTool(BaseTool):
 
         cmd = [
             "ffmpeg", "-y", "-f", "lavfi",
-            "-i", "anullsrc=channel_layout=mono:sample_rate=22050",
+            "-i", f"anullsrc=channel_layout={CHANNELS}:sample_rate={SAMPLE_RATE}",
             "-filter_complex", filter_complex,
             "-t", f"{dur_s:.2f}",
             str(out),

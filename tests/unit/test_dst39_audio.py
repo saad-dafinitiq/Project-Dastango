@@ -415,6 +415,10 @@ def test_a_bed_is_audible_wherever_in_the_track_it_starts(tmp_path, offset_ms):
 def test_every_ambience_is_as_loud_as_the_music_so_100_percent_is_audible(tmp_path):
     """Found by a creator: city ambience at 165% could not be heard. The beds were 20 to 40 dB
     under the music (night was at -53 dB) before their volume was even applied."""
+    # Matched by loudness since DST-42 (LUFS, not mean volume: rain and night had come out 4 LU above wind and
+    # city by RMS); test_dst42_audio.py holds the full check. Every kind is also well clear of silence.
+    from mcp.tools.audio_tools.audio_merger import measure_lufs
+
     for kind in music.AMBIENCE:
         bed = music.ambience_bed(kind, 6_000, tmp_path / f"{kind}.wav")
-        assert -17 < _mean_volume(bed) < -10, kind
+        assert abs(measure_lufs(bed) - music.AMBIENCE_LUFS) < 1.5, kind

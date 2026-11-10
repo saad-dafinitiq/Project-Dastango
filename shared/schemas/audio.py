@@ -54,7 +54,7 @@ class TimingManifest(BaseModel):
     """
     project_id: str
     total_duration_ms: int
-    sample_rate: int = 22050
+    sample_rate: int = 44100
     segments: List[AudioSegment] = Field(default_factory=list)
     scenes: List[SceneTiming] = Field(default_factory=list)
 

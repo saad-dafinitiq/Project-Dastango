@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from mcp.base_tool import BaseTool, ToolResult
+from shared.music import CHANNELS, SAMPLE_RATE
 from shared.utils.logging import get_logger
 
 log = get_logger("audio_merger")
 
-SAMPLE_RATE = 22050
+# The rate and the channel layout of the whole audio chain are shared/music.py's (44.1 kHz stereo since DST-42;
+# the lines are placed mono and the voice is the same in both ears, the beds are stereo).
 
 # The mix (DST-41). Dialogue is the anchor, as in broadcast practice (EBU R128 and ATSC A/85 both
 # measure against the dialogue): every line is brought to one loudness, and the music and the
@@ -51,6 +53,33 @@ DUCK_THRESHOLD = 0.03
 DUCK_RATIO = 4
 DUCK_ATTACK_MS = 40
 DUCK_RELEASE_MS = 400
+
+
+def per_channel_lufs(path: Path) -> Optional[float]:
+    """The loudness of one channel of the file: `measure_lufs` for a mono file, and 3 LU less for a
+    two-channel one, because BS.1770 adds the powers of the channels (a voice in both ears measures 3 LU
+    above the same voice in one). The mix is set in this basis, so a stereo bed sits the same distance under
+    a line as the mono bed it replaces did (DST-42)."""
+    heard = measure_lufs(path)
+    if heard is None:
+        return None
+    return heard - 3.0103 if _channel_count(path) == 2 else heard
+
+
+def _channel_count(path: Path) -> int:
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+                            "stream=channels", "-of", "default=nw=1:nk=1", str(path)],
+                           capture_output=True, text=True)
+    try:
+        return int(probe.stdout.strip())
+    except ValueError:
+        return 1
+
+
+def _stereo(path: Path) -> str:
+    """The filter that makes a bed stereo without changing its level: a mono file is put in both ears as it is
+    (`aformat` would take 3 dB off each ear), a stereo one is left alone."""
+    return "pan=stereo|c0=c0|c1=c0" if _channel_count(path) == 1 else f"aformat=channel_layouts={CHANNELS}"
 
 
 def measure_lufs(path: Path) -> Optional[float]:
@@ -197,7 +226,7 @@ class AudioMergerTool(BaseTool):
         be measured (silent, or too short to gate) is left as it is."""
         for p in placements:
             offset = float(p.get("offset_db") or 0.0)
-            heard = measure_lufs(Path(p["path"]))
+            heard = per_channel_lufs(Path(p["path"]))
             if heard is None:
                 p["gain_db"] = offset
                 continue
@@ -248,7 +277,7 @@ class AudioMergerTool(BaseTool):
             norm = norm_dir / f"seg_{i:03d}.wav"
             subprocess.run(
                 ["ffmpeg", "-y", "-i", s,
-                 "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le",
+                 "-ar", str(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le",
                  str(norm)],
                 check=True, capture_output=True,
             )
@@ -281,7 +310,7 @@ class AudioMergerTool(BaseTool):
         the plain multiplier."""
         if volume <= 0:
             return "0"
-        heard = measure_lufs(path)
+        heard = per_channel_lufs(path)
         if heard is None:
             return f"{volume}"
         return f"{ref_lufs + _db(volume / base) - heard:.2f}dB"
@@ -301,7 +330,10 @@ class AudioMergerTool(BaseTool):
         fixed and these volumes are *relative*: more music means the voices sit lower in it.
         """
         inputs = ["-i", str(dialogue)]
-        parts = [f"[0:a]volume={dialogue_volume}[voice]"]
+        # The voice is placed mono and is the same in both ears; the beds are stereo. `pan`, not an
+        # `aformat` upmix: that one takes 3 dB off each ear, which put every line 3 dB lower against the bed
+        # than the levels above were set for (found by measuring the speech over the bed again, DST-42).
+        parts = [f"[0:a]volume={dialogue_volume},pan=stereo|c0=c0|c1=c0[voice]"]
         beds = []
         idx = 1
         if bgm:
@@ -309,7 +341,7 @@ class AudioMergerTool(BaseTool):
                     else f"{bgm_volume}")
             inputs += ["-i", str(bgm)]
             parts.append(f"[{idx}:a]volume={gain},aloop=loop=-1:size=2e9,"
-                         f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono[music]")
+                         f"{_stereo(bgm)},aformat=sample_rates={SAMPLE_RATE}[music]")
             beds.append("[music]")
             idx += 1
         if ambience:
@@ -317,7 +349,7 @@ class AudioMergerTool(BaseTool):
                     if anchor_beds else f"{ambience_volume}")
             inputs += ["-i", str(ambience)]
             parts.append(f"[{idx}:a]volume={gain},aloop=loop=-1:size=2e9,"
-                         f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono[amb]")
+                         f"{_stereo(ambience)},aformat=sample_rates={SAMPLE_RATE}[amb]")
             beds.append("[amb]")
             idx += 1
         if not beds:
@@ -355,7 +387,7 @@ class AudioMergerTool(BaseTool):
         premaster = out.with_name(f"{out.stem}_premaster.wav")
         try:
             cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts + ["[mixed]anull[a]"]),
-                   "-map", "[a]", "-ar", str(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_f32le", str(premaster)]
+                   "-map", "[a]", "-ar", str(SAMPLE_RATE), "-ac", "2", "-c:a", "pcm_f32le", str(premaster)]
             subprocess.run(cmd, check=True, capture_output=True)
             self._master(premaster, out)
         finally:
