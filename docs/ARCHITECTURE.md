@@ -411,12 +411,16 @@ object passed between phases and versioned: `script` (story, cast, scenes and
 lines), `audio` (voices, per-scene voice overrides, timing manifest, master
 track), `video` (frames, shots, portraits, subtitle tracks, speed), the
 storyboard, the stage, and per-phase status. Each version stores its state as
-JSON plus copies of every file the state refers to, which is what makes
-"go back" restore the film itself and not only its description.
+JSON plus a manifest of every file the state refers to, `{path: sha256, size,
+time}`; the files themselves are kept once, by the hash of their content, in
+`state_versions/_blobs/` (DST-30), so a version costs only what it changed.
+That is what makes "go back" restore the film itself and not only its
+description.
 
 On disk, everything lives under `DATA_DIR` (default `./data`):
 `outputs/<project_id>/` for the current files, `state_versions/` for each
-version's copies, and the SQLite file when not using Postgres.
+version's manifest and the shared content store, and the SQLite file when not
+using Postgres.
 
 ---
 

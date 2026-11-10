@@ -416,6 +416,38 @@ def cmd_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _mb(n: int) -> str:
+    return f"{n / 1e6:.1f} MB"
+
+
+def cmd_storage(args: argparse.Namespace) -> int:
+    """The version store: how much it holds, moving old versions to it, clearing what nothing names."""
+    from state_manager import snapshot as snap
+    action = args.action
+    if action == "stats":
+        s = snap.stats()
+        saved = s["named_bytes"] - s["stored_bytes"]
+        print(f"{s['versions']} versions name {_mb(s['named_bytes'])} of files; the store holds {_mb(s['stored_bytes'])} "
+              f"in {s['blobs']} files (once each): {_mb(max(0, saved))} not stored again.")
+        if s["legacy_versions"]:
+            print(f"{s['legacy_versions']} versions still hold their own copies ({_mb(s['legacy_bytes'])}); "
+                  f"run `python main.py storage migrate` to move them to the store.")
+        return 0
+    if action == "migrate":
+        done = snap.migrate_all(args.project_id)
+        print(f"moved {done['files']} files of {done['versions']} versions to the store, "
+              f"{_mb(done['bytes_freed'])} of copies removed")
+        return 0
+    if action == "gc":
+        done = snap.collect_garbage(dry_run=args.dry_run, grace_s=args.grace_minutes * 60.0)
+        verb = "would remove" if args.dry_run else "removed"
+        print(f"{verb} {done['unreferenced']} files nothing names ({_mb(done['bytes_freed'])}); "
+              f"{done['kept_recent']} written in the last {args.grace_minutes:g} min kept")
+        return 0
+    print(f"unknown action {action!r}")
+    return 1
+
+
 def _database_label() -> str:
     from shared import db
     url = db.get_engine().url
@@ -590,6 +622,14 @@ def build_parser() -> argparse.ArgumentParser:
     jp.add_argument("--limit", type=int, default=25)
     jp.set_defaults(fn=cmd_jobs)
 
+    sg = sub.add_parser("storage", help="the version store: stats, migrate old versions, gc")
+    sg.add_argument("action", choices=["stats", "migrate", "gc"])
+    sg.add_argument("--project-id", default=None, help="migrate: only this project")
+    sg.add_argument("--dry-run", action="store_true", help="gc: say what would be removed, remove nothing")
+    sg.add_argument("--grace-minutes", type=float, default=60.0,
+                    help="gc: keep what was written this recently (a snapshot in progress)")
+    sg.set_defaults(fn=cmd_storage)
+
     ep = sub.add_parser("edit", help="interactive edit REPL on an existing project")
     ep.add_argument("project_id")
     ep.set_defaults(fn=cmd_edit)
@@ -607,7 +647,7 @@ def main() -> int:
     parser = build_parser()
     if len(sys.argv) > 1 and sys.argv[1] not in (
         "run", "plan", "storyboard", "restyle", "render", "serve", "edit",
-        "history", "list", "providers", "worker", "jobs", "users", "monitor", "-h", "--help"
+        "history", "list", "providers", "worker", "jobs", "users", "monitor", "storage", "-h", "--help"
     ):
         # Treat first arg as a prompt for convenience.
         args = parser.parse_args(["run"] + sys.argv[1:])

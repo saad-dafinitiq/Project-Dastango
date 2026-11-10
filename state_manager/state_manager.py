@@ -89,12 +89,12 @@ class StateManager:
         snap_dir = ensure_dir(constants.STATE_DIR / project_id / f"v{new_version}")
         state_path = snap_dir / "state.json"
         write_json(state_path, state.model_dump(mode="json"))
-        snapshot_assets(project_id, new_version, restored)
+        kept = snapshot_assets(project_id, new_version, restored)
         self.storage.append_version(
             project_id=project_id,
             version=new_version,
             state_path=str(state_path),
-            asset_paths=restored,
+            asset_paths=kept,
             description=f"revert to v{version}",
             parent_version=version,
             edit_intent={"intent": "revert", "target": "version", "scope": f"v{version}"},

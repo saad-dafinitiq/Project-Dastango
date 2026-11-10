@@ -56,9 +56,9 @@ sequenceDiagram
     Note over W,P: F4 · shared free image quota runs out · F7 · whole chain exhausted → placeholders
     end
     P-->>W: one preview image per scene
-    W->>S: 9 · snapshot version (copies every referenced file)
-    rect rgb(254, 226, 226)
-    Note over W,S: F3 · every version copies every file → disk fills
+    W->>S: 9 · snapshot version (a manifest; each file kept once by hash, DST-30)
+    rect rgb(220, 252, 231)
+    Note over W,S: F3 · was: every version copied every file → disk fills · fixed in DST-30
     end
     W->>DB: progress events + job complete
     DB-->>API: events replayed
@@ -148,7 +148,7 @@ sequenceDiagram
 |---|---|---|---|---|---|
 | **F1** | 7, 12 | **Model calls had no explicit timeout.** The LLM clients (`genai.Client`, `OpenAI`, `Anthropic` in `llm_client.py`) were created with library defaults: OpenAI/Groq waited up to 600 s per attempt and retried twice; Gemini set none, which was verified to mean forever. The heartbeat thread keeps beating meanwhile, so `requeue_stale()` never fires. **Reproduced in the baseline run** (36 min hang, below) | A hung provider left the film "running" for many minutes, or indefinitely, instead of falling through to the next provider | **Yes, DST-12** (see below) | ~~High~~ **Fixed** |
 | **F2** | 4, 11 | **No per-account render quota and no rate limit on job endpoints** | One account can flood the queue and use up everyone's free image quota | Login lockout only | **High** |
-| **F3** | 9, 12 | **Every version copies every file** | Disk fills up: renders fail and Postgres is at risk on the same VM | Backups hard-link; the live store does not | **High** |
+| **F3** | 9, 12 | **Every version copied every file** | Disk fills up: renders fail and Postgres is at risk on the same VM | Backups hard-link; the live store did not | ~~High~~ **Fixed** |
 | **F4** | 8, 12 | **The shared free image quota runs out** (Cloudflare: 10k neurons/day) | Cloudflare's allowance comes back at the daily reset. Meanwhile Agnes draws the images (a temporary fallback on the server since 3 Nov 2026; free tier, about 20 requests a minute; it may train on prompts, see docs/PROVIDERS.md), and users get placeholders only if it fails too | Falls through the chain at once with no retries, and is named on the job's completion event and trace (DST-20, F15) | **High** |
 | **F5** | 8, 12 | **Fallback breaks character consistency.** The seed reproduces a face only on the same model; if the chain moves from Cloudflare to Agnes partway through a film, the same character can come out different *(verify)* | The film's characters change face, the core quality promise | No | Medium |
 | **F6** | 6 | **A retry reruns the whole job from the start** | The quota is spent twice for one film; a 5-minute render becomes 10 | By design | Medium |
@@ -509,6 +509,6 @@ are 7 points.
 
 1. ~~**F1: add a timeout to every model call**, and let a timeout fall through to the next provider.~~ **Done in DST-12** (above).
 2. **F2: per-account render quotas and rate limiting.** Already on the Week 1 track.
-3. **F3: content-addressed storage for versions.** Store each file once, by hash. Already on the Week 1 track; measure storage growth before and after.
+3. ~~**F3: content-addressed storage for versions.** Store each file once, by hash.~~ **Done in DST-30**: a version is a manifest and each file is kept once by hash; storage growth measured before and after in [EVAL.md](EVAL.md) ("Storage growth after DST-30").
 
 *F4 and F5 move into the Week 2 work on self-hosted images and the consistency check.*
