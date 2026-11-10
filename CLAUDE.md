@@ -108,7 +108,7 @@ not enough).
 | Voices | `shared/voices.py` + `backend/routes/voices.py` | Which engines work on this machine and why not, their voices, and a cached one-line sample so a voice can be heard before a render. |
 | Fonts | `shared/fonts.py` | Picks an installed font with the script's glyphs (`Segoe UI` on Windows, Noto in the container). A missing font draws nothing rather than failing. |
 | Backend | `backend/` | FastAPI routes, DB-backed progress (`services/progress.py`), WebSocket at `/ws/progress/{pid}`, `/assets` serves `data/outputs`. |
-| Frontend | `web/` | **The creator interface.** Next.js 16 static export, served by FastAPI at `/` when built. The storyboard is the screen: a plan streams in (script first, then each frame), the creator edits it, renders, and watches with scenes as chapters. See `web/README.md`. |
+| Frontend | `web/` | **The creator interface.** Next.js 16 static export, served by FastAPI at `/` when built. The storyboard is the screen: a plan streams in (script first, then each frame), the creator edits it, renders, and watches with scenes as chapters. Create's background and film ring and the Films screen are React Bits components (`web/vendor/react-bits/`, DST-45); a creator's pins (`pins` table, `PUT`/`DELETE /api/projects/{id}/pin`) decide which films the ring shows. See `web/README.md`. |
 | Storyboard cards | `agents/orchestrator/storyboard_view.py` | The single source of a card — tone, camera move, lines and the voice that will speak each — used by both the live plan stream and the storyboard endpoint, so a reload shows exactly what the stream did. |
 | Classic UI | `frontend/src/` | The original vanilla page, kept at `/classic/` while the new one takes over. |
 
