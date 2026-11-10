@@ -111,3 +111,27 @@ def test_a_push_cut_short_leaves_the_last_whole_backup_named(offsite, tmp_path, 
     latest = boto3.client("s3", region_name="us-east-1").get_object(
         Bucket=BUCKET, Key="backups/LATEST")["Body"].read().decode()
     assert latest == "20261003T031500Z"
+
+
+def test_content_shared_by_many_versions_goes_up_once_and_a_new_version_uploads_only_what_it_added(offsite, tmp_path):
+    """DST-30: the version store keeps each file once, by hash, so the mirror holds it once too, and the
+    night a new version is made only its manifest and its changed content go up."""
+    film = "ab/" + "ab" * 32                       # content addressed: the same file for every version
+    voice = "cd/" + "cd" * 32
+    night1 = {f"state_versions/_blobs/{film}": b"film" * 5000,
+              f"state_versions/_blobs/{voice}": b"voice" * 500,
+              "state_versions/p1/v1/manifest.json": b'{"files": {"final.mp4": "ab", "line.wav": "cd"}}',
+              "state_versions/p1/v2/manifest.json": b'{"files": {"final.mp4": "ab", "line.wav": "cd"}}'}
+    vm = _backup(tmp_path / "vm", "20261003T031500Z", night1)
+    first = offsite.push(vm, BUCKET, "backups", keep=14)
+    keys = [k for k in offsite._remote(offsite._client(), BUCKET, "backups/data/")]
+    assert len([k for k in keys if "/_blobs/" in k]) == 2                  # two contents, four manifest entries
+    assert first["uploaded"] == 4 + 1                                      # the four files and the dump
+
+    edited = "ef/" + "ef" * 32
+    night2 = dict(night1)
+    night2[f"state_versions/_blobs/{edited}"] = b"edited voice" * 500
+    night2["state_versions/p1/v3/manifest.json"] = b'{"files": {"final.mp4": "ab", "line.wav": "ef"}}'
+    _backup(vm, "20261004T031500Z", night2)
+    second = offsite.push(vm, BUCKET, "backups", keep=14)
+    assert second["uploaded"] == 2 + 1 and second["deleted"] == 0         # the new blob, the new manifest, the dump
