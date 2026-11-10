@@ -99,6 +99,9 @@ export const api = {
 
   // library
   films: () => request<Film[]>("/api/projects/"),
+  /** Pin a film to show on Create, or take it off. Yours only; either call can be repeated. */
+  pinFilm: (pid: string, pinned: boolean) =>
+    request<{ project_id: string; pinned: boolean }>(`/api/projects/${encodeURIComponent(pid)}/pin`, { method: pinned ? "PUT" : "DELETE" }),
 
   // the loop: plan -> storyboard -> render -> watch
   plan: (opts: PlanOptions) => post<RunResponse>("/api/pipeline/plan", { ...opts, with_preview: true }),

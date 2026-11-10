@@ -6,6 +6,7 @@ import type { SceneEdit, ShotChange } from "@/lib/api";
 import type { Card, CardShot, CastMember, ShotOptions, TransitionStyle } from "@/lib/types";
 
 import { Inspector } from "./Inspector";
+import { Reveal } from "./Reveal";
 import styles from "./sheet.module.css";
 import { FRAMING_NAMES, MOVE_NAMES, MoveGlyph, ShotPicture, mmss } from "./shots";
 import { TransitionEditor, TransitionGlyph, transitionWords } from "./TransitionEditor";
@@ -119,7 +120,8 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, trans
           const linesById = new Map(card.lines.map((l) => [l.line_id, l]));
 
           return (
-            <section key={card.scene_id} className={styles.scene} aria-label={`Scene ${number}: ${card.title}`}>
+            <Reveal key={card.scene_id} distance={40}>
+            <section className={styles.scene} aria-label={`Scene ${number}: ${card.title}`}>
               <header className={styles.sceneHead}>
                 <h2>{String(number).padStart(2, "0")}</h2>
                 <div className={styles.sceneTitle}>
@@ -209,13 +211,9 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, trans
                 })}
               </ol>
             </section>
+            </Reveal>
           );
         })}
-        {planning && cards.length === 0 && (
-          <p className={styles.status} aria-live="polite">
-            <span className="pip" /> Writing the script
-          </p>
-        )}
       </div>
 
       {withPanel && selCard && (
@@ -275,7 +273,7 @@ export function Sheet({ cards, cast, planning, editable, hasFilm, options, trans
                           }
                         />
                       ) : (
-                        <p className={styles.note}>Nothing comes before the first shot of the film, so it has no transition.</p>
+                        <p className={styles.note}>No transition before the first shot.</p>
                       )
                     ) : (
                       <p className={styles.note}>Loading the transitions…</p>
@@ -365,16 +363,18 @@ function ShotEditor({
 
   return (
     <div className={styles.edc} role="group" aria-label="Camera for this shot">
+      <Reveal>
       <div className={styles.preview} role="group" aria-label="Preview of the move">
         <div className={styles.moving} data-move={shot.move_id}>
           <ShotPicture shot={shot} preview={card.preview_url} portrait={shot.character_id ? portraits[shot.character_id] : undefined} />
         </div>
       </div>
-      <p className={styles.sub} style={{ margin: 0 }}>
-        Changes apply to this shot only.{" "}
-        {hasFilm ? "The film is cut again around it, which takes a little while but draws no new pictures." : "Nothing is drawn."}
+      <p className={styles.sub} style={{ margin: "12px 0 0" }}>
+        This shot only{hasFilm ? ": re-cut, nothing redrawn" : ""}.
       </p>
+      </Reveal>
 
+      <Reveal>
       <div className={styles.grp} style={{ marginTop: 0 }}>
         <b id={`mv-${shot.shot_id}`}>Camera move</b>
         <div className={styles.opts} role="radiogroup" aria-labelledby={`mv-${shot.shot_id}`}>
@@ -386,14 +386,11 @@ function ShotEditor({
               aria-checked={shot.move_id === m.id}
               className={styles.opt}
               disabled={busy || shot.framing === "cutaway"}
+              title={m.about}
               onClick={() => shot.move_id !== m.id && apply({ move: m.id })}
             >
               <MoveGlyph move={m.id} />
-              <span>
-                {MOVE_NAMES[m.id] ?? m.label}
-                <br />
-                <small>{m.about}</small>
-              </span>
+              <span>{MOVE_NAMES[m.id] ?? m.label}</span>
               <Check />
             </button>
           ))}
@@ -401,6 +398,9 @@ function ShotEditor({
         </div>
       </div>
 
+      </Reveal>
+
+      <Reveal>
       <div className={styles.grp} style={{ marginTop: 0 }}>
         <b id={`fr-${shot.shot_id}`}>Framing</b>
         <div className={styles.fr} role="radiogroup" aria-labelledby={`fr-${shot.shot_id}`}>
@@ -420,10 +420,13 @@ function ShotEditor({
             </button>
           ))}
         </div>
-        {!shot.can_close && <p className={styles.note}>No close-up here: nobody speaks in this shot, so there is no face to cut to.</p>}
-        {shot.framing === "cutaway" && <p className={styles.note}>A cutaway is drawn when the film is rendered, so its framing and move are set then.</p>}
+        {!shot.can_close && <p className={styles.note}>No close-up: nobody speaks here.</p>}
+        {shot.framing === "cutaway" && <p className={styles.note}>Set when the film is rendered.</p>}
       </div>
 
+      </Reveal>
+
+      <Reveal>
       <div className={styles.acts} style={{ marginTop: 0 }}>
         {shot.overridden && (
           <button className="textlink" disabled={busy} onClick={() => apply({ reset: true })}>
@@ -432,7 +435,7 @@ function ShotEditor({
         )}
         {hasFilm &&
           (shot.redraw ? (
-            <span className="meta">Will be drawn again when you apply.</span>
+            <span className="meta">Drawn again on apply.</span>
           ) : (
             <button className="textlink" disabled={busy} onClick={() => void onRedraw()}>
               Draw this shot again
@@ -444,6 +447,7 @@ function ShotEditor({
           </span>
         )}
       </div>
+      </Reveal>
     </div>
   );
 }
@@ -483,7 +487,7 @@ function SceneActions({
       {count > 1 &&
         (sure ? (
           <div className={styles.confirm} role="group" aria-label={`Remove scene ${number}?`}>
-            <p>Remove scene {number}? Its picture and lines go with it, and Go back can bring it back.</p>
+            <p>Remove scene {number}? Go back can undo it.</p>
             <div className={styles.acts} style={{ marginTop: 0 }}>
               <button
                 type="button"
@@ -537,28 +541,34 @@ function SceneWords({ card, onSave }: { card: Card; onSave: (edit: SceneEdit) =>
 
   return (
     <div className={styles.edc} role="group" aria-label="Edit the scene">
-      <label className="field">
-        <span className="label">Scene title</span>
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-      </label>
-      <label className="field">
-        <span className="label">What the camera sees</span>
-        <textarea className="textarea" rows={3} value={visual} onChange={(e) => setVisual(e.target.value)} />
-      </label>
-      {card.lines.map((l) => (
-        <label key={l.line_id} className="field">
-          <span className="label">{l.character}</span>
-          <textarea className="textarea" rows={2} value={lines[l.line_id] ?? ""} onChange={(e) => setLines((prev) => ({ ...prev, [l.line_id]: e.target.value }))} />
+      <Reveal>
+        <label className="field">
+          <span className="label">Scene title</span>
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
         </label>
+      </Reveal>
+      <Reveal>
+        <label className="field">
+          <span className="label">What the camera sees</span>
+          <textarea className="textarea" rows={3} value={visual} onChange={(e) => setVisual(e.target.value)} />
+        </label>
+      </Reveal>
+      {card.lines.map((l) => (
+        <Reveal key={l.line_id}>
+          <label className="field">
+            <span className="label">{l.character}</span>
+            <textarea className="textarea" rows={2} value={lines[l.line_id] ?? ""} onChange={(e) => setLines((prev) => ({ ...prev, [l.line_id]: e.target.value }))} />
+          </label>
+        </Reveal>
       ))}
-      <p className={styles.note} style={{ margin: 0 }}>
-        {visualChanged ? "A new description redraws this scene's picture: one image." : "Changes to the words are free; nothing is redrawn."}
-      </p>
-      <div className={styles.acts} style={{ marginTop: 0 }}>
-        <button className="btn primary small" onClick={save} disabled={saving || !dirty}>
-          {saving ? (visualChanged ? "Redrawing" : "Saving") : "Save scene"}
-        </button>
-      </div>
+      <Reveal>
+        <div className={styles.acts} style={{ marginTop: 0 }}>
+          <button className="btn primary small" onClick={save} disabled={saving || !dirty}>
+            {saving ? (visualChanged ? "Redrawing" : "Saving") : visualChanged ? "Save and redraw" : "Save scene"}
+          </button>
+          {visualChanged && <span className="meta">Draws 1 picture.</span>}
+        </div>
+      </Reveal>
     </div>
   );
 }

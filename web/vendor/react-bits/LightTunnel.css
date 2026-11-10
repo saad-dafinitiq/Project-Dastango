@@ -1,0 +1,17 @@
+/* From React Bits (https://reactbits.dev, https://github.com/DavidHDev/react-bits), copied unmodified.
+   MIT + Commons Clause License Condition v1.0, Copyright (c) 2026 David Haz: used here as part of an application.
+   Licence text: ./LICENSE.md. Typed through the .d.ts beside it; do not restyle here, wrap it instead. */
+.light-tunnel-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.light-tunnel-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

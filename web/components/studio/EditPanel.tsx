@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { describe, reason } from "@/lib/copy";
 import type { CastMember, FilmPlayback, ProgressEvent } from "@/lib/types";
 
+import { Reveal } from "./Reveal";
 import styles from "./studio.module.css";
 
 type Props = {
@@ -44,7 +45,7 @@ export function EditPanel({ film, cast, events, running, cancelling = false, ela
   const summary = understood?.payload?.summary as string | undefined;
   const steps = (understood?.payload?.steps as string[] | undefined) ?? [];
   // Only said where it was measured: regrading the pictures took 95 to 135 s live (F17).
-  const expect = steps.includes("apply_filter") ? "Regrading takes one to two minutes on this server." : null;
+  const expect = steps.includes("apply_filter") ? "Regrading takes 1 to 2 minutes." : null;
   const failed = last?.phase === "error" && last.status === "failed";
   const done = last?.phase === "complete";
   const busy = running || sending;
@@ -67,23 +68,26 @@ export function EditPanel({ film, cast, events, running, cancelling = false, ela
       <h2 id="change-heading">
         Change something
       </h2>
+      <Reveal>
       <form className={styles.editForm} onSubmit={submit}>
         <input
           className={`input ${styles.editInput}`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Say what to change: “make the voices in scene 2 whispered”"
+          placeholder="Say what to change…"
           aria-label="What to change"
           disabled={busy}
           maxLength={300}
         />
         <button className="btn primary" type="submit" disabled={busy || !query.trim()}>
-          Add to changes
+          Add
         </button>
       </form>
+      </Reveal>
 
       {/* Kept after a refusal too: that is when an example helps most. */}
       {!busy && (
+        <Reveal delay={0.08}>
         <div className={styles.ideas}>
           {ideas.map((idea) => (
             <button key={idea} type="button" className={styles.idea} onClick={() => setQuery(idea)}>
@@ -91,6 +95,7 @@ export function EditPanel({ film, cast, events, running, cancelling = false, ela
             </button>
           ))}
         </div>
+        </Reveal>
       )}
 
       {(busy || failed || done) && last && (
@@ -108,9 +113,8 @@ export function EditPanel({ film, cast, events, running, cancelling = false, ela
               </button>
             )}
           </p>
-          {running && cancelling && <p className={styles.editNote}>This can take a moment. Nothing will be changed.</p>}
-          {running && !cancelling && expect && <p className={styles.editNote}>{expect} You can keep watching meanwhile.</p>}
-          {failed && <p className={styles.editNote}>Nothing was changed. The film is as it was.</p>}
+          {running && !cancelling && expect && <p className={styles.editNote}>{expect}</p>}
+          {failed && <p className={styles.editNote}>Nothing changed.</p>}
         </div>
       )}
     </section>

@@ -5,6 +5,9 @@ import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { FilmPlayback, MusicCatalogue } from "@/lib/types";
 
+import { LevelSlider } from "./LevelSlider";
+import { Reveal } from "./Reveal";
+
 import styles from "./sound.module.css";
 
 type Props = {
@@ -82,6 +85,7 @@ export function SoundPanel({ film, catalogue, disabled, onOp }: Props) {
     <section className={styles.panel} aria-labelledby="sound-heading">
       <h2 id="sound-heading">Sound</h2>
 
+      <Reveal>
       <div className={styles.row}>
         <label htmlFor="sound-scope" className={styles.lab}>
           Music for
@@ -104,7 +108,7 @@ export function SoundPanel({ film, catalogue, disabled, onOp }: Props) {
           No music
         </button>
         <button type="button" className="textlink" disabled={disabled} onClick={() => run("set_music", { ...scope, reset: true })}>
-          As it was made
+          As made
         </button>
       </div>
 
@@ -148,19 +152,28 @@ export function SoundPanel({ film, catalogue, disabled, onOp }: Props) {
       )}
       <audio ref={player} preload="none" />
 
+      </Reveal>
+
+      <Reveal>
       <div className={styles.upload}>
         <label className={styles.rights}>
-          <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} /> I have the right to use this music
+          <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} /> I have the rights
         </label>
         <input ref={file} type="file" hidden accept={catalogue.limits.extensions.join(",")} onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
-        <button type="button" className="btn small" disabled={disabled || uploading || !rights} onClick={() => file.current?.click()}>
+        <button
+          type="button"
+          className="btn small"
+          disabled={disabled || uploading || !rights}
+          title={`Up to ${catalogue.limits.max_mb} MB, ${catalogue.limits.min_seconds} s to ${catalogue.limits.max_seconds / 60} min. Tick the box to say the music is yours to use.`}
+          onClick={() => file.current?.click()}
+        >
           {uploading ? "Adding…" : "Add your own"}
         </button>
-        <span className="meta">
-          up to {catalogue.limits.max_mb} MB, {catalogue.limits.min_seconds} s to {catalogue.limits.max_seconds / 60} min
-        </span>
       </div>
 
+      </Reveal>
+
+      <Reveal>
       <h3 className={styles.sub}>Ambience</h3>
       <div className={styles.chips} role="radiogroup" aria-label={`Ambience in ${whereWords}`}>
         {[{ id: "none", label: "None" }, ...catalogue.ambience].map((a) => {
@@ -181,31 +194,33 @@ export function SoundPanel({ film, catalogue, disabled, onOp }: Props) {
         })}
       </div>
 
-      <h3 className={styles.sub}>Levels</h3>
+      </Reveal>
+
+      <Reveal>
+      <h3 className={styles.sub} title="100% is how the film was made. The film is kept at one loudness, so raising one level lowers the others.">
+        Levels
+      </h3>
       {LEVELS.map((l) => {
         const server = l.id === "music" ? sound.music_pct : l.id === "voices" ? sound.voices_pct : sound.ambience_pct;
         const value = levels[l.id] ?? server;
         return (
           <div className={styles.level} key={l.id}>
-            <label htmlFor={`lv-${l.id}`}>{l.label}</label>
-            <input
-              id={`lv-${l.id}`}
-              type="range"
+            <span className={styles.levelName}>{l.label}</span>
+            <LevelSlider
+              value={value}
               min={0}
               max={l.max}
               step={5}
-              value={value}
+              label={`${l.label} level`}
+              format={(v) => `${v}%`}
               disabled={disabled}
-              onChange={(e) => setLevels({ ...levels, [l.id]: Number(e.target.value) })}
-              onPointerUp={() => value !== server && run("set_volume", { target: l.id, percent: value })}
-              onKeyUp={() => value !== server && run("set_volume", { target: l.id, percent: value })}
-              aria-valuetext={`${value} percent`}
+              onChange={(v) => setLevels({ ...levels, [l.id]: v })}
+              onSettle={(v) => v !== server && run("set_volume", { target: l.id, percent: v })}
             />
-            <output htmlFor={`lv-${l.id}`}>{value}%</output>
           </div>
         );
       })}
-      <p className={styles.note}>100% is how the film was made. The whole film is kept at one loudness, so raising one level lowers the others.</p>
+      </Reveal>
       {problem && (
         <p className={styles.problem} role="alert">
           {problem}

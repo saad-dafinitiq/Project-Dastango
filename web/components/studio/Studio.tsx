@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Dust } from "@/components/Dust";
+import { PlanBackdrop } from "@/components/PlanBackdrop";
+import { PlanThought } from "@/components/PlanThought";
 import { TopBar, type Stage } from "@/components/TopBar";
 import { api, ApiError, versioned, type SceneEdit, type ShotChange } from "@/lib/api";
 import { describe, elapsedSeconds, reason } from "@/lib/copy";
@@ -248,6 +249,15 @@ export function Studio() {
   const castNote = board?.cast_note ?? streamed?.cast_note ?? null;
   // A render that stopped reports how long it ran, not how long ago it started.
   const elapsed = elapsedSeconds(events, failed && last?.created_at ? Date.parse(`${last.created_at}Z`) : now);
+  // A plan that was written on this page leaves its thought line behind, settled ("Planned in 14.2 s"), above the storyboard.
+  // The tunnel of light behind the plan is up until there is a script to show; nothing of the storyboard is drawn over it.
+  const [tunnel, setTunnel] = useState(false);
+  const sawPlanning = useRef(false);
+  const planElapsed = useRef<number | null>(null);
+  if (mode === "planning") {
+    sawPlanning.current = true;
+    if (elapsed != null) planElapsed.current = elapsed;
+  }
   const seconds = cards.reduce((n, c) => n + (c.estimated_ms ?? 0), 0) / 1000 || board?.length?.target_s || 30;
 
   async function render(choice: RenderChoice) {
@@ -443,7 +453,7 @@ export function Studio() {
 
   return (
     <div className={styles.shell} style={formatVars(format) as React.CSSProperties}>
-      <Dust />
+      <PlanBackdrop active={mode === "planning" && running && !failed && cards.length === 0} onBusy={setTunnel} />
       <TopBar stage={stage} film={stageFilm} />
 
       <div className={styles.body}>
@@ -486,7 +496,7 @@ export function Studio() {
                   />
                 )}
               </div>
-              {castMembers.length > 0 && (
+              {castMembers.length > 0 && !tunnel && (
                 <ul className={sheet.cast} aria-label="Cast">
                   {castMembers.map((m) => (
                     <li key={m.character_id}>
@@ -503,14 +513,15 @@ export function Studio() {
               )}
             </header>
             {castNote && <p className={sheet.castNote}>{castNote}</p>}
-            {mode === "planning" && (
-              <p className={sheet.status} aria-live="polite">
-                <span className="pip" /> {describe(last)}
-                {elapsed != null && <span className="meta">· {elapsed}s</span>}
-                <button className="btn quiet small" onClick={stop}>
-                  Stop
-                </button>
-              </p>
+            {((mode === "planning" && !failed) || (sawPlanning.current && mode !== "planning")) && (
+              <div className={sheet.status} aria-live="polite">
+                <PlanThought
+                  events={events}
+                  working={mode === "planning" && !failed}
+                  elapsed={mode === "planning" ? elapsed : planElapsed.current}
+                  onStop={stop}
+                />
+              </div>
             )}
             {failed && mode === "planning" && (
               <p className={sheet.problem} role="alert">
@@ -524,7 +535,7 @@ export function Studio() {
             )}
 
             <Sheet
-              cards={cards}
+              cards={tunnel ? [] : cards}
               cast={castMembers}
               planning={mode === "planning"}
               editable={mode === "storyboard" && Boolean(board)}
@@ -599,6 +610,7 @@ export function Studio() {
             </div>
 
             <Inspector
+              startClosed
               status={(tab) => (tab === "change" ? null : changeStrip(false))}
               tabs={[
                 {

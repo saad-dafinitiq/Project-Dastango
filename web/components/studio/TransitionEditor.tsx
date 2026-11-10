@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import type { Card, CardShot, TransitionStyle } from "@/lib/types";
 
+import { LevelSlider } from "./LevelSlider";
+import { Reveal } from "./Reveal";
 import styles from "./sheet.module.css";
 import { ShotPicture } from "./shots";
 
@@ -134,9 +136,8 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
   return (
     <div className={styles.edc} role="group" aria-label={`How ${where} comes in`}>
       <div>
-        <p className={styles.sub}>
-          This cut only. {hasFilm ? "The film is cut again around it, which takes a little while; no new pictures are drawn and the film's length does not change." : "Nothing is drawn."}
-        </p>
+        <p className={styles.sub}>This cut only.</p>
+        <Reveal>
         <div className={styles.tgrid} role="radiogroup" aria-label="Transition">
           {main.map((s) => (
             <button
@@ -155,6 +156,7 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
             </button>
           ))}
         </div>
+        </Reveal>
         {rest.length > 0 && (
           <div className={styles.grp}>
             <button type="button" className="textlink" aria-expanded={more} onClick={() => setMore((v) => !v)}>
@@ -181,6 +183,7 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
             )}
           </div>
         )}
+        <Reveal className={styles.gap}>
         <div className={styles.grp} style={{ marginTop: 0 }}>
           <b id={`tp-speed-${shot.shot_id}`}>Speed</b>
           <div className={styles.fr} role="radiogroup" aria-labelledby={`tp-speed-${shot.shot_id}`}>
@@ -201,40 +204,30 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
             ))}
           </div>
           {t.kind !== "cut" && (
-            <div className={styles.fr} style={{ marginTop: 12, alignItems: "center" }}>
-              <label htmlFor={`tp-ms-${shot.shot_id}`} style={{ color: "var(--mu)", fontSize: 14 }}>
-                Exact length
-              </label>
-              <input
-                id={`tp-ms-${shot.shot_id}`}
-                type="range"
+            <div style={{ marginTop: 12 }}>
+              <LevelSlider
+                value={shown}
                 min={100}
                 max={1500}
                 step={50}
-                value={shown}
+                label="Length of the transition"
+                format={(v) => `${(v / 1000).toFixed(2)} s`}
                 disabled={busy}
-                style={{ flex: 1, minWidth: 140, accentColor: "var(--ac)", minHeight: 40 }}
-                aria-valuetext={`${(shown / 1000).toFixed(2)} seconds`}
-                onChange={(e) => setCustom(Number(e.target.value))}
-                onPointerUp={() => custom !== null && custom !== t.ms && void apply({ transition: t.kind, ms: custom }).then(() => setCustom(null))}
-                onKeyUp={() => custom !== null && custom !== t.ms && void apply({ transition: t.kind, ms: custom }).then(() => setCustom(null))}
+                onChange={(v) => setCustom(v)}
+                onSettle={(v) => v !== t.ms && void apply({ transition: t.kind, ms: v }).then(() => setCustom(null))}
               />
-              <output htmlFor={`tp-ms-${shot.shot_id}`} style={{ minWidth: 52, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                {(shown / 1000).toFixed(2)} s
-              </output>
             </div>
           )}
           {t.kind !== "cut" && t.max_ms !== undefined && shown > t.max_ms && (
-            <p className={styles.note} role="status">
-              Held to {(t.max_ms / 1000).toFixed(2)} s here: a transition can take at most half of the shorter shot it joins, so a
-              longer one would swallow the shot. Make the shots longer, or choose a shorter length.
+            <p className={styles.note} role="status" title="A transition can take at most half of the shorter shot it joins.">
+              Held to {(t.max_ms / 1000).toFixed(2)} s here.
             </p>
           )}
-          {t.kind === "cut" && <p className={styles.note}>A cut has no speed: it is straight to the next shot.</p>}
         </div>
+        </Reveal>
 
         {before && (
-          <>
+          <Reveal className={styles.gap}>
             <div className={styles.cutPreview} role="group" aria-label="The two shots this cut joins">
               <div className={styles.cutHalf}>
                 <ShotPicture shot={before.shot} preview={before.card.preview_url} portrait={before.shot.character_id ? portraits[before.shot.character_id] : undefined} />
@@ -248,7 +241,7 @@ export function TransitionEditor({ card, shot, index, before, styles: all, speed
               <span>{before.shot.framing === "close" && before.shot.character ? before.shot.character : before.shot.framing}</span>
               <span>{shot.framing === "close" && shot.character ? shot.character : shot.framing}</span>
             </div>
-          </>
+          </Reveal>
         )}
 
         <div className={styles.acts}>

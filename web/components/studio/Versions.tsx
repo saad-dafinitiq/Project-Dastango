@@ -3,6 +3,7 @@
 import { ago } from "@/lib/copy";
 import type { FilmVersion } from "@/lib/types";
 
+import { Reveal } from "./Reveal";
 import styles from "./studio.module.css";
 
 type Props = {
@@ -27,7 +28,8 @@ export function Versions({ versions, locked, restoring, now, onGoBack }: Props) 
       </h2>
       <ol className={styles.versionList}>
         {newestFirst.map((v) => (
-          <li key={v.version} className={`${styles.version} ${v.current ? styles.versionOn : ""}`}>
+          <Reveal key={v.version} distance={18}>
+          <li className={`${styles.version} ${v.current ? styles.versionOn : ""}`}>
             <span className={`meta ${styles.versionNum}`}>v{v.number}</span>
             <span className={styles.versionBody}>
               <span className={styles.versionLabel}>
@@ -51,6 +53,7 @@ export function Versions({ versions, locked, restoring, now, onGoBack }: Props) 
               </button>
             )}
           </li>
+          </Reveal>
         ))}
       </ol>
     </section>

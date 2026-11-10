@@ -1062,3 +1062,8 @@ button.tag:focus-visible {
 .topt[aria-checked="true"] .ck {
   opacity: 1;
 }
+
+/* Space between the groups of a panel whose groups are each revealed on their own. */
+.gap {
+  margin-top: 18px;
+}
