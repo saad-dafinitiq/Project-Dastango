@@ -1,12 +1,23 @@
 /* The editing column beside the film. Sticky from 900 px, so the film and the controls are
    in view together; below that it sits under the film and the tabs scroll sideways. Tokens only. */
 .inspector {
+  /* Star Border draws the edge (and its light); these undo what it assumes of a button. */
   min-width: 0;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  font-weight: inherit !important;
+  text-align: left;
+}
+.inner {
   display: flex;
   flex-direction: column;
-  background: var(--s1);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  flex: 1;
+  min-height: 0;
+  border-radius: inherit;
   overflow: hidden;
 }
 @media (min-width: 900px) {
@@ -24,51 +35,6 @@
     max-height: calc(100dvh - 76px - var(--insp-bottom, 20px));
   }
 }
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  scrollbar-width: none;
-  flex: none;
-}
-.tabs::-webkit-scrollbar {
-  display: none;
-}
-.tab {
-  position: relative;
-  min-height: 48px;
-  padding: 0 12px;
-  border: 0;
-  background: transparent;
-  color: var(--mu);
-  font: inherit;
-  font-size: 15px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tab:hover {
-  color: var(--fg);
-}
-/* The chosen tab is lit and underlined: a line, not colour alone. */
-.tab[aria-selected="true"] {
-  color: var(--fg);
-}
-.tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 2px;
-  background: var(--fg);
-}
-.tab:focus-visible,
-.body:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
 .body {
   padding: 18px 18px 22px;
   overflow-y: auto;
@@ -77,12 +43,12 @@
 }
 /* The panels were written to stand alone under the film; inside a tab their own heading and rule
    are the tab's job. */
-.body > section {
+.body > div > section {
   margin: 0;
   padding: 0;
   border: 0;
 }
-.body > section > h2:first-child {
+.body > div > section > h2:first-child {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -142,8 +108,7 @@
     z-index: 60;
     max-height: 72dvh;
     border-radius: 16px 16px 0 0;
-    border-width: 1px 0 0;
-    background: var(--s2);
+    --star-border-surface: var(--s2) !important;
     animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .close {

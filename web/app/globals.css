@@ -23,10 +23,8 @@
   --bad: #f35c49;
   --ok: #67cfa5;
   --focus: #8db0fb;
-  /* Strength of the moving pictures behind Create, and of grain and dust elsewhere. */
+  /* Strength of the moving pictures behind sign-in. */
   --pic: 0.24;
-  --grain: 0.07;
-  --speck: 0.3;
   --scrim: rgba(12, 13, 15, 0.72);
   color-scheme: dark;
 }
@@ -49,8 +47,6 @@
   --ok: #00694a;
   --focus: #355ab4;
   --pic: 0.38;
-  --grain: 0.1;
-  --speck: 0.32;
   --scrim: rgba(236, 225, 211, 0.78);
   color-scheme: light;
 }
@@ -74,9 +70,7 @@
     --ok: #00694a;
     --focus: #355ab4;
     --pic: 0.38;
-    --grain: 0.1;
-    --speck: 0.32;
-    --scrim: rgba(236, 225, 211, 0.78);
+        --scrim: rgba(236, 225, 211, 0.78);
     color-scheme: light;
   }
 }
@@ -368,84 +362,21 @@ a {
   }
 }
 
-/* ---- grain and dust --------------------------------------------------------
-   Behind every screen except Create and sign-in, which keep their pictures
-   unclouded. Pure CSS, no image file; the page needs `isolation: isolate`. */
+/* ---- particles -------------------------------------------------------------
+   Behind every screen except sign-in (React Bits Particles, drawn in WebGL by
+   components/Dust.tsx): a few slow points of light that lean toward the pointer.
+   The page needs `isolation: isolate`. `--contained` fits it to its parent instead
+   of the window. */
 .dust {
   position: fixed;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
   z-index: -1;
+  transition: opacity 0.8s ease;
 }
-.dust::before {
-  content: "";
+.dust--contained {
   position: absolute;
-  inset: -60px;
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='220'%20height='220'%3E%3Cfilter%20id='n'%20x='0'%20y='0'%20width='100%25'%20height='100%25'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='.85'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201%200'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
-  opacity: var(--grain);
-  animation: dust-grain 9s steps(6) infinite;
-}
-:root[data-theme="light"] .dust::before {
-  filter: invert(1);
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .dust::before {
-    filter: invert(1);
-  }
-}
-.dust::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(circle at 8% 18%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1px, transparent 2.2px),
-    radial-gradient(circle at 23% 64%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.6px, transparent 2.8px),
-    radial-gradient(circle at 37% 12%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.2px, transparent 2.4px),
-    radial-gradient(circle at 52% 81%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1px, transparent 2.2px),
-    radial-gradient(circle at 61% 33%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.8px, transparent 3px),
-    radial-gradient(circle at 74% 57%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.1px, transparent 2.3px),
-    radial-gradient(circle at 88% 9%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.4px, transparent 2.6px),
-    radial-gradient(circle at 93% 72%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1px, transparent 2.2px),
-    radial-gradient(circle at 15% 90%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.5px, transparent 2.7px),
-    radial-gradient(circle at 45% 45%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1px, transparent 2.2px),
-    radial-gradient(circle at 68% 92%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.3px, transparent 2.5px),
-    radial-gradient(circle at 30% 36%, rgba(var(--fg-rgb), 1) 0, rgba(var(--fg-rgb), 1) 1.7px, transparent 2.9px);
-  background-size: 620px 620px;
-  opacity: var(--speck);
-  filter: blur(0.6px);
-  animation: dust-drift 140s linear infinite;
-}
-@keyframes dust-grain {
-  0% {
-    transform: translate(0, 0);
-  }
-  17% {
-    transform: translate(-26px, 14px);
-  }
-  34% {
-    transform: translate(18px, -30px);
-  }
-  51% {
-    transform: translate(-34px, -16px);
-  }
-  68% {
-    transform: translate(28px, 26px);
-  }
-  85% {
-    transform: translate(-12px, 32px);
-  }
-  100% {
-    transform: translate(0, 0);
-  }
-}
-@keyframes dust-drift {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: -620px -620px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -459,10 +390,6 @@ a {
   .rise {
     opacity: 1;
     transform: none;
-  }
-  .dust::before,
-  .dust::after {
-    animation: none !important;
   }
 }
 

@@ -122,12 +122,12 @@
 }
 .level {
   display: grid;
-  grid-template-columns: 90px 1fr 52px;
+  grid-template-columns: 76px 1fr;
   align-items: center;
   gap: 12px;
   min-height: 44px;
 }
-.level label {
+.levelName {
   color: var(--mu);
   font-size: 14px;
 }
@@ -154,6 +154,6 @@
 }
 @media (max-width: 560px) {
   .level {
-    grid-template-columns: 74px 1fr 46px;
+    grid-template-columns: 66px 1fr;
   }
 }

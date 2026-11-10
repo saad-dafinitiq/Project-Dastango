@@ -98,7 +98,7 @@ fixed-width box), and neither face has an arrow glyph (arrows are drawn as icons
 **Shapes and motion.** Plain shapes only: round avatars, dots for status and steps, rings and checks for selection, and the
 camera-move glyphs (hold, sway, push in, pan, pull out), which describe the move itself and are not the logo.
 
-**The Create background.** Create and the signed-out screen show three real frames, each doing a move the renderer makes (push in, pan,
+**The Create background.** (Create now uses the field of frames in section 15; the signed-out screen still shows this.) Create and the signed-out screen show three real frames, each doing a move the renderer makes (push in, pan,
 pull out), over 42 seconds. There is no overlay at all in either mode: no vignette and no shadow, because both read as a box or a fog.
 In dark mode the frames fill the page at a flat 24% opacity. In light mode a flat low opacity looked like a white veil, so the frames
 are blended onto the sand with multiply instead: they keep their own warm colour, cover the top of the page and fade into the ground.
@@ -109,7 +109,7 @@ over the brightest pixels; light mode gives 4.7 to 4.9:1 for umber text over the
 lede), and 10:1 for the phone's hint line. Nothing small and faint sits over the picture. Under `prefers-reduced-motion` it holds one
 still frame.
 
-**The other screens.** Behind the content there is a soft film grain (7% in dark mode, 10% in light) and a few slowly drifting dust
+**The other screens.** (The grain and dust below were replaced by Particles in section 15.) Behind the content there is a soft film grain (7% in dark mode, 10% in light) and a few slowly drifting dust
 specks (30% and 32%), drawn in CSS with no image files. They sit behind everything, never over text, and stand still under reduced
 motion.
 
@@ -186,8 +186,8 @@ palette and contrast checks) are backed up outside the repository in `DST-38-evi
    beside it. The logo's flame and arch appear only in the top bar and are never reused as an icon.
 5. **Type.** Chillax Semibold for every heading, Synonym Regular for everything else; no italic, no bold (the kit has neither and
    `font-synthesis` is off). The files are supplied unmodified, with their licence beside them; do not subset or convert them.
-6. **Create and sign-in carry the moving pictures** at a flat strength with no overlay, vignette or shadow; everything read there sits on
-   a solid surface. Every other screen gets the grain and dust layer.
+6. **Create and sign-in carry the moving pictures** with no overlay, vignette or shadow (sign-in at a flat strength; Create's tiles are dimmed one by one, section 15); everything read there sits on
+   a solid or glass surface. Every other screen gets the particles layer (section 15).
 7. **Say only what is measured.** Times and counts on a screen come from events or from `docs/USER_JOURNEYS.md`; "usually 5 to 7
    minutes" is a stated range from measured renders, never a countdown. What cannot be known is not claimed (the render screen does
    not say "scene 4 of 6": shots of all scenes render together).
@@ -298,3 +298,62 @@ to wait, then back to the storyboard for the next change. Now choosing a change 
   they are only understood at that moment. The creator stays on the screen they are on, and the panel's status line follows the job.
 - **Not stacked**: before a render everything is cheap and is made at once; "Save scene" (words and picture) is an explicit save with its own cost note.
 - **Leaving** with changes that were never applied asks first.
+
+## 15. Create: a field of frames, and Your films as a ring (DST-45, 10 Nov 2026)
+
+Two components from React Bits (reactbits.dev, MIT + Commons Clause, used as part of an application) are copied unmodified into `web/vendor/react-bits/`
+with their licence and a `.d.ts` each, and wrapped: they are never restyled in place.
+
+- **Behind the box: Grid Motion** (`components/CreateBackdrop.tsx`). Five rows of 16:9 frames, tilted 8 degrees, drift in opposite directions, lean toward
+  the pointer and light up near it. The frames are the creator's own films' pictures (up to twelve) and the shipped examples until there are enough. The
+  edges feather out; the bottom dissolves into the next section. There is still no overlay: every tile is held back toward the page colour
+  (`--grid-dim`, 0.68 dark and 0.58 light) so the headline reads on it. The box and the idea list are glass: the page colour at 78% with a 16 px blur.
+  Reduced motion stops the drift and the lean. The signed-out screen keeps its three slow frames.
+- **The opening lines glow: Shiny Text** (`components/GlowText.tsx`). The greeting (now 30 px) and the headline carry a soft glow and a slow sheen that
+  crosses them every few seconds (a lighter sheen in dark mode, an ember one in light). Both are canvas-painted, so they are given concrete colours from
+  the palette (`useIsDark`) rather than CSS variables. Reduced motion stops the sheen.
+- **The send button: Specular Button** (`components/GlassButton.tsx`). A glass circle whose rim catches a light that follows the pointer (WebGL; a plain
+  button where there is none). While the box is empty it is dim and disabled; once there are words the light circles the rim on its own, which says
+  "ready" without a colour. "See all films" is the same button, larger.
+- **Your films: Circular Carousel** (`components/FilmCarousel.tsx`). A section one screen tall: a ring of film pictures that drifts slowly, can be dragged, and
+  opens a film when touched. Under it only the front film's name, then "See all N films". No date, status, count, tabs or Open button. The ring is **not** the
+  library: it shows the creator's pinned films, and until pinning exists (with the Films page, a later ticket) a random handful of their own films with a
+  picture, chosen once per visit; a creator with none sees the shipped example frames under "Made with Dastango" (not clickable, no "See all"). Cards repeat
+  round the ring when there are fewer than eight. The only movement behind it is the page's particles, fading in from the top.
+- **Films screen: Masonry, Star Border and the pin** (`components/FilmsPage.tsx`, `FilmFolder.tsx`). Films sit in a **folder for each shape**: Widescreen 16:9,
+  Vertical 9:16 and Square 1:1 (a folder with no film is not drawn; each opens and closes, and says how many films and how many are pinned). In a folder
+  the films are React Bits Masonry cards, each in its own shape, with the name and status on the card and a click to open. The search ("by name or idea") is
+  wrapped in Star Border: a thin light circles its edge. All, Ready and Drafts still filter. **Pin**: a round button on every card's corner, always visible (a phone
+  cannot hover), filled and ember when pinned (the state is the fill and the label, `aria-pressed`, never colour alone). Pins belong to the account
+  (`pins` table, `PUT` and `DELETE /api/projects/{id}/pin`), the page answers at once and undoes itself if the server refuses. **Create's ring shows the pinned
+  films, and only those**; with none pinned a random handful, with no films the examples. Masonry draws its own cards with no place for a button, so the pin is
+  portalled into each card's wrapper (found by its `data-id`); it needs `@hugeicons/react` and `@hugeicons/core-free-icons`, the icons Masonry's own
+  lightbox uses (the lightbox is switched off here, so only the four icons that file names are bundled).
+- **The editing panels: a dock first, less to read** (`components/studio/Inspector.tsx`, `FloatingDock.tsx`, `LevelSlider.tsx`, `Reveal.tsx`, `icons.tsx`). The panel
+  beside the film (Watch) and beside the storyboard (Review) is now a row of round icons that swell as the pointer nears and name themselves on hover or focus
+  (the behaviour of Aceternity UI's Floating Dock, written here as a tab list with the arrow keys; the chosen icon is ringed and dotted, never colour alone).
+  On Watch only the dock shows at first (Change, Sound, Look, Titles, Versions); an icon opens its panel under it, the same icon again closes it. On Review the panel
+  is open on its first tab (Camera and Transition for a shot, Words and picture and Order for a scene), switched by the same dock. The card's edge is React Bits'
+  Star Border: a thin light that circles it slowly. **Sliders** (the music, voices and ambience levels, and a transition's exact length) are React Bits' Wake Slider: bars
+  that rise in the wake of the pointer; it reports every value as it moves, so a change is made once the pointer has been still for 0.45 s, not on every step.
+  **Scrolling**: the scene rows on Review and each group inside a panel rise into place as they scroll into view (React Bits' Animated Content, GSAP's ScrollTrigger;
+  a panel gives its own scroller, so its groups are revealed as the panel scrolls). Reduced motion shows everything at once. **Less text**: explanations moved off the
+  page into tooltips (a camera move's "about", a title's "about", the upload limits, what 100% means) or were cut ("This shot only", "This cut only", "Held to 0.75 s here",
+  "I have the rights"); only what changes what a creator does stays. Needs `gsap` (Animated Content); the dock and sliders use `motion`, already present.
+- **Particles replace the grain and dust** (`components/Dust.tsx`). The CSS grain and drifting specks behind every screen except sign-in are now React Bits'
+  Particles: about 140 slow points of light, pale with a spark of ember in dark mode and brown in light mode (a pale point would vanish there), which lean toward
+  the pointer and twinkle. Drawn in WebGL, so the colours are concrete values from the palette (`useIsDark`). The `--grain` and `--speck` tokens are gone. Clicks do not
+  burst them (clicks are for the controls). Where it is used: Films, the plan, review, render and watch screens (through `PlanBackdrop`), and the Your films section of Create.
+  On the plan screen their speed is raised while a script is written. The canvas shows a CSS stand-in on the boards I rebuilt; boards not yet rebuilt still show the old grain.
+- **Writing the plan: Light Tunnel and Thought Line** (`components/PlanBackdrop.tsx`, `PlanThought.tsx`). From the moment a plan starts until there is a script to
+  show, the page's particles race (several times faster) and, over 1.6 s, a tunnel of light opens out of it (React Bits Light Tunnel: pale strands in dark mode,
+  brown in light, with ember pulses). It is a backdrop: at most 40% strength, at half the speed it first ran, centred right of the middle, and masked
+  clear of the top-left, where the title and the thought line are, so no text is read through a strand. **It is gone before the storyboard appears**: when the
+  script arrives the tunnel closes over 1.6 s and the scene cards and the cast are held back until it has, then they rise in. Under the title a Thought Line says what
+  the plan is doing in the creator's words, with a breathing glyph, a timer, a Stop button and the steps already done ticked off; when the plan is finished it
+  settles to "Planned in 14.2 s" and folds the steps away (still there to open) above the storyboard. Both draw in WebGL or on a canvas, so they take concrete
+  colours from the palette (`useIsDark`). Reduced motion: the tunnel stands still, the line does not breathe. Needs the `motion` package (Thought Line's
+  animation library).
+- **Limits**: a film with no picture yet is not in the ring (it is in Films). The canvas (Create and Film settings boards, both modes) shows both with CSS
+  stand-ins: a drifting tilted field, a 3D ring, a CSS glow and sheen and glass buttons; the real components move with the pointer and can be dragged, which a static board cannot show.
+  Rule 9 (canvas first) was skipped for the code at the owner's request and made good the same day.

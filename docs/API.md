@@ -98,6 +98,8 @@ this machine cannot run is `409` with the reason ("run
 | Method | Path | |
 |---|---|---|
 | GET | `/api/projects/` | Your films: title, prompt, stage, version, scene count, duration, poster frame and video URL |
+| PUT | `/api/projects/{project_id}/pin` | Pin a film to show on Create (yours only; idempotent). Every film in the list says whether you have pinned it (`pinned`) |
+| DELETE | `/api/projects/{project_id}/pin` | Unpin it |
 | GET | `/api/voices/` | Each engine, whether it works on this machine and why not, and its voices |
 | POST | `/api/voices/preview` | `{engine, voice, text?}` → a cached one-line sample. If the engine fell back, the response says so |
 

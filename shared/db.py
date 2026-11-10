@@ -120,6 +120,16 @@ projects = Table(
     Index("idx_projects_owner", "owner_id"),
 )
 
+# Films a creator has pinned to show on Create (DST-45). Per account, not per film: an admin sees every film
+# but pins only for themselves. A row per pin, so unpinning is a delete and nothing needs a migration.
+pins = Table(
+    "pins", metadata,
+    Column("user_id", String(64), primary_key=True),
+    Column("project_id", String(64), primary_key=True),
+    Column("created_at", DateTime, nullable=False),
+    Index("idx_pins_user", "user_id"),
+)
+
 
 # ---- job queue -------------------------------------------------------------
 

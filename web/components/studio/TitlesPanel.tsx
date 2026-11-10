@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import type { FilmPlayback } from "@/lib/types";
 
+import { Reveal } from "./Reveal";
 import styles from "./sound.module.css";
 
 type Props = {
@@ -44,13 +45,12 @@ export function TitlesPanel({ film, disabled, onOp }: Props) {
     <section className={styles.panel} aria-labelledby="titles-heading">
       <h2 id="titles-heading">Titles</h2>
       <ul className={styles.tracks} style={{ maxHeight: "none" }}>
-        {ITEMS.map((it) => {
+        {ITEMS.map((it, n) => {
           const on = Boolean(titles[it.id]);
           return (
-            <li key={it.id} className={on ? styles.on : undefined}>
-              <span className={styles.name}>
-                {it.label} <small>{it.about}</small>
-              </span>
+            <Reveal key={it.id} delay={n * 0.05}>
+            <li className={on ? styles.on : undefined} title={it.about}>
+              <span className={styles.name}>{it.label}</span>
               <button
                 type="button"
                 role="switch"
@@ -63,10 +63,12 @@ export function TitlesPanel({ film, disabled, onOp }: Props) {
                 {on ? "On" : "Off"}
               </button>
             </li>
+            </Reveal>
           );
         })}
       </ul>
 
+      <Reveal>
       {titles.title_card && (
         <div className={styles.row}>
           <label htmlFor="t-title" className={styles.lab}>
@@ -124,10 +126,7 @@ export function TitlesPanel({ film, disabled, onOp }: Props) {
           </div>
         </>
       )}
-      <p className={styles.note}>
-        Titles are drawn on the picture in the film's own style and keep clear of the subtitles
-        {film.format === "9:16" ? " and of the phone apps' own buttons" : ""}. They do not change the film's length.
-      </p>
+      </Reveal>
       {problem && (
         <p className={styles.problem} role="alert">
           {problem}

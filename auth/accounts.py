@@ -354,6 +354,24 @@ def projects_for(user: User) -> Optional[List[str]]:
     return [r[0] for r in rows]
 
 
+# ---- pinned films (DST-45) -----------------------------------------------------
+
+def pinned_ids(user: User) -> set:
+    """The films this account has pinned to show on Create."""
+    with db.get_engine().connect() as c:
+        rows = c.execute(select(db.pins.c.project_id).where(db.pins.c.user_id == user.id)).all()
+    return {r[0] for r in rows}
+
+
+def set_pinned(user: User, project_id: str, pinned: bool) -> None:
+    """Pin or unpin. Idempotent either way: pinning twice is one pin, unpinning what was never pinned is nothing."""
+    with db.get_engine().begin() as c:
+        c.execute(db.pins.delete().where(
+            (db.pins.c.user_id == user.id) & (db.pins.c.project_id == project_id)))
+        if pinned:
+            c.execute(db.pins.insert().values(user_id=user.id, project_id=project_id, created_at=utcnow()))
+
+
 def adopt_unowned_projects(owner_id: str) -> int:
     """Give the first admin the projects nobody owns.
 

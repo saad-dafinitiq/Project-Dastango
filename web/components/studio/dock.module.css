@@ -1,0 +1,75 @@
+/* The row of round icons that opens the editing panels. Tokens only; both palettes come with them. */
+.dock {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100px;
+  padding: 36px 14px 12px;
+}
+.cell {
+  position: relative;
+  flex: none;
+  aspect-ratio: 1;
+}
+.icon {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: rgba(var(--fg-rgb), 0.05);
+  color: var(--mu);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.icon:hover {
+  color: var(--fg);
+  border-color: var(--mu);
+}
+.icon:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+/* The chosen one: brighter, ringed in full strength, and dotted beneath it. */
+.on {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.glyph {
+  display: grid;
+  place-items: center;
+}
+.glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.dot {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--ac-t);
+}
+.name {
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--s2);
+  color: var(--fg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}

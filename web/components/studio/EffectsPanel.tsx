@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import type { FilmPlayback } from "@/lib/types";
 
+import { Reveal } from "./Reveal";
 import styles from "./sound.module.css";
 
 export type EffectOption = { id: string; label: string; about: string };
@@ -39,6 +40,7 @@ export function EffectsPanel({ film, options, disabled, onOp }: Props) {
   return (
     <section className={styles.panel} aria-labelledby="fx-heading">
       <h2 id="fx-heading">Look</h2>
+      <Reveal>
       <div className={styles.row}>
         <label htmlFor="fx-scope" className={styles.lab}>
           Effect for
@@ -59,6 +61,8 @@ export function EffectsPanel({ film, options, disabled, onOp }: Props) {
           ))}
         </div>
       </div>
+      </Reveal>
+      <Reveal>
       <div className={styles.chips} role="radiogroup" aria-label="Effect">
         <button type="button" role="radio" aria-checked={!active} className={styles.chip} disabled={disabled} onClick={() => run("none")}>
           None
@@ -69,11 +73,7 @@ export function EffectsPanel({ film, options, disabled, onOp }: Props) {
           </button>
         ))}
       </div>
-      <p className={styles.note}>
-        Grain, vignette and cinema bars take a few seconds a scene, and grain adds little to the file. Glow and glitch are drawn
-        frame by frame and take longer, about as long as the scene plays or more. Only the scenes that change are cut again, and the
-        film's length does not change.
-      </p>
+      </Reveal>
       {problem && (
         <p className={styles.problem} role="alert">
           {problem}

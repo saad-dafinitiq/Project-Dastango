@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -8,7 +7,11 @@ import { api, ApiError } from "@/lib/api";
 
 import type { FormatId, StyleId } from "@/lib/format";
 
-import { FilmGrid, FilmTabs, useFilms, useFiltered, type Filter } from "./FilmGrid";
+import { CreateBackdrop } from "./CreateBackdrop";
+import { FilmCarousel } from "./FilmCarousel";
+import { GlassButton } from "./GlassButton";
+import { GlowText } from "./GlowText";
+import { useFilms } from "./FilmGrid";
 import { PromptSettings } from "./PromptSettings";
 import { TopBar } from "./TopBar";
 import styles from "./create.module.css";
@@ -20,9 +23,10 @@ const IDEAS = [
   "A night train that only stops at stations that no longer exist",
 ];
 
-/** Pictures that move slowly behind the box, from the creator's own films once
- *  there are three, otherwise the shipped examples. */
-const EXAMPLES = [1, 2, 3].map((n) => `/examples/frame-${n}.jpg`);
+/** The shipped frames: the field behind the box is made of these until the creator has films of their own. */
+const EXAMPLES = [1, 2, 3, 4].map((n) => `/examples/frame-${n}.jpg`);
+/** Enough different frames that no row repeats one beside itself. */
+const BACKDROP_FRAMES = 12;
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -50,7 +54,6 @@ export function Composer() {
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const [hello, setHello] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [format, setFormat] = useState<FormatId>("16:9");
   const [style, setStyle] = useState<StyleId>("realistic");
 
@@ -69,8 +72,7 @@ export function Composer() {
   }, []);
 
   const own = useMemo(() => (films ?? []).map((f) => f.poster_url).filter((u): u is string => Boolean(u)), [films]);
-  const pictures = own.length >= 3 ? own.slice(0, 3) : EXAMPLES;
-  const shown = useFiltered(films ?? [], filter, "").slice(0, 5);
+  const pictures = useMemo(() => [...own.slice(0, BACKDROP_FRAMES), ...EXAMPLES].slice(0, BACKDROP_FRAMES), [own]);
 
   const ready = prompt.trim().length >= 4 && !busy;
 
@@ -109,20 +111,17 @@ export function Composer() {
 
   return (
     <div className={styles.app}>
-      <div className={styles.stage} aria-hidden="true">
-        {pictures.map((src) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={src} src={src} alt="" />
-        ))}
-      </div>
+      <CreateBackdrop pictures={pictures} />
       <div className={styles.top}>
         <TopBar />
       </div>
 
       <main>
         <section className={styles.hero}>
-          <div className={styles.hello}>{hello}</div>
-          <h1>What happens in your film?</h1>
+          <div className={styles.hello}>{hello && <GlowText glow={0.3} speed={6} delay={2.5}>{hello}</GlowText>}</div>
+          <h1>
+            <GlowText>What happens in your film?</GlowText>
+          </h1>
 
           <div className={styles.write}>
             <label htmlFor="prompt" className="sr-only">
@@ -155,9 +154,17 @@ export function Composer() {
                 onScenes={setScenes}
                 disabled={busy}
               />
-              <button className={`btn primary ${styles.send}`} disabled={!ready} onClick={start} aria-label={busy ? "Starting" : "Make the storyboard"} title="Make the storyboard (Enter)">
+              <GlassButton
+                className={styles.send}
+                radius={22}
+                lit={ready}
+                disabled={!ready}
+                onClick={start}
+                aria-label={busy ? "Starting" : "Make the storyboard"}
+                title="Make the storyboard (Enter)"
+              >
                 {busy ? <span className="pip" /> : <Up2 />}
-              </button>
+              </GlassButton>
             </div>
           </div>
           {error && (
@@ -178,22 +185,7 @@ export function Composer() {
           )}
         </section>
 
-        {films && films.length > 0 && (
-          <section className={styles.reel} aria-labelledby="your-films">
-            <div className={styles.rh}>
-              <h2 id="your-films">Your films</h2>
-              <FilmTabs films={films} filter={filter} onChange={setFilter} />
-            </div>
-            <FilmGrid films={shown} />
-            {films.length > 5 && (
-              <p style={{ marginTop: 24 }}>
-                <Link className={styles.more} href="/films/">
-                  See all {films.length} films
-                </Link>
-              </p>
-            )}
-          </section>
-        )}
+        {films && <FilmCarousel films={films} />}
       </main>
     </div>
   );

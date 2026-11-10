@@ -110,3 +110,123 @@
 .square img {
   aspect-ratio: 1 / 1;
 }
+
+/* ---- the Films screen: a folder for each shape, a masonry in each, a pin on every film ---- */
+.searchWrap {
+  min-width: min(100%, 320px);
+  padding: 0 !important;
+}
+.searchInput {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+.searchInput::placeholder {
+  color: var(--mu);
+}
+.searchWrap:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.problem {
+  color: var(--bad);
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+.folder {
+  margin-top: 8px;
+  padding-bottom: 28px;
+}
+.folderHead {
+  margin: 0;
+  font-size: inherit;
+}
+.folderBtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.folderBtn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.folderBtn svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--mu);
+}
+.folderBtn:hover svg {
+  color: var(--fg);
+}
+.folderName {
+  font: 600 22px var(--title);
+  letter-spacing: -0.01em;
+}
+.folderRatio {
+  font-size: 14px;
+  color: var(--mu);
+}
+.folderCount {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--mu);
+}
+.folderBody {
+  padding-top: 22px;
+}
+/* The pin on a card's corner. Always there, so it can be found without hovering (a phone cannot); lit and filled when pinned. */
+.pin {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(12, 13, 15, 0.62);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    background 0.15s,
+    border-color 0.15s;
+}
+.pin svg {
+  width: 19px;
+  height: 19px;
+}
+.pin:hover {
+  transform: scale(1.06);
+  border-color: #fff;
+}
+.pin:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.pinned {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--ink);
+}

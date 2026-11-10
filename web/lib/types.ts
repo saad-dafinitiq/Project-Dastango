@@ -145,6 +145,8 @@ export type Film = {
   format?: "16:9" | "9:16" | "1:1";
   video_url: string | null;
   poster_url: string | null;
+  /** Pinned by this account to show on Create. */
+  pinned?: boolean;
   stage: string;
   scene_count: number;
   duration_ms: number | null;
