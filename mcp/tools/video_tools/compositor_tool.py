@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from mcp.base_tool import BaseTool, ToolResult
 from shared import video_quality, xfade
+from shared import procs
 
 
 class CompositorTool(BaseTool):
@@ -95,7 +96,7 @@ class CompositorTool(BaseTool):
             cmd += ["-frames:v", str(round((sum(durations) - sum(d for _n, d in boundaries)) * fps))]
         cmd += [*video_quality.x264_args(quality), str(out)]
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            procs.run(cmd, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             return ToolResult(success=False, error=e.stderr.decode("utf-8", "replace")[-1500:]
                               if isinstance(e.stderr, bytes) else str(e))
@@ -105,14 +106,14 @@ class CompositorTool(BaseTool):
 
     @staticmethod
     def _fps(path: str) -> float:
-        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+        r = procs.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
                             "-of", "default=noprint_wrappers=1:nokey=1", str(path)], capture_output=True, text=True)
         num, _, den = (r.stdout.strip() or "0/1").partition("/")
         return float(num) / float(den or 1) if float(den or 1) else 0.0
 
     @staticmethod
     def _probe(path: str) -> float:
-        r = subprocess.run(
+        r = procs.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
             check=True, capture_output=True, text=True)
@@ -125,13 +126,13 @@ class CompositorTool(BaseTool):
             encoding="utf-8",
         )
         tmp = out.parent / f"{out.stem}_video.mp4"
-        subprocess.run(
+        procs.run(
             ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
              "-i", str(list_path), "-c", "copy", str(tmp)],
             check=True, capture_output=True,
         )
         if audio and Path(audio).exists():
-            subprocess.run(
+            procs.run(
                 ["ffmpeg", "-y", "-i", str(tmp), "-i", str(audio),
                  "-map", "0:v:0", "-map", "1:a:0",
                  "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
@@ -153,7 +154,7 @@ class CompositorTool(BaseTool):
             # Probe each clip's duration.
             durations = []
             for c in clips:
-                r = subprocess.run(
+                r = procs.run(
                     ["ffprobe", "-v", "error", "-select_streams", "v:0",
                      "-show_entries", "format=duration",
                      "-of", "default=noprint_wrappers=1:nokey=1", str(c)],
@@ -188,4 +189,4 @@ class CompositorTool(BaseTool):
         else:
             cmd += ["-an"]
         cmd += [*video_quality.x264_args(quality), str(out)]
-        subprocess.run(cmd, check=True, capture_output=True)
+        procs.run(cmd, check=True, capture_output=True)

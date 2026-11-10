@@ -116,3 +116,70 @@ def test_the_cards_a_storyboard_streams_carry_the_limit(small_project):
     state, _sm = small_project(project_id="t_d43_cap")
     cuts = [s["transition"] for card in scene_cards(state.script) for s in card["shots"] if s["transition"]]
     assert cuts and all("max_ms" in t and "capped" in t for t in cuts)
+
+
+def test_the_zoom_joins_a_stream_that_has_already_been_through_a_filter_to_a_clip_read_from_a_file(tmp_path):
+    """Found on a real film (DST-44): a zoom between scenes failed with "First input link main timebase (1/1000000)
+    do not match the corresponding second input link xfade timebase (1/12288)". The film so far has been through
+    other joins (its clock is the filters'), the next scene is a file (its clock is the file's), and xfade wants one."""
+    a = _clip(tmp_path / "a.mp4", "rr=1:gg=0.6:bb=0.6")
+    b = _clip(tmp_path / "b.mp4", "rr=0.6:gg=0.6:bb=1")
+    c = _clip(tmp_path / "c.mp4", "rr=0.6:gg=1:bb=0.6")
+    fps, size = xfade.probe_video(str(a))
+    n = 10
+    graph, last = xfade.build_graph([1.5, 1.5, 1.5], [(None, 0), (transitions.ZOOM, n / FPS)], fps=fps, size=size)
+    out = tmp_path / "abc.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(a), "-i", str(b), "-i", str(c), "-filter_complex",
+                    graph, "-map", f"[{last}]", "-c:v", "libx264", "-crf", "14", str(out)], check=True)
+    assert len(_frames(out)) == 36 * 3 - n
+
+
+def test_the_zoom_joins_clips_whose_files_count_time_differently(tmp_path):
+    a = _clip(tmp_path / "a.mp4", "rr=1:gg=0.6:bb=0.6")
+    b = tmp_path / "b.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc2=s=160x90:r={FPS}:d=1.5",
+                    "-c:v", "libx264", "-video_track_timescale", "25000", str(b)], check=True)
+    fps, size = xfade.probe_video(str(a))
+    graph, last = xfade.build_graph([1.5, 1.5], [(transitions.ZOOM, 10 / FPS)], fps=fps, size=size)
+    out = tmp_path / "ab.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(a), "-i", str(b), "-filter_complex", graph,
+                    "-map", f"[{last}]", "-c:v", "libx264", "-crf", "14", str(out)], check=True)
+    assert len(_frames(out)) == 36 * 2 - 10
+
+
+@pytest.mark.parametrize("style", ["fade", "wipeleft", "slideleft", "circleopen", transitions.ZOOM])
+def test_a_straight_cut_followed_by_any_transition_renders_and_keeps_the_length(tmp_path, style):
+    """Every style, not only the zoom: a cut (a `concat`) and then a transition (an `xfade`) was a render that
+    failed with a timebase mismatch (DST-44). In a scene a cut is the default, so it was one click away."""
+    clips = [_clip(tmp_path / f"{n}.mp4", c) for n, c in (("a", "rr=1:gg=0.6:bb=0.6"), ("b", "rr=0.6:gg=0.6:bb=1"),
+                                                           ("c", "rr=0.6:gg=1:bb=0.6"))]
+    fps, size = xfade.probe_video(str(clips[0]))
+    graph, last = xfade.build_graph([1.5, 1.5, 1.5], [(None, 0), (style, 10 / FPS)], fps=fps, size=size)
+    out = tmp_path / "out.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *sum((["-i", str(c)] for c in clips), []),
+                    "-filter_complex", graph, "-map", f"[{last}]", "-c:v", "libx264", "-crf", "14", str(out)], check=True)
+    assert len(_frames(out)) == 36 * 3 - 10
+
+
+def test_a_transition_then_a_cut_then_a_transition_renders(tmp_path):
+    clips = [_clip(tmp_path / f"{i}.mp4", f"rr=1:gg={0.4 + 0.1 * i}:bb=0.6") for i in range(4)]
+    fps, size = xfade.probe_video(str(clips[0]))
+    graph, last = xfade.build_graph([1.5] * 4, [("fade", 8 / FPS), (None, 0), (transitions.ZOOM, 8 / FPS)],
+                                    fps=fps, size=size)
+    out = tmp_path / "out.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *sum((["-i", str(c)] for c in clips), []),
+                    "-filter_complex", graph, "-map", f"[{last}]", "-c:v", "libx264", "-crf", "14", str(out)], check=True)
+    assert len(_frames(out)) == 36 * 4 - 16
+
+
+@pytest.mark.parametrize("after", ["fade", "wipeleft", transitions.ZOOM, None])
+def test_whatever_follows_a_zoom_still_renders(tmp_path, after):
+    """The zoom's own output is a `concat` too: a film that zooms and then goes on to anything else must join."""
+    clips = [_clip(tmp_path / f"{i}.mp4", f"rr=1:gg={0.4 + 0.1 * i}:bb=0.6") for i in range(3)]
+    fps, size = xfade.probe_video(str(clips[0]))
+    second = (after, 8 / FPS) if after else (None, 0)
+    graph, last = xfade.build_graph([1.5] * 3, [(transitions.ZOOM, 8 / FPS), second], fps=fps, size=size)
+    out = tmp_path / "out.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *sum((["-i", str(c)] for c in clips), []),
+                    "-filter_complex", graph, "-map", f"[{last}]", "-c:v", "libx264", "-crf", "14", str(out)], check=True)
+    assert len(_frames(out)) == 36 * 3 - 8 - (8 if after else 0)

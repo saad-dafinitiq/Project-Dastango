@@ -37,3 +37,5 @@ class EditResult(BaseModel):
     error: Optional[str] = None
     # Parts of a sentence that were not done ("add rain and ..."), each with why (DST-43).
     not_done: List[str] = Field(default_factory=list)
+    # Things worth saying about what was done (DST-44): "the music is the whole film's, only the rain is in scene 2".
+    notes: List[str] = Field(default_factory=list)

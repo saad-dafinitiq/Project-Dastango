@@ -76,7 +76,8 @@ def _following_steps(emit, project_id, editing=False):
             return
         emit(ProgressEvent(phase=STEP_PHASE.get(step, "video"), status="step",
                            project_id=project_id, message=step, progress=0.0, payload=payload))
-    token = progress_hook.listen(sink, getattr(emit, "check_cancelled", None))
+    token = progress_hook.listen(sink, getattr(emit, "check_cancelled", None),
+                                 getattr(emit, "peek_cancelled", None))
     try:
         yield
     finally:
@@ -690,6 +691,9 @@ class PipelineOrchestrator:
         if result.not_done:
             notes = {**notes, "not_done": result.not_done}
             note += " · not done: " + "; ".join(result.not_done)
+        if result.notes:
+            notes = {**notes, "edit_notes": result.notes}
+            note += " · " + "; ".join(result.notes)
         emit(ProgressEvent(phase="complete", status="complete", project_id=project_id,
                            message=f"Edit applied (version {result.new_version}){note}",
                            progress=1.0,

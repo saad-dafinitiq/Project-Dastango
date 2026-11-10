@@ -28,6 +28,7 @@ from shared.utils.images import ensure_readable_image
 from shared.utils.logging import get_logger
 
 from . import camera
+from shared import procs
 
 log = get_logger("animator")
 
@@ -99,7 +100,7 @@ class Shot:
 
 def probe_duration_ms(path: str | Path) -> Optional[int]:
     try:
-        r = subprocess.run(
+        r = procs.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "json", str(path)],
             capture_output=True, text=True, check=True,
@@ -181,7 +182,7 @@ def render_shot(shot: Shot, out_path: Path, width: int, height: int, fps: int,
 
 def _run_shot(cmd: List[str], check: bool) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(cmd, capture_output=True, check=check, timeout=SHOT_TIMEOUT_S)
+        return procs.run(cmd, capture_output=True, check=check, timeout=SHOT_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"ffmpeg did not finish a shot in {SHOT_TIMEOUT_S}s "
                            f"({Path(cmd[-1]).name})") from None
@@ -221,7 +222,7 @@ def assemble_scene(shots: List[Path], out_path: Path,
         list_path.write_text(
             "\n".join(f"file '{Path(s).resolve().as_posix()}'" for s in shots), encoding="utf-8")
         try:
-            subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
+            procs.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
                             "-c", "copy", str(out_path)], check=True, capture_output=True)
         finally:
             list_path.unlink(missing_ok=True)
@@ -247,7 +248,7 @@ def assemble_scene(shots: List[Path], out_path: Path,
         cmd += ["-an"]
     # The scene clip is joined again by the compose pass: intermediate quality.
     cmd += [*video_quality.x264_args("intermediate"), str(out_path)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    procs.run(cmd, check=True, capture_output=True)
     return out_path
 
 
@@ -290,13 +291,13 @@ def _normalize_video(in_path: str, out_path: Path, width: int, height: int,
     else:
         cmd += ["-an"]
     cmd.append(str(out_path))
-    subprocess.run(cmd, check=True, capture_output=True)
+    procs.run(cmd, check=True, capture_output=True)
     return out_path
 
 
 def _has_audio(path: str | Path) -> bool:
     try:
-        r = subprocess.run(
+        r = procs.run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=codec_type", "-of", "json", str(path)],
             capture_output=True, text=True, check=True,

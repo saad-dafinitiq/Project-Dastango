@@ -20,6 +20,7 @@ from typing import Callable, Dict, List
 import numpy as np
 
 from shared import progress_hook, video_quality
+from shared import procs
 
 EFFECTS: Dict[str, Dict[str, str]] = {
     "vignette": {"label": "Vignette", "about": "darkened corners that draw the eye in"},
@@ -89,7 +90,7 @@ _BUILD: Dict[str, Callable] = {"glow": _glow, "glitch": _glitch}      # drawn in
 
 
 def _count_frames(path: Path) -> int:
-    out = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+    out = procs.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
                           "-show_entries", "stream=nb_read_frames", "-of", "json", str(path)],
                          capture_output=True, text=True, check=True).stdout
     return int(json.loads(out)["streams"][0]["nb_read_frames"])
@@ -108,7 +109,7 @@ def apply(src: Path, dst: Path, kind: str, strength: str, fps: int) -> Path:
     if want != got:
         # A codec's rounding at the end of a clip: make the count exact rather than let sync drift.
         fixed = dst.with_name(dst.stem + "_fit.mp4")
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(dst), "-vf",
+        procs.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(dst), "-vf",
                         f"tpad=stop_mode=clone:stop={max(0, want - got)}", "-frames:v", str(want),
                         *video_quality.x264_args("intermediate"), str(fixed)], check=True)
         fixed.replace(dst)
@@ -116,7 +117,7 @@ def apply(src: Path, dst: Path, kind: str, strength: str, fps: int) -> Path:
 
 
 def _size(src: Path) -> tuple:
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+    out = procs.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                           "stream=width,height", "-of", "json", str(src)],
                          capture_output=True, text=True, check=True).stdout
     stream = json.loads(out)["streams"][0]
@@ -156,7 +157,7 @@ def _apply_ffmpeg(src: Path, dst: Path, kind: str, level: float) -> None:
         inputs = ["-i", str(src), "-loop", "1", "-i", str(mask)]
         graph = ["-filter_complex", "[0:v][1:v]overlay=shortest=1:format=auto,format=yuv420p[v]", "-map", "[v]"]
     try:
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, *graph, *encode, "-an", str(dst)],
+        procs.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, *graph, *encode, "-an", str(dst)],
                        check=True, capture_output=True)
     finally:
         if mask is not None:

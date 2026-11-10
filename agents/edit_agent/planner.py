@@ -50,6 +50,11 @@ def plan(intent: EditIntent) -> List[EditStep]:
         if name == "set_transition" and not scope.startswith("scene:"):
             raise ValueError("which cut? e.g. “a slow fade between scenes 1 and 2”")
         step_params = {**params, "scene": scope.split(":", 1)[1]} if scope.startswith("scene:") else params
+        if name == "set_volume" and scope.startswith("scene:"):
+            # The music, ambience and voice levels are the film's mixer, not a scene's: applying one "in
+            # scene 2" to the whole film without a word would be the half-applied change DST-43 closed.
+            raise ValueError("the music, ambience and voice levels are for the whole film, not one scene: "
+                             "say it without the scene")
         if name == "set_volume" and scope.startswith("character:"):
             raise ValueError("levels are for the music, the voices together or the ambience, "
                              "not one character: use a tone or volume edit on the character")

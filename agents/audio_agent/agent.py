@@ -400,6 +400,11 @@ class AudioAgent:
             scene = scenes.get(timing.scene_id)
             choice = music.choice_for_scene(audio, scene, i) if scene else None
             plan.append((timing, scene, choice))
+        if self._tracks_change(plan):
+            try:
+                return str(self._crossfaded_bgm(state, plan, bgm_dir))
+            except (music.MusicError, subprocess.CalledProcessError) as exc:
+                log.warning("crossfading the music failed (%s); joining the scenes' music with fades", exc)
         parts: List[Path] = []
         for i, (timing, scene, choice) in enumerate(plan):
             out_file = bgm_dir / f"{timing.scene_id}_bgm.wav"
@@ -424,6 +429,42 @@ class AudioAgent:
         if not parts:
             return None
         return str(music.join(parts, bgm_dir / "bgm_full.wav"))
+
+    @staticmethod
+    def _tracks_change(plan) -> bool:
+        """Does the film go from one library or uploaded track straight into another (a crossfade, DST-44)?"""
+        return any(a[2] is not None and b[2] is not None and a[2] != b[2] for a, b in zip(plan, plan[1:]))
+
+    def _crossfaded_bgm(self, state: PipelineState, plan, bgm_dir: Path) -> Path:
+        """The music with each change of track crossfaded: the old track carries on half the fade past the cut
+        and the new one starts half the fade before it, the two fading against each other (equal power), so
+        the music does not dip at the change. Where the music starts, ends, or meets a scene with none, the bed
+        still fades as it did. The film's music is exactly as long as its timeline (shared/music.py)."""
+        audio = state.audio
+        gaps: List[int] = []                       # the crossfade between scene i and i + 1, in ms (0: none)
+        for (a_t, _a, a), (b_t, _b, b) in zip(plan, plan[1:]):
+            same = a is None or b is None or a == b
+            gaps.append(0 if same else (min(music.CROSSFADE_MS, a_t.duration_ms, b_t.duration_ms) // 2) * 2)
+        parts: List[Path] = []
+        for i, (timing, scene, choice) in enumerate(plan):
+            out_file = bgm_dir / f"{timing.scene_id}_bgm.wav"
+            if choice is None:
+                music.silence(timing.duration_ms, out_file)
+            else:
+                lead = gaps[i - 1] // 2 if i else 0
+                tail = gaps[i] // 2 if i < len(gaps) else 0
+                before = plan[i - 1][2] if i else None
+                after = plan[i + 1][2] if i + 1 < len(plan) else None
+                length = int(music.track_seconds(choice, audio.uploads) * 1000)
+                start = timing.start_ms - lead
+                offset = int(start % length) if length else 0
+                music.cut_bed(music.track_path(choice, audio.uploads), offset, lead + timing.duration_ms + tail,
+                              out_file,
+                              # a crossfade does the fading at a change; a plain join keeps its 350 ms at the ends
+                              fade_in_ms=0 if lead else (350 if choice != before else 0),
+                              fade_out_ms=0 if tail else (350 if choice != after else 0))
+            parts.append(out_file)
+        return music.join_crossfaded(parts, gaps, bgm_dir / "bgm_full.wav")
 
     def _render_ambience(self, state: PipelineState) -> Optional[str]:
         """The ambience bed (rain, wind, ...) per scene, or None when no scene has any."""

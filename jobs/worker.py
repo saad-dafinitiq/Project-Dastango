@@ -3,9 +3,11 @@
 Runs either as its own process (`python main.py worker`) or as a thread inside
 the API process (the default, so `main.py serve` alone still works).
 
-Cancellation is cooperative: the orchestrator emits a progress event between
-steps, and that is where a cancelled job stops — no thread is ever killed
-mid-ffmpeg, so a cancelled run leaves no half-written file behind.
+Cancellation reaches the work two ways. Between steps the orchestrator emits a progress event and checks
+the job; and a command that is running (an ffmpeg shot, a look, the cut) is watched by `shared/procs.py`
+and killed within a fraction of a second of the Stop, its half-written file removed (DST-44). No thread is
+killed: the cancel is a BaseException that travels up through the work, and the edit puts the saved version's
+files back.
 """
 from __future__ import annotations
 
@@ -42,6 +44,9 @@ METHODS = {
 }
 
 HEARTBEAT_S = 15.0
+# How often a running job is asked whether it was told to stop. A heartbeat (a write) every HEARTBEAT_S is
+# slow for that: a Stop pressed during an ffmpeg waited for the next beat or the next step.
+CANCEL_POLL_S = 1.0
 
 # A worker serves no HTTP, so its container health check reads this file
 # instead: the idle loop touches it every poll, the job heartbeat every 15 s.
@@ -82,10 +87,15 @@ class _Heartbeat:
                                         name=f"heartbeat-{job_id}")
 
     def _loop(self) -> None:
-        while not self._stop.wait(self.interval):
-            mark_alive()
+        last_beat = time.monotonic()
+        while not self._stop.wait(min(self.interval, CANCEL_POLL_S)):
             try:
-                if not queue.heartbeat(self.job_id):
+                if time.monotonic() - last_beat >= self.interval:
+                    last_beat = time.monotonic()
+                    mark_alive()
+                    if not queue.heartbeat(self.job_id):
+                        self.cancelled.set()
+                elif queue.cancel_requested(self.job_id):
                     self.cancelled.set()
             except Exception:  # noqa: BLE001 — a flaky DB must not kill the run
                 log.debug("heartbeat failed for %s", self.job_id, exc_info=True)
@@ -110,6 +120,8 @@ def _event_sink(job: queue.Job, beat: _Heartbeat) -> Callable[[ProgressEvent], N
         check()
     # Work that goes a long time between events calls this (shared/progress_hook.py `pulse`).
     push.check_cancelled = check  # type: ignore[attr-defined]
+    # ...and a command that is running asks this, many times a second, without touching the database.
+    push.peek_cancelled = beat.cancelled.is_set  # type: ignore[attr-defined]
     return push
 
 
