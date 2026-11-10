@@ -27,7 +27,12 @@ from shared.utils.logging import get_logger
 log = get_logger("music")
 
 LIBRARY_DIR = Path(__file__).resolve().parent.parent / "assets" / "music"
-SAMPLE_RATE = 22050
+# The audio chain runs at CD rate in stereo (DST-42). It was 22.05 kHz mono, which cut everything above
+# 11 kHz from every film. The voices cannot add what they never had (Kokoro and Edge speak at 24 kHz), but
+# the music and the ambience can use the band, and a stereo bed under a centred voice is how a film is
+# mixed. Every bed is written in this one format so the concat demuxer can join them without decoding.
+SAMPLE_RATE = 44100
+CHANNELS = "stereo"
 
 # What a writing model calls a mood vs. the ten the library has.
 ALIASES = {
@@ -41,26 +46,34 @@ ALIASES = {
     "calm": "ambient", "quiet": "ambient", "mystery": "mysterious", "curious": "mysterious",
 }
 
-# Ambience, drawn by ffmpeg from noise: kind -> label, about, a filter on a noise source and a gain
-# in dB that brings every kind to the music's own level (about -14 dB mean), so that 100% of
-# the ambience is audible beside 100% of the music whichever kind it is.
+# Ambience, drawn by ffmpeg from noise: kind -> label, about, the noise, a filter, and a gain in dB that
+# brings every kind to the same loudness (AMBIENCE_LUFS, measured with ebur128 on a ten second bed), so that
+# 100% of the ambience is as loud as 100% of any other kind. DST-42: they were matched by ear and by RMS, and
+# rain and night came out about 4 LU louder than wind and city. Two things changed with the rate: the beds are
+# stereo (two noise sources with different seeds, one per ear, so wind and sea are wide instead of a line down
+# the middle), and the energy of rain, night and sea is out of the 2 to 5 kHz band where consonants live: rain
+# has a cut there and keeps its hiss above it, night is a band of insects well above it (it sat at 3.5 to
+# 6.5 kHz, 63% of its energy in the speech band), and the sea is lower. A test measures both.
+AMBIENCE_LUFS = -22.0
 AMBIENCE: Dict[str, Dict[str, str]] = {
     "rain": {"label": "Rain", "about": "steady rain on a roof",
              "src": "anoisesrc=color=pink:amplitude=0.9",
-             "af": "highpass=f=700,lowpass=f=9000,tremolo=f=9:d=0.18", "gain": "8"},
+             "af": "highpass=f=500,lowpass=f=14000,equalizer=f=3300:t=o:w=2.5:g=-14,tremolo=f=9:d=0.18", "gain": "-1.2"},
     "wind": {"label": "Wind", "about": "wind across open ground",
              "src": "anoisesrc=color=brown:amplitude=0.9",
-             "af": "highpass=f=80,lowpass=f=1100,tremolo=f=0.23:d=0.55", "gain": "8"},
+             "af": "highpass=f=80,lowpass=f=1100,tremolo=f=0.23:d=0.55", "gain": "-5.1"},
     "city": {"label": "City", "about": "far-off traffic and a busy street",
              "src": "anoisesrc=color=brown:amplitude=0.9",
-             "af": "highpass=f=100,lowpass=f=2200,tremolo=f=0.7:d=0.3", "gain": "6.5"},
+             "af": "highpass=f=100,lowpass=f=2200,tremolo=f=0.7:d=0.3", "gain": "-6.3"},
     "sea": {"label": "Sea", "about": "waves on a shore",
             "src": "anoisesrc=color=pink:amplitude=0.9",
-            "af": "highpass=f=120,lowpass=f=2400,tremolo=f=0.11:d=0.7", "gain": "10"},
+            "af": "highpass=f=120,lowpass=f=1500,tremolo=f=0.11:d=0.7", "gain": "-1.7"},
     "night": {"label": "Night", "about": "a still night with insects",
-              "src": "anoisesrc=color=brown:amplitude=0.25",
-              "af": "highpass=f=3500,lowpass=f=6500,tremolo=f=11:d=0.9", "gain": "37"},
+              "src": "anoisesrc=color=white:amplitude=0.5",
+              "af": "highpass=f=6500,lowpass=f=14000,tremolo=f=11:d=0.9", "gain": "-9.5"},
 }
+# One seed per ear; fixed, so a bed is the same every time it is drawn.
+AMBIENCE_SEEDS = (11, 23)
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 UPLOAD_EXTENSIONS = (".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac")
@@ -171,7 +184,8 @@ def _run(cmd: List[str]) -> None:
 
 def cut_bed(src: Path, offset_ms: int, duration_ms: int, out: Path,
             fade_in_ms: int = 20, fade_out_ms: int = 20) -> Path:
-    """`duration_ms` of the track, from `offset_ms` into it (the track repeats), as 22.05 kHz mono."""
+    """`duration_ms` of the track, from `offset_ms` into it (the track repeats), as 44.1 kHz stereo (a mono
+    track is the same in both ears; an uploaded stereo track keeps its two)."""
     dur = max(0.05, duration_ms / 1000.0)
     fi, fo = fade_in_ms / 1000.0, fade_out_ms / 1000.0
     start = offset_ms / 1000.0
@@ -183,7 +197,7 @@ def cut_bed(src: Path, offset_ms: int, duration_ms: int, out: Path,
     # A fade of 0 is no fade: where one bed carries straight on into the next (the same track across a cut)
     # the two meet with nothing between them.
     af = (f"atrim=start={start:.4f}:end={start + dur:.4f},asetpts=PTS-STARTPTS,"
-          f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono")
+          f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts={CHANNELS}")
     if fi > 0:
         af += f",afade=t=in:st=0:d={fi:.3f}"
     if fo > 0:
@@ -196,32 +210,44 @@ def cut_bed(src: Path, offset_ms: int, duration_ms: int, out: Path,
 
 def silence(duration_ms: int, out: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
-    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=channel_layout=mono:sample_rate={SAMPLE_RATE}",
+    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=channel_layout={CHANNELS}:sample_rate={SAMPLE_RATE}",
           "-t", f"{max(0.05, duration_ms / 1000.0):.3f}", "-c:a", "pcm_s16le", str(out)])
     return out
 
 
 def ambience_bed(kind: str, duration_ms: int, out: Path, fade_ms: int = 300,
-                 fade_in_ms: Optional[int] = None, fade_out_ms: Optional[int] = None) -> Path:
-    """`duration_ms` of an ambience, 22.05 kHz mono. `fade_ms` fades both ends; `fade_in_ms` and
-    `fade_out_ms` say each end on its own (0 is none, for a bed that carries straight on)."""
+                 fade_in_ms: Optional[int] = None, fade_out_ms: Optional[int] = None,
+                 offset_ms: int = 0) -> Path:
+    """`duration_ms` of an ambience, 44.1 kHz stereo, taken from `offset_ms` into the film's own ambience.
+    `fade_ms` fades both ends; `fade_in_ms` and `fade_out_ms` say each end on its own (0 is none, for a
+    bed that carries straight on).
+
+    The noise is seeded and the slow swell (the tremolo) runs on the film's clock, so the bed for a scene
+    that starts at 12 s is the very seconds 12 to 12 + duration of one continuous sound: two scenes of the
+    same ambience meet with the wind or the sea at the same point of its swell, instead of each scene
+    starting its swell again from the beginning (DST-42)."""
     spec = AMBIENCE.get(kind)
     if not spec:
         raise MusicError(f"unknown ambience {kind!r}: {', '.join(AMBIENCE)}")
     dur = max(0.05, duration_ms / 1000.0)
     fi = min((fade_ms if fade_in_ms is None else fade_in_ms) / 1000.0, dur / 3)
     fo = min((fade_ms if fade_out_ms is None else fade_out_ms) / 1000.0, dur / 3)
-    # The limiter looks ahead 5 ms and so starts every bed with 5 ms of silence: draw 10 ms more and cut the
-    # first 5 ms off (DST-41), or a bed that carries on across a scene cut begins with a gap.
-    af = (f"{spec['af']},volume={spec['gain']}dB,alimiter=limit=0.9,atrim=start=0.005,asetpts=PTS-STARTPTS,"
-          f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono")
+    # Two noise sources, one per ear, through the same filter. The limiter looks ahead 5 ms and so starts every
+    # bed with 5 ms of silence: draw 10 ms more and cut the first 5 ms off (DST-41), or a bed that carries on
+    # across a scene cut begins with a gap.
+    one = f"{spec['af']},volume={spec['gain']}dB"
+    skip = max(0, offset_ms) / 1000.0 + 0.005
+    af = (f"[0:a]{one}[l];[1:a]{one}[r];[l][r]amerge=inputs=2,alimiter=limit=0.9,atrim=start={skip:.4f},"
+          f"asetpts=PTS-STARTPTS,aformat=sample_rates={SAMPLE_RATE}:channel_layouts={CHANNELS}")
     if fi > 0:       # none where the same ambience carries straight on (see cut_bed)
         af += f",afade=t=in:st=0:d={fi:.3f}"
     if fo > 0:
         af += f",afade=t=out:st={max(0.0, dur - fo):.3f}:d={fo:.3f}"
     out.parent.mkdir(parents=True, exist_ok=True)
-    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"{spec['src']}:sample_rate={SAMPLE_RATE}:duration={dur + 0.01:.3f}",
-          "-af", af, "-t", f"{dur:.3f}", "-c:a", "pcm_s16le", str(out)])
+    cmd = ["ffmpeg", "-y"]
+    for seed in AMBIENCE_SEEDS:
+        cmd += ["-f", "lavfi", "-i", f"{spec['src']}:sample_rate={SAMPLE_RATE}:duration={skip + dur + 0.01:.3f}:seed={seed}"]
+    _run([*cmd, "-filter_complex", af, "-t", f"{dur:.3f}", "-c:a", "pcm_s16le", str(out)])
     return out
 
 
@@ -248,8 +274,9 @@ def store_upload(src: Path, filename: str, dest_dir: Path) -> dict:
     """Check an uploaded file and keep a normalised copy; returns {id, title, path, duration_s}.
 
     Refused with a reason the creator can act on: a name that is not audio, a file that is too
-    big, one that will not decode, a video, or a length outside 3 s to 10 min. The copy is mono
-    MP3 at -16 LUFS (what the film's own music is), so an upload is not louder than the library.
+    big, one that will not decode, a video, or a length outside 3 s to 10 min. The copy is an MP3 at
+    44.1 kHz and -16 LUFS (what the film's own music is), so an upload is not louder than the library;
+    a stereo upload stays stereo (DST-42: it was folded to mono at 32 kHz and 96 kbps).
     """
     name = Path(filename or "").name
     if Path(name).suffix.lower() not in UPLOAD_EXTENSIONS:
@@ -275,8 +302,11 @@ def store_upload(src: Path, filename: str, dest_dir: Path) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = dest_dir / f"{uid}.mp3"
     try:
-        _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "32000",
-              "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-b:a", "96k", str(out)])
+        channels = next((int(s.get("channels") or 1) for s in streams if s.get("codec_type") == "audio"), 1)
+        stereo = channels >= 2
+        _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-map", "0:a:0", "-ac", "2" if stereo else "1",
+              "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(SAMPLE_RATE),
+              "-c:a", "libmp3lame", "-b:a", "192k" if stereo else "128k", str(out)])
     except subprocess.CalledProcessError:
         out.unlink(missing_ok=True)
         raise MusicError("that file could not be decoded") from None

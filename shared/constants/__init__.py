@@ -17,7 +17,7 @@ DEFAULT_FPS = 24
 # and enlarged once, by the camera. A film saved before this keeps its own size.
 DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
-DEFAULT_SAMPLE_RATE = 22050
+DEFAULT_SAMPLE_RATE = 44100
 
 # How far a film may be from the length asked for, as a fraction of the target,
 # before it is flagged to the creator instead of reported as a plain success. It

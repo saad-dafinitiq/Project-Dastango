@@ -448,7 +448,8 @@ class AudioAgent:
                 starts = i == 0 or wanted[i - 1] != kind
                 ends = i + 1 == len(wanted) or wanted[i + 1] != kind
                 music.ambience_bed(kind, timing.duration_ms, out_file,
-                                   fade_in_ms=300 if starts else 0, fade_out_ms=300 if ends else 0)
+                                   fade_in_ms=300 if starts else 0, fade_out_ms=300 if ends else 0,
+                                   offset_ms=timing.start_ms)
             parts.append(out_file)
         return str(music.join(parts, amb_dir / "ambience_full.wav"))
 
