@@ -7,7 +7,7 @@ import jobs
 
 from auth import accounts
 from auth.accounts import User
-from auth.deps import require_user
+from auth.deps import require_project, require_user
 from shared.assets import asset_url
 from state_manager.state_manager import StateManager
 
@@ -20,6 +20,7 @@ def list_projects(user: User = Depends(require_user)):
     """Only this account's projects. An admin sees every one, including the
     ones the CLI made before anybody had an account."""
     visible = accounts.projects_for(user)      # None = admin, no restriction
+    pinned = accounts.pinned_ids(user)
     out = []
     for pid in sm.list_projects():
         if visible is not None and pid not in visible:
@@ -30,6 +31,7 @@ def list_projects(user: User = Depends(require_user)):
         job = jobs.latest_for_project(pid)
         out.append({
             "project_id": pid,
+            "pinned": pid in pinned,
             # What is happening to the film right now, if anything (DST-38): the
             # library shows "Rendering" instead of a stale "Storyboard".
             "working": job.kind if job is not None and not job.done else None,
@@ -47,6 +49,19 @@ def list_projects(user: User = Depends(require_user)):
             "duration_ms": state.video.duration_ms if state.video else None,
         })
     return out
+
+
+@router.put("/{project_id}/pin")
+def pin_project(project_id: str, user: User = Depends(require_project)):
+    """Pin a film to show on Create. Yours only; a stranger's film answers 404 like any other route."""
+    accounts.set_pinned(user, project_id, True)
+    return {"project_id": project_id, "pinned": True}
+
+
+@router.delete("/{project_id}/pin")
+def unpin_project(project_id: str, user: User = Depends(require_project)):
+    accounts.set_pinned(user, project_id, False)
+    return {"project_id": project_id, "pinned": False}
 
 
 def _poster(state):
