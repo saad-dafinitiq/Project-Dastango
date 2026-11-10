@@ -16,6 +16,13 @@ from shared.transitions import ZOOM
 
 Boundary = Tuple[Optional[str], float]
 
+# One clock for every stream in a join: xfade refuses two inputs that count time differently, and they do. A clip
+# read from a file counts in its own units (1/12288 for a 24 fps x264 clip) and anything that has been through
+# `concat` counts in microseconds, so a straight cut followed by any transition failed to render ("First input
+# link main timebase (1/1000000) do not match ... (1/12288)"; found by rendering a zoom on a real film, DST-44,
+# but it was true of every style). 1/90000 holds every frame time of 24, 25, 29.97, 30 and 60 fps whole.
+CLOCK = "settb=expr=1/90000"
+
 # How far the zoom pushes: the outgoing shot grows to this, the incoming one starts at it and settles.
 ZOOM_PUSH = 0.28
 
@@ -45,15 +52,19 @@ def _zoom_join(parts: List[str], prev: str, nxt: str, out: str, total_a: int, to
     settle = f"1+{ZOOM_PUSH}*pow(1-n/{max(n - 1, 1)},2)"            # braking
     push = lambda expr: (f"scale=w='trunc(iw*({expr})/2)*2':h='trunc(ih*({expr})/2)*2':eval=frame:flags=bicubic,"
                          f"crop=w={{w}}:h={{h}},setsar=1,format=yuv420p")
+    # One clock for every piece: xfade refuses two inputs that count time differently, and they do (the film so
+    # far has been through filters, whose clock is 1/1000000; the next scene is a file, whose clock is its
+    # own, 1/12288 for a 24 fps x264 clip). 1/90000 holds every frame time of 24, 25, 29.97, 30 and 60 fps whole.
+    clock = CLOCK
     parts += [
         f"[{prev}]split[{tag}pa][{tag}pb]",
         f"[{nxt}]split[{tag}na][{tag}nb]",
-        f"[{tag}pa]trim=end_frame={total_a - n},setpts=PTS-STARTPTS[{tag}pre]",
-        f"[{tag}pb]trim=start_frame={total_a - n},setpts=PTS-STARTPTS,{push(grow)}[{tag}tail]",
-        f"[{tag}na]trim=end_frame={n},setpts=PTS-STARTPTS,{push(settle)}[{tag}head]",
-        f"[{tag}nb]trim=start_frame={n},setpts=PTS-STARTPTS[{tag}rest]",
+        f"[{tag}pa]trim=end_frame={total_a - n},setpts=PTS-STARTPTS,{clock}[{tag}pre]",
+        f"[{tag}pb]trim=start_frame={total_a - n},setpts=PTS-STARTPTS,{clock},{push(grow)}[{tag}tail]",
+        f"[{tag}na]trim=end_frame={n},setpts=PTS-STARTPTS,{clock},{push(settle)}[{tag}head]",
+        f"[{tag}nb]trim=start_frame={n},setpts=PTS-STARTPTS,{clock}[{tag}rest]",
         f"[{tag}tail][{tag}head]xfade=transition=fade:duration={n / fps:.6f}:offset=0[{tag}mid]",
-        f"[{tag}pre][{tag}mid][{tag}rest]concat=n=3:v=1:a=0[{out}]",
+        f"[{tag}pre][{tag}mid][{tag}rest]concat=n=3:v=1:a=0,{clock}[{out}]",     # concat counts in microseconds
     ]
 
 
@@ -69,23 +80,23 @@ def build_graph(durations_s: Sequence[float], boundaries: Sequence[Boundary],
         raise ValueError(f"{clips} clips need {max(0, clips - 1)} boundaries, got {len(boundaries)}")
     if clips == 1:
         return "[0:v]null[v0]", "v0"
-    parts: List[str] = []
-    prev, acc = "0:v", float(durations_s[0])
+    parts: List[str] = [f"[{i}:v]{CLOCK}[t{i}]" for i in range(clips)]
+    prev, acc = "t0", float(durations_s[0])
     for i in range(1, clips):
         name, d = boundaries[i - 1]
         out = f"v{i}"
         if name is None or d <= 0:
-            parts.append(f"[{prev}][{i}:v]concat=n=2:v=1:a=0[{out}]")
+            parts.append(f"[{prev}][t{i}]concat=n=2:v=1:a=0,{CLOCK}[{out}]")     # concat counts in microseconds
             acc += durations_s[i]
         elif name == ZOOM and fps and size and _can_zoom(acc, durations_s[i], d, fps):
             join: List[str] = []
-            _zoom_join(join, prev, f"{i}:v", out, round(acc * fps), round(durations_s[i] * fps),
+            _zoom_join(join, prev, f"t{i}", out, round(acc * fps), round(durations_s[i] * fps),
                        round(d * fps), fps, f"z{i}")
             parts += [p.replace("{w}", str(size[0])).replace("{h}", str(size[1])) for p in join]
             acc += durations_s[i] - d
         else:
             name = "fade" if name == ZOOM else name
-            parts.append(f"[{prev}][{i}:v]xfade=transition={name}:duration={d:.6f}:"
+            parts.append(f"[{prev}][t{i}]xfade=transition={name}:duration={d:.6f}:"
                          f"offset={max(0.0, acc - d):.6f}[{out}]")
             acc += durations_s[i] - d
         prev = out

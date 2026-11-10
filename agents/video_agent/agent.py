@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.story_agent.appearance import build_appearance_lock, character_seed
 from mcp.tool_executor import ToolExecutor
-from shared import film_format, progress_hook, providers, stand_in, transitions, video_quality
+from shared import film_format, procs, progress_hook, providers, stand_in, transitions, video_quality
 from shared.constants import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH, PHASE_VIDEO
 from shared.languages import canonical
 from shared.schemas.audio import AudioSegment, SceneTiming
@@ -1001,7 +1001,7 @@ class VideoAgent:
         cmd = ["ffmpeg", "-y", "-i", str(src), "-vf", graphics.filter_for(ass),
                "-map", "0:v", "-map", "0:a?", "-map", "0:s?",
                *video_quality.x264_args("final"), "-c:a", "copy", "-c:s", "copy", str(dst)]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = procs.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(f"burning the titles failed: {proc.stderr[-800:]}")
         log.info("burned titles into the picture")
@@ -1038,7 +1038,7 @@ class VideoAgent:
         else:
             cmd += ["-filter_complex", fc, "-map", "[v]", "-an"]
         cmd += [*video_quality.x264_args(quality), str(dst)]
-        subprocess.run(cmd, check=True, capture_output=True)
+        procs.run(cmd, check=True, capture_output=True)
         return dst
 
     # ---- subtitles -------------------------------------------------------

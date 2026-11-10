@@ -167,6 +167,13 @@ def heartbeat(job_id: str) -> bool:
     return not bool(cancelled)
 
 
+def cancel_requested(job_id: str) -> bool:
+    """Was this job told to stop? A plain read: the worker asks every second, so it writes nothing."""
+    with db.get_engine().connect() as c:
+        return bool(c.execute(
+            select(db.jobs.c.cancel_requested).where(db.jobs.c.id == job_id)).scalar())
+
+
 def complete(job_id: str) -> None:
     _finish(job_id, "succeeded")
 

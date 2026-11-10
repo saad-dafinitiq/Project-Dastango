@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from shared.utils.logging import get_logger
+from shared import procs
 
 log = get_logger("music")
 
@@ -179,7 +180,7 @@ def track_seconds(choice: str, uploads: list) -> float:
 # ---- cutting beds -------------------------------------------------------------------------
 
 def _run(cmd: List[str]) -> None:
-    subprocess.run(cmd, check=True, capture_output=True)
+    procs.run(cmd, check=True, capture_output=True)
 
 
 def cut_bed(src: Path, offset_ms: int, duration_ms: int, out: Path,
@@ -251,6 +252,37 @@ def ambience_bed(kind: str, duration_ms: int, out: Path, fade_ms: int = 300,
     return out
 
 
+# Where the film changes from one track to another, the two are heard together for this long: the old one
+# fading out as the new one fades in, equal in power, so there is no dip between them (DST-44). Before, each
+# bed faded out and in over 350 ms and the music dipped to nothing at every change.
+CROSSFADE_MS = 600
+
+
+def join_crossfaded(parts: List[Path], overlaps_ms: List[int], out: Path) -> Path:
+    """Beds end to end, with `overlaps_ms[i]` ms of crossfade between part i and part i+1 (0: a plain join).
+
+    A crossfaded part must reach `overlaps_ms[i] / 2` past its end and the next must begin as much before its
+    own start (`cut_bed` is given that much more at each end), so the two overlap exactly where the cut is
+    and the whole is as long as the beds' nominal lengths added up, to the sample."""
+    if len(overlaps_ms) != len(parts) - 1:
+        raise ValueError(f"{len(parts)} beds need {len(parts) - 1} overlaps, got {len(overlaps_ms)}")
+    if not any(overlaps_ms):
+        return join(parts, out)
+    cmd = ["ffmpeg", "-y"]
+    for p in parts:
+        cmd += ["-i", str(p)]
+    graph, last = [], "0:a"
+    for i, ms in enumerate(overlaps_ms, start=1):
+        label = f"j{i}"
+        if ms > 0:
+            graph.append(f"[{last}][{i}:a]acrossfade=d={ms / 1000.0:.4f}:c1=qsin:c2=qsin[{label}]")
+        else:
+            graph.append(f"[{last}][{i}:a]concat=n=2:v=0:a=1[{label}]")
+        last = label
+    _run([*cmd, "-filter_complex", ";".join(graph), "-map", f"[{last}]", "-c:a", "pcm_s16le", str(out)])
+    return out
+
+
 def join(parts: List[Path], out: Path) -> Path:
     """Beds end to end (they are all PCM at one rate, so the concat demuxer joins them exactly)."""
     lst = out.with_suffix(".txt")
@@ -263,7 +295,7 @@ def join(parts: List[Path], out: Path) -> Path:
 # ---- uploads ------------------------------------------------------------------------------
 
 def _probe(path: Path) -> dict:
-    res = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format",
+    res = procs.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format",
                           "-show_streams", str(path)], capture_output=True, text=True)
     if res.returncode != 0:
         raise MusicError("that file could not be read as audio")

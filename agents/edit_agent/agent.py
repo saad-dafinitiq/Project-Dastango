@@ -164,6 +164,13 @@ class EditAgent:
                                                               parameters={"ops": items}), error=str(e))
         res = self.apply_ops(command.project_id, items, progress)
         res.not_done = not_done
+        # A scene named in some parts and not others: the others are for the whole film, and the answer says so
+        # (a scene is carried to every part only when it comes first: "in scene 2, add rain and ...").
+        scoped = [p for p, it in zip(understood, items) if it["params"].get("scene")]
+        whole = [p for p, it in zip(understood, items) if not it["params"].get("scene")]
+        if scoped and whole:
+            res.notes.append("for the whole film, not one scene: " + "; ".join(f"“{p}”" for p in whole))
+            res.message += " · " + res.notes[-1]
         if res.success and not_done:
             res.message += " · not done: " + "; ".join(not_done)
         if res.success:

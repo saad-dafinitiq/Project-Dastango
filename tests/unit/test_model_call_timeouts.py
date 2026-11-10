@@ -26,9 +26,14 @@ from pydantic import BaseModel
 from shared import providers
 from shared.providers import is_timeout
 
-# Slack on top of a timeout before a test calls it too slow: thread start-up,
-# client set-up and a loaded CI runner, not a second chance for a missing limit.
+# Slack on top of a timeout before a test calls it too slow: a loaded CI runner,
+# not a second chance for a missing limit.
 SLACK_S = 3.0
+# How long a client may hold a silent connection past its limit, measured on the server's own clock from
+# the moment it accepted the connection to the moment the client hung up (DST-44). That is the client's wait
+# and nothing else: the test thread starting, the SDK loading and the machine being busy do not count in it,
+# which is what made a wall-clock bound around the whole call fail on a loaded machine.
+HOLD_SLACK_S = 1.5
 
 
 class SilentServer:
@@ -41,6 +46,7 @@ class SilentServer:
         self.sock.settimeout(0.2)
         self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
         self.connections = 0
+        self.waits: list[float] = []        # per connection: seconds from accept to the client hanging up
         self._held = []
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._accept, daemon=True)
@@ -54,6 +60,27 @@ class SilentServer:
                 continue
             self.connections += 1
             self._held.append(conn)
+            threading.Thread(target=self._watch, args=(conn, time.monotonic()), daemon=True).start()
+
+    def _watch(self, conn, accepted_at):
+        """Note when the client gives up on this connection."""
+        conn.settimeout(0.1)
+        while not self._stop.is_set():
+            try:
+                if conn.recv(65536) == b"":
+                    self.waits.append(time.monotonic() - accepted_at)
+                    return
+            except socket.timeout:
+                continue
+            except OSError:
+                self.waits.append(time.monotonic() - accepted_at)
+                return
+
+    def wait_for_hangups(self, count: int, seconds: float = 5.0) -> None:
+        """Give the watching threads a moment to see the clients hang up."""
+        end = time.monotonic() + seconds
+        while len(self.waits) < count and time.monotonic() < end:
+            time.sleep(0.05)
 
     def close(self):
         self._stop.set()
@@ -244,7 +271,8 @@ def test_a_hung_gemini_falls_through_to_the_next_provider(chain, silent, monkeyp
         answering.close()
 
     assert silent.connections == 1                  # Gemini really was asked, once
-    assert 1.0 <= elapsed < 1.0 + SLACK_S           # it waited its limit, and no longer
+    silent.wait_for_hangups(1)
+    assert len(silent.waits) == 1 and 0.9 <= silent.waits[0] < 1.0 + HOLD_SLACK_S   # it waited its limit, and no longer
 
 
 def test_a_hung_openai_compatible_provider_is_asked_once(chain, silent, monkeypatch):
@@ -262,7 +290,8 @@ def test_a_hung_openai_compatible_provider_is_asked_once(chain, silent, monkeypa
     result, elapsed = _within(20, lambda: LLMClient("story").generate("hi"))
     assert result.provider == "mock"                # fell through to the next one
     assert silent.connections == 1                  # no SDK retries
-    assert 1.0 <= elapsed < 1.0 + SLACK_S
+    silent.wait_for_hangups(1)
+    assert len(silent.waits) == 1 and 0.9 <= silent.waits[0] < 1.0 + HOLD_SLACK_S
 
 
 def test_a_slow_answer_inside_the_limit_is_kept(chain, monkeypatch):
@@ -305,7 +334,8 @@ def test_a_hung_image_provider_falls_through_without_using_its_retries(
     # One attempt: the checkpoint probe plus the generation request. Retrying the
     # timeout three times would have made six connections and taken ~10 s.
     assert silent.connections == 2
-    assert elapsed < 2 * 1.0 + SLACK_S
+    silent.wait_for_hangups(2)
+    assert len(silent.waits) == 2 and all(w < 1.0 + HOLD_SLACK_S for w in silent.waits)   # each one held to its limit
 
 
 # ---- voices ----------------------------------------------------------------------
@@ -319,7 +349,13 @@ def test_a_hung_edge_tts_is_stopped_and_the_next_engine_speaks(
     fake = tmp_path / "fake_modules" / "edge_tts"
     fake.mkdir(parents=True)
     (fake / "__init__.py").write_text("", encoding="utf-8")
-    (fake / "__main__.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
+    # It notes when it started, so the wait is timed from there on its own clock, not from the test's start
+    # (which counts spawning an interpreter, slow on a busy machine; DST-44).
+    (fake / "__main__.py").write_text(
+        "import os, time\nopen(os.environ['FAKE_EDGE_STARTED'], 'w').write(str(time.time()))\ntime.sleep(30)\n",
+        encoding="utf-8")
+    started = tmp_path / "edge_started.txt"
+    monkeypatch.setenv("FAKE_EDGE_STARTED", str(started))
     monkeypatch.setenv("PYTHONPATH", str(fake.parent))
 
     def gtts_offline(self, text, out, language="en", tld="com"):
@@ -338,7 +374,7 @@ def test_a_hung_edge_tts_is_stopped_and_the_next_engine_speaks(
         text="Hello there.", out_path=str(tmp_path / "line.mp3"), engine="edge"))
 
     assert result.metadata["engine"] == "gtts"
-    assert elapsed < 1.0 + SLACK_S
+    assert time.time() - float(started.read_text()) < 1.0 + SLACK_S     # stopped at its limit, not at its 30 s
 
 
 def test_the_other_online_voices_are_given_their_limits(chain, monkeypatch, tmp_path):

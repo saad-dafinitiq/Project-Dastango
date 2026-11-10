@@ -110,9 +110,44 @@ _SPLIT = re.compile(rf"\s*(?:[;,]|\b(?:and then|and also|and|then|also|plus)\b)\
                     rf"(?=(?:{_STARTS})\b)", re.I)
 
 
+def _level_words(q: str) -> Optional[int]:
+    """The level a sentence asks for, in percent of "as made" ("quieter" 60, "much louder" 200, "at 50%"), or None."""
+    louder = re.search(r"\b(louder|turn\b[^.]*\bup|raise|boost|increase)\b", q)
+    quieter = re.search(r"\b(quieter|softer|lower|turn\b[^.]*\bdown|reduce|decrease|less)\b", q)
+    pct = re.search(r"(\d{1,3})\s*(%|percent)", q)
+    if not (pct or louder or quieter):
+        return None
+    much = bool(re.search(r"\b(much|a lot|way|far)\b", q))
+    return int(pct.group(1)) if pct else (200 if louder and much else 150 if louder else 30 if much else 60)
+
+
+# Two things for one change: "make the music and the rain quieter", "make the music quieter and the rain louder".
+# (the voices are in the list only so that a sentence naming them is split and the voice part is reported as
+# not done, instead of the music part quietly standing for both)
+_SOUNDS = r"(?:music|soundtrack|score|bgm|rain|wind|sea|ocean|city|traffic|night|ambience|ambient sound|voices?|dialogue|narration)"
+_LEVEL_ADJ = r"(?:quieter|louder|softer|lower|higher|down|up|much quieter|much louder|a lot quieter|a lot louder)"
+_BOTH = re.compile(rf"^(?P<verb>\w+)\s+(?P<a>(?:the\s+)?{_SOUNDS})\s+and\s+(?P<b>(?:the\s+)?{_SOUNDS})\s+(?P<adj>{_LEVEL_ADJ})$", re.I)
+_EACH = re.compile(rf"^(?P<verb>\w+)\s+(?P<a>(?:the\s+)?{_SOUNDS})\s+(?P<adj1>{_LEVEL_ADJ})\s+and\s+(?P<b>(?:the\s+)?{_SOUNDS})\s+(?P<adj2>{_LEVEL_ADJ})$", re.I)
+_LEADING_SCENE = re.compile(r"^(?:in|for|during|on)\s+(?P<scene>scenes?\s*\d+)\s*[,:]?\s+(?P<rest>.+)$", re.I)
+
+
+def _expand(part: str) -> List[str]:
+    """One part naming two sounds for one change becomes one part each."""
+    for rx, forms in ((_EACH, (("a", "adj1"), ("b", "adj2"))), (_BOTH, (("a", "adj"), ("b", "adj")))):
+        m = rx.match(part.strip())
+        if m:
+            return [f"{m.group('verb')} {m.group(a)} {m.group(adj)}" for a, adj in forms]
+    return [part]
+
+
 def split_request(query: str) -> List[str]:
     """A sentence that asks for several things, as one request each ("add rain and make the music
-    quieter" -> two). Quoted text is kept whole. One request comes back as itself."""
+    quieter" -> two; "make the music and the rain quieter" -> two). Quoted text is kept whole. One
+    request comes back as itself.
+
+    A scene named first covers every part ("in scene 2, add rain and make the music quieter" is both in
+    scene 2); a scene named inside one part stays with that part ("add rain in scene 2 and make the music
+    quieter": the music is the whole film's, and the answer says so)."""
     held: List[str] = []
 
     def hold(m: re.Match) -> str:
@@ -120,8 +155,15 @@ def split_request(query: str) -> List[str]:
         return f"\x00{len(held) - 1}\x00"
 
     masked = re.sub(r"[\"“][^\"”]*[\"”]", hold, query)
+    lead = _LEADING_SCENE.match(masked.strip())
+    scene = lead.group("scene") if lead else None
+    if lead:
+        masked = lead.group("rest")
     parts = [p.strip(" .") for p in _SPLIT.split(masked)]
-    parts = [re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], p) for p in parts if p.strip(" .")]
+    parts = [q for p in parts if p.strip(" .") for q in _expand(p)]
+    parts = [re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], p) for p in parts]
+    if scene and len(parts) > 1:
+        parts = [p if re.search(r"\bscenes?\s*\d+", p, re.I) else f"{p} in {scene}" for p in parts]
     return parts if len(parts) > 1 else [query.strip()]
 
 
@@ -313,6 +355,10 @@ class IntentClassifier:
                 return done("set_ambience", {"ambience": kind, "kind": kind})
             if sounds and not kind:
                 return done("set_ambience", {})            # asks which
+            # "make the rain quieter", "turn the wind up", "the sea at 50%": the ambience's level (DST-44).
+            level = _level_words(q)
+            if level is not None:
+                return done("set_volume", {"level": "ambience", "target": "ambience", "percent": level})
             return None
         if not music_word:
             # "scene two should feel more tense": a mood for a scene is its music.
@@ -325,13 +371,8 @@ class IntentClassifier:
         if re.search(r"\b(mute|silence|turn off|switch off|no music|no more music|without|stop the|kill the)\b", q) or \
                 re.search(r"\b(turn|switch)\b[^.]*\boff\b|\b(music|soundtrack|score|bgm|song)\s+(off|out)\b", q):
             return done("set_music", {"off": True})
-        louder = re.search(r"\b(louder|turn\b[^.]*\bup|raise|boost|increase)\b", q)
-        quieter = re.search(r"\b(quieter|softer|lower|turn\b[^.]*\bdown|reduce|decrease|less)\b", q)
-        pct = re.search(r"(\d{1,3})\s*(%|percent)", q)
-        if pct or louder or quieter:
-            much = bool(re.search(r"\b(much|a lot|way|far)\b", q))
-            percent = int(pct.group(1)) if pct else (200 if louder and much else 150 if louder
-                                                    else 30 if much else 60)
+        percent = _level_words(q)
+        if percent is not None:
             return done("set_volume", {"level": "music", "target": "music", "percent": percent})
         lib = music.library()
         by_title = next((t for t in lib.values() if t.title.lower() in q), None)

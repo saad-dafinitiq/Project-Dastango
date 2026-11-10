@@ -47,7 +47,9 @@ export function describe(ev: ProgressEvent | undefined): string {
       const lengthNote = off ? `, but it came out ${Math.round(off.film_s)} s for a ${off.target_s} s target` : "";
       if (ev.payload?.kind === "edit") {
         const left = ev.payload?.not_done as string[] | undefined;
-        return left?.length ? `Change made. Not done: ${left.join("; ")}` : `Change made${lengthNote}`;
+        const said = (ev.payload?.edit_notes as string[] | undefined)?.join("; ");
+        const made = left?.length ? `Change made. Not done: ${left.join("; ")}` : `Change made${lengthNote}`;
+        return said ? `${made}. Note: ${said}` : made;
       }
       if (ev.payload?.kind === "revert") return ev.message;
       return `Your film is ready${lengthNote}`;

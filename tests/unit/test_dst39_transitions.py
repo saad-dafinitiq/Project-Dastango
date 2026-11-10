@@ -86,7 +86,7 @@ def test_the_graph_places_each_boundary_at_the_sum_of_the_earlier_shots_not_thei
     assert last == "v2"
     # shot 1 is 2.5 s including 0.5 s of overlap: the fade starts at 2.0 s, where shot 1 ends
     assert "xfade=transition=fade:duration=0.500000:offset=2.000000[v1]" in fc
-    assert "[v1][2:v]concat=n=2:v=1:a=0[v2]" in fc
+    assert "[v1][t2]concat=n=2:v=1:a=0" in fc            # (every stream is on one clock first: DST-44)
 
 
 def test_the_graph_refuses_a_wrong_number_of_boundaries():

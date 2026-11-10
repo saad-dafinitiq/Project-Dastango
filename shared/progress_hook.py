@@ -21,17 +21,48 @@ Sink = Callable[[str, int, int], None]
 _sink: contextvars.ContextVar[Optional[Sink]] = contextvars.ContextVar("progress_sink", default=None)
 # Called by `pulse()`: raises (JobCancelled) if the job has been told to stop, otherwise returns.
 _check: contextvars.ContextVar[Optional[Callable[[], None]]] = contextvars.ContextVar("progress_check", default=None)
+# Cheap and quick: has the job been told to stop? Read many times a second by a command that is running
+# (`shared/procs.py`), so it must not touch the database; the worker answers from a flag it keeps fresh.
+_peek: contextvars.ContextVar[Optional[Callable[[], bool]]] = contextvars.ContextVar("progress_peek", default=None)
 PULSE_EVERY_S = 1.0
 _last_pulse = [0.0]
 
-
-def listen(sink: Optional[Sink], check: Optional[Callable[[], None]] = None) -> Tuple[contextvars.Token, contextvars.Token]:
-    return _sink.set(sink), _check.set(check)
+Token = Tuple[contextvars.Token, contextvars.Token, contextvars.Token]
 
 
-def stop(token: Tuple[contextvars.Token, contextvars.Token]) -> None:
+def listen(sink: Optional[Sink], check: Optional[Callable[[], None]] = None,
+           peek: Optional[Callable[[], bool]] = None) -> Token:
+    return _sink.set(sink), _check.set(check), _peek.set(peek)
+
+
+def stop(token: Token) -> None:
     _sink.reset(token[0])
     _check.reset(token[1])
+    _peek.reset(token[2])
+
+
+def following() -> bool:
+    """Is a job following the work in this context (so a command should watch for a Stop)?"""
+    return _peek.get() is not None or _check.get() is not None
+
+
+def cancel_requested() -> bool:
+    """Has the job following this work been told to stop? False when nobody is following."""
+    peek = _peek.get()
+    if peek is not None:
+        try:
+            return bool(peek())
+        except Exception:  # noqa: BLE001
+            return False
+    return False
+
+
+def raise_if_cancelled() -> None:
+    """Let the job's cancel travel up from here (it raises JobCancelled, a BaseException), now, not at most
+    once a second as `pulse` does."""
+    check = _check.get()
+    if check is not None:
+        check()
 
 
 def pulse() -> None:

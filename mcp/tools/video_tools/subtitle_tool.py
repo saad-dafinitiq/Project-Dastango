@@ -8,6 +8,7 @@ from mcp.base_tool import BaseTool, ToolResult
 from shared import video_quality
 from shared.fonts import font_for
 from shared.languages import iso639_2
+from shared import procs
 
 
 def _ms_to_srt_ts(ms: int) -> str:
@@ -68,7 +69,7 @@ class SubtitleTool(BaseTool):
         cmd = ["ffmpeg", "-y", "-i", str(in_p), "-vf", vf,
                *video_quality.x264_args("final"),
                "-c:a", "copy", str(out_p)]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = procs.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             return ToolResult(success=False, error=proc.stderr[-2000:],
                               metadata={"cmd": " ".join(cmd)})
@@ -168,7 +169,7 @@ class MultiSubtitleTool(BaseTool):
                 cmd += [f"-disposition:s:{sub_idx}", "default"]
 
         cmd.append(str(out_p))
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = procs.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             return ToolResult(success=False, error=proc.stderr[-2000:],
                               metadata={"cmd": " ".join(cmd)})

@@ -62,7 +62,6 @@ def test_a_number_in_words_is_a_number_only_where_a_number_belongs():
     ("add rain then turn the music off", ["add rain", "turn the music off"]),
     # one request: the "and" joins two scene numbers, two nouns, or sits inside quotes
     ("use a slow fade between scenes 1 and 2", None),
-    ("make the music and the rain quieter", None),
     ('change line 2 of scene 1 to "Tom and make it quick"', None),
 ])
 def test_a_sentence_is_split_only_where_a_second_request_begins(query, parts):
@@ -100,3 +99,65 @@ def test_a_sentence_where_nothing_is_understood_is_refused_as_before(small_proje
     state, sm, agent = _agent(small_project, "t_s_none")
     done = agent.edit(EditCommand(project_id="t_s_none", query="make it better and make it nicer"))
     assert not done.success and sm.latest("t_s_none").version == state.version
+
+
+# ---- DST-44 (item 2): the two limits DST-43 left ----------------------------------------------------------
+
+@pytest.mark.parametrize("query, parts", [
+    ("make the music and the rain quieter", ["make the music quieter", "make the rain quieter"]),
+    ("make the music quieter and the rain louder", ["make the music quieter", "make the rain louder"]),
+    ("turn the music down and the sea up", ["turn the music down", "turn the sea up"]),
+    ("make the music and the voices quieter", ["make the music quieter", "make the voices quieter"]),
+    ("in scene 2, add rain and make the music quieter", ["add rain in scene 2", "make the music quieter in scene 2"]),
+    ("in scene 2 add rain", ["in scene 2 add rain"]),
+    # unchanged: one request, whatever the "and" is
+    ("make the music and the rain", None),
+    ("add rain in scene 2 and make the music quieter", ["add rain in scene 2", "make the music quieter"]),
+])
+def test_two_sounds_for_one_change_are_two_requests_and_a_leading_scene_covers_all(query, parts):
+    assert split_request(query) == (parts or [query])
+
+
+@pytest.mark.parametrize("query, level", [("make the rain quieter", 60), ("turn the wind up", 150),
+                                          ("make the sea much louder", 200), ("make the city 50%", 50)])
+def test_the_ambience_has_a_level_sentence_too(query, level):
+    got = _read(query)
+    assert (got.intent, got.parameters["target"], got.parameters["percent"]) == ("set_volume", "ambience", level)
+
+
+def test_a_level_in_one_scene_is_refused_not_applied_to_the_whole_film_unsaid():
+    """The levels are the film's mixer. "quieter in scene 2" used to change the whole film and say nothing."""
+    from agents.edit_agent.planner import plan
+
+    with pytest.raises(ValueError, match="whole film"):
+        plan(_read("make the music quieter in scene 2"))
+    assert plan(_read("make the music quieter"))                 # for the whole film it is fine
+
+
+def test_a_sentence_naming_two_sounds_changes_both(small_project):
+    state, sm, agent = _agent(small_project, "t_s_both")
+    state = sm.latest("t_s_both")
+    done = agent.edit(EditCommand(project_id="t_s_both", query="make the music and the rain quieter"))
+    assert done.success, done.error
+    s = sm.latest("t_s_both")
+    assert s.audio.music_volume < state.audio.music_volume
+    assert s.audio.ambience_volume < state.audio.ambience_volume
+    assert done.new_version == state.version + 1
+
+
+def test_a_scene_named_in_only_one_part_is_said_to_leave_the_other_part_for_the_whole_film(small_project):
+    state, sm, agent = _agent(small_project, "t_s_scope")
+    done = agent.edit(EditCommand(project_id="t_s_scope", query="add rain in scene 2 and make the music quieter"))
+    assert done.success, done.error
+    assert done.notes and "whole film" in done.notes[0] and "music quieter" in done.notes[0]
+    assert "whole film" in done.message
+    s = sm.latest("t_s_scope")
+    assert s.audio.ambience.get("scene_2") == "rain" or s.audio.ambience.get(state.script.scenes[1].scene_id) == "rain"
+
+
+def test_a_leading_scene_that_cannot_apply_to_a_part_says_so_instead_of_widening_it(small_project):
+    state, sm, agent = _agent(small_project, "t_s_lead")
+    done = agent.edit(EditCommand(project_id="t_s_lead", query="in scene 2, add rain and make the music quieter"))
+    assert done.success, done.error
+    assert any("music quieter" in n and "whole film" in n for n in done.not_done), done.not_done
+    assert sm.latest("t_s_lead").audio.music_volume == state.audio.music_volume      # the music was left alone

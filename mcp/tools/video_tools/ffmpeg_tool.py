@@ -7,6 +7,7 @@ from typing import List, Optional
 from mcp.base_tool import BaseTool, ToolResult
 from shared import video_quality
 from shared.utils.images import ensure_readable_image
+from shared import procs
 
 # A looped still is an endless input; see shared/utils/images.py.
 CLIP_TIMEOUT_S = 900
@@ -19,7 +20,7 @@ class FfmpegTool(BaseTool):
 
     def run(self, args: List[str], **_) -> ToolResult:
         cmd = ["ffmpeg", "-y"] + list(args)
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = procs.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             return ToolResult(success=False,
                               error=proc.stderr[-2000:],
@@ -73,7 +74,7 @@ class ImageToClipTool(BaseTool):
             cmd += ["-an"]
         cmd.append(str(out))
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=CLIP_TIMEOUT_S)
+        proc = procs.run(cmd, capture_output=True, text=True, timeout=CLIP_TIMEOUT_S)
         if proc.returncode != 0:
             return ToolResult(success=False,
                               error=proc.stderr[-2000:],

@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 from mcp.base_tool import BaseTool, ToolResult
 from shared.music import CHANNELS, SAMPLE_RATE
 from shared.utils.logging import get_logger
+from shared import procs
 
 log = get_logger("audio_merger")
 
@@ -67,7 +68,7 @@ def per_channel_lufs(path: Path) -> Optional[float]:
 
 
 def _channel_count(path: Path) -> int:
-    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+    probe = procs.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
                             "stream=channels", "-of", "default=nw=1:nk=1", str(path)],
                            capture_output=True, text=True)
     try:
@@ -85,7 +86,7 @@ def _stereo(path: Path) -> str:
 def measure_lufs(path: Path) -> Optional[float]:
     """Integrated loudness (ITU-R BS.1770, gated) of a file, or None for silence or a file that
     will not decode."""
-    proc = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
+    proc = procs.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
                            "ebur128=peak=none", "-f", "null", "-"], capture_output=True, text=True)
     tail = proc.stderr.rsplit("Summary:", 1)
     if len(tail) != 2:
@@ -180,7 +181,7 @@ class AudioMergerTool(BaseTool):
             self._normalize_only(dialogue_path, out)
         else:
             # Re-encode straight to the target format.
-            subprocess.run(
+            procs.run(
                 ["ffmpeg", "-y", "-i", str(dialogue_path), str(out)],
                 check=True, capture_output=True,
             )
@@ -199,7 +200,7 @@ class AudioMergerTool(BaseTool):
 
     @staticmethod
     def _duration(path: Path) -> Optional[float]:
-        proc = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+        proc = procs.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
                                "default=noprint_wrappers=1:nokey=1", str(path)], capture_output=True, text=True)
         try:
             return float(proc.stdout.strip())
@@ -211,7 +212,7 @@ class AudioMergerTool(BaseTool):
         """How long a placed line lasts: the caller's `duration_ms`, else asked of ffprobe."""
         if placement.get("duration_ms"):
             return float(placement["duration_ms"]) / 1000.0
-        proc = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+        proc = procs.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
                                "default=noprint_wrappers=1:nokey=1", str(placement["path"])],
                               capture_output=True, text=True)
         try:
@@ -236,7 +237,7 @@ class AudioMergerTool(BaseTool):
         """Mix clips onto a silent bed of `total_ms`, each at its `start_ms`."""
         total_s = max(0.05, total_ms / 1000.0)
         if not placements:
-            subprocess.run(
+            procs.run(
                 ["ffmpeg", "-y", "-f", "lavfi",
                  "-i", f"anullsrc=channel_layout=mono:sample_rate={SAMPLE_RATE}",
                  "-t", f"{total_s:.3f}", "-c:a", "pcm_s16le", str(out)],
@@ -261,7 +262,7 @@ class AudioMergerTool(BaseTool):
         )
         cmd += ["-filter_complex", ";".join(parts), "-map", "[out]",
                 "-ar", str(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_f32le", str(out)]   # float: a lifted line must not clip
-        subprocess.run(cmd, check=True, capture_output=True)
+        procs.run(cmd, check=True, capture_output=True)
 
     def _concat(self, segs: List[str], out: Path) -> None:
         list_path = out.parent / f"{out.stem}_concat.txt"
@@ -275,7 +276,7 @@ class AudioMergerTool(BaseTool):
         norm_paths: List[Path] = []
         for i, s in enumerate(segs):
             norm = norm_dir / f"seg_{i:03d}.wav"
-            subprocess.run(
+            procs.run(
                 ["ffmpeg", "-y", "-i", s,
                  "-ar", str(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le",
                  str(norm)],
@@ -287,7 +288,7 @@ class AudioMergerTool(BaseTool):
             "\n".join(f"file '{p.resolve().as_posix()}'" for p in norm_paths),
             encoding="utf-8",
         )
-        subprocess.run(
+        procs.run(
             ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
              "-i", str(list_path), "-c", "copy", str(out)],
             check=True, capture_output=True,
@@ -381,14 +382,14 @@ class AudioMergerTool(BaseTool):
         if not loudness:
             cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts + ["[mixed]anull[a]"]),
                    "-map", "[a]", "-ar", str(SAMPLE_RATE), "-ac", "2", str(out)]
-            subprocess.run(cmd, check=True, capture_output=True)
+            procs.run(cmd, check=True, capture_output=True)
             return
         # Float, so a mix that peaks over full scale is not clipped before it is normalised.
         premaster = out.with_name(f"{out.stem}_premaster.wav")
         try:
             cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts + ["[mixed]anull[a]"]),
                    "-map", "[a]", "-ar", str(SAMPLE_RATE), "-ac", "2", "-c:a", "pcm_f32le", str(premaster)]
-            subprocess.run(cmd, check=True, capture_output=True)
+            procs.run(cmd, check=True, capture_output=True)
             self._master(premaster, out)
         finally:
             premaster.unlink(missing_ok=True)
@@ -402,7 +403,7 @@ class AudioMergerTool(BaseTool):
         silent file is only converted."""
         heard = measure_lufs(src)
         if heard is None:
-            subprocess.run(["ffmpeg", "-y", "-i", str(src), "-ar", str(SAMPLE_RATE), "-ac", "2", str(out)],
+            procs.run(["ffmpeg", "-y", "-i", str(src), "-ar", str(SAMPLE_RATE), "-ac", "2", str(out)],
                            check=True, capture_output=True)
             return
         gain = MASTER_LUFS - heard
@@ -420,7 +421,7 @@ class AudioMergerTool(BaseTool):
             cmd = ["ffmpeg", "-y", "-i", str(src), "-af", af, "-ar", str(SAMPLE_RATE), "-ac", "2"]
             if length:
                 cmd += ["-t", f"{length:.4f}"]
-            subprocess.run([*cmd, str(out)], check=True, capture_output=True)
+            procs.run([*cmd, str(out)], check=True, capture_output=True)
             got = measure_lufs(out)
             if got is None or abs(got - MASTER_LUFS) < 0.1:
                 break

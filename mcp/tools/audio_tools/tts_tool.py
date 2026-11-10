@@ -23,6 +23,7 @@ from mcp.base_tool import BaseTool, ToolResult
 from shared import providers, tracing
 from shared.timeline import estimate_line_ms
 from shared.utils.logging import get_logger
+from shared import procs
 
 log = get_logger("tts")
 
@@ -177,7 +178,7 @@ class TtsTool(BaseTool):
                f"--volume={p['volume']}", f"--write-media={out}"]
         # On timeout subprocess.run kills edge-tts and raises TimeoutExpired,
         # which run() treats like any other failure: gTTS takes over.
-        proc = subprocess.run(cmd, capture_output=True, text=True,
+        proc = procs.run(cmd, capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
                               timeout=providers.timeout_s("tts", "edge"))
         if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
@@ -271,5 +272,5 @@ class TtsTool(BaseTool):
             "-q:a", "9", "-acodec", "pcm_s16le",
             str(out),
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        procs.run(cmd, check=True, capture_output=True)
         return out

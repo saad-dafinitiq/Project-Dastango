@@ -5,6 +5,7 @@ from pathlib import Path
 
 from mcp.base_tool import BaseTool, ToolResult
 from shared.music import CHANNELS, SAMPLE_RATE
+from shared import procs
 
 
 # Mood -> (base_freq_hz, second_freq_hz, harmonic_freq_hz, volume)
@@ -62,6 +63,6 @@ class BgmTool(BaseTool):
             "-t", f"{dur_s:.2f}",
             str(out),
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        procs.run(cmd, check=True, capture_output=True)
         return ToolResult(success=True, data=str(out),
                           metadata={"mood": mood_key, "duration_ms": duration_ms})
